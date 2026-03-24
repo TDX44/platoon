@@ -103,6 +103,7 @@
   .badge-tdy { background: #0984e3; color: #fff; }
   .badge-other { background: #e17055; color: #fff; }
   .badge-ftr { background: #d63031; color: #fff; }
+  .badge-unaccounted { background: #e67e22; color: #fff; }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -440,7 +441,7 @@ function formatDateDisplay(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR' };
+  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR', unaccounted:'Unaccounted' };
   return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
 }
 
@@ -469,6 +470,7 @@ function render() {
   const leaveList = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
   const tdyList = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const otherList = personnel.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+  const unaccountedList = personnel.filter(p => p.status === 'unaccounted').sort(rankSort);
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
 
@@ -513,6 +515,15 @@ function render() {
     tdyList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
   }
 
+  // Unaccounted section (imported but not yet verified)
+  if (unaccountedList.length) {
+    const sep = document.createElement('tr');
+    sep.className = 'section-header';
+    sep.innerHTML = `<td colspan="6" style="color:#e67e22;border-color:#e67e22;">&#9888; UNACCOUNTED (${unaccountedList.length}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">Mark Present or assign a status</span></td>`;
+    body.appendChild(sep);
+    unaccountedList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
+  }
+
   // Other / FTR section
   if (otherList.length) {
     const sep = document.createElement('tr');
@@ -531,6 +542,7 @@ function render() {
     <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy}</div><div class="label">TDY</div></div>
     <div class="stat"><div class="num" style="color:#e17055">${counts.other}</div><div class="label">Other</div></div>
     <div class="stat"><div class="num" style="color:#d63031">${counts.ftr}</div><div class="label">FTR</div></div>
+    ${counts.unaccounted ? `<div class="stat"><div class="num" style="color:#e67e22">${counts.unaccounted}</div><div class="label">Unaccounted</div></div>` : ''}
   `;
   save();
 }
@@ -938,7 +950,7 @@ function confirmImport() {
   lines.forEach(line => {
     const result = parseImportLine(line);
     if (result) {
-      personnel.push({ rank: result.rank, last: result.last, first: result.first, status: 'present', notes: '', from: '', to: '' });
+      personnel.push({ rank: result.rank, last: result.last, first: result.first, status: 'unaccounted', notes: '', from: '', to: '' });
       added++;
     }
   });
@@ -960,6 +972,7 @@ function generateReport() {
   const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
   const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
+  const unaccounted = personnel.filter(p => p.status === 'unaccounted').sort(rankSort);
 
   let lines = [];
   lines.push(unitName);
@@ -1008,6 +1021,12 @@ function generateReport() {
       if (p.notes) line += `  ${p.notes}`;
       lines.push(line);
     });
+  }
+
+  if (unaccounted.length) {
+    lines.push('');
+    lines.push(`UNACCOUNTED ${unaccounted.length}`);
+    unaccounted.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
   }
 
   document.getElementById('reportText').textContent = lines.join('\n');
