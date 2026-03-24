@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2nd Platoon Accountability</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; justify-content: center; }
+  .controls button {
+    padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 0.95em; font-weight: 600; transition: background 0.2s;
+  }
+  .btn-add { background: #00b894; color: #fff; }
+  .btn-add:hover { background: #00a381; }
+  .btn-generate { background: #0984e3; color: #fff; }
+  .btn-generate:hover { background: #0770c2; }
+  .btn-danger { background: #d63031; color: #fff; }
+  .btn-danger:hover { background: #b71c1c; }
+  .btn-small { padding: 6px 12px; font-size: 0.85em; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .btn-tdy-leave {
+    padding: 5px 12px; border: none; border-radius: 4px; cursor: pointer;
+    font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
+  }
+  .btn-tdy-leave:hover { background: #5a4bd1; }
+
+  /* Modals */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal { background: #2d2d44; border-radius: 10px; padding: 25px; width: 420px; max-width: 95vw; }
+  .modal-wide { width: 520px; }
+  .modal h2 { color: #00d4ff; margin-bottom: 15px; }
+  .modal label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
+  .modal input, .modal select, .modal textarea {
+    width: 100%; padding: 8px 10px; margin-bottom: 12px; border: 1px solid #444;
+    border-radius: 5px; background: #1a1a2e; color: #e0e0e0; font-size: 0.95em;
+  }
+  .modal textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+  .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+
+  /* Stats bar */
+  .stats-bar {
+    display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;
+    margin-bottom: 20px; padding: 12px; background: #2d2d44; border-radius: 8px;
+  }
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.4em; font-weight: 700; color: #00d4ff; }
+  .stat .label { font-size: 0.75em; color: #aaa; text-transform: uppercase; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: #2d2d44; border-radius: 8px; overflow: hidden; }
+  thead th {
+    background: #0984e3; color: #fff; padding: 10px 8px; text-align: left;
+    font-size: 0.85em; text-transform: uppercase; white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid #3a3a55; transition: background 0.15s; }
+  tbody tr:hover { background: #35355a; }
+  tbody td { padding: 8px; font-size: 0.9em; vertical-align: middle; }
+
+  tr.section-header td {
+    background: #1a1a2e; padding: 12px 8px; font-weight: 700; font-size: 0.95em;
+    color: #fdcb6e; border-bottom: 2px solid #fdcb6e; letter-spacing: 0.5px;
+  }
+
+  .present-btn {
+    padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer;
+    font-weight: 600; font-size: 0.85em; transition: all 0.2s;
+  }
+  .present-btn.active { background: #00b894; color: #fff; }
+  .present-btn.inactive { background: #555; color: #ccc; }
+
+  .rank-cell { white-space: nowrap; font-weight: 600; color: #00d4ff; }
+  .name-cell { white-space: nowrap; }
+  .away-notes { font-size: 0.8em; color: #b2bec3; }
+  .away-dates { font-size: 0.75em; color: #74b9ff; white-space: nowrap; }
+
+  .status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75em; font-weight: 600;
+  }
+  .badge-leave { background: #fdcb6e; color: #222; }
+  .badge-pass { background: #ffeaa7; color: #222; }
+  .badge-tdy { background: #0984e3; color: #fff; }
+  .badge-other { background: #e17055; color: #fff; }
+  .badge-ftr { background: #d63031; color: #fff; }
+
+  .edit-unit-name {
+    background: transparent; border: 1px solid transparent; color: #00d4ff;
+    font-size: 1.6em; font-weight: 700; text-align: center; width: 100%;
+    padding: 2px 6px; border-radius: 4px; cursor: text; margin-bottom: 10px;
+  }
+  .edit-unit-name:hover, .edit-unit-name:focus { border-color: #444; background: #2d2d44; outline: none; }
+
+  /* Report */
+  .report-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center;
+  }
+  .report-overlay.active { display: flex; }
+  .report-box {
+    background: #2d2d44; border-radius: 10px; padding: 25px; width: 600px;
+    max-width: 95vw; max-height: 85vh; overflow-y: auto;
+  }
+  .report-box h2 { color: #00d4ff; margin-bottom: 15px; }
+  .report-text {
+    background: #1a1a2e; padding: 15px; border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85em;
+    white-space: pre-wrap; line-height: 1.5; user-select: all;
+  }
+  .report-buttons { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+
+  /* Status type toggle buttons */
+  .status-toggle-group { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .status-toggle {
+    padding: 8px 16px; border: 2px solid #444; border-radius: 6px; cursor: pointer;
+    font-weight: 600; font-size: 0.9em; color: #aaa; background: transparent;
+    transition: all 0.2s;
+  }
+  .status-toggle:hover { border-color: #666; color: #e0e0e0; }
+  .status-toggle.active-tdy { border-color: #0984e3; background: #0984e322; color: #74b9ff; }
+  .status-toggle.active-leave { border-color: #fdcb6e; background: #fdcb6e22; color: #fdcb6e; }
+  .status-toggle.active-pass { border-color: #ffeaa7; background: #ffeaa722; color: #ffeaa7; }
+  .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
+  .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
+
+  /* TDY School field */
+  .tdy-school-row { display: none; }
+  .tdy-school-row.visible { display: block; }
+
+  /* Calendar */
+  .date-pick-row { display: flex; gap: 12px; margin-bottom: 14px; }
+  .date-pick-col { flex: 1; }
+  .date-pick-col label { margin-bottom: 6px; }
+  .date-display {
+    padding: 8px 12px; background: #1a1a2e; border: 1px solid #444; border-radius: 5px;
+    cursor: pointer; font-size: 0.95em; color: #e0e0e0; text-align: center;
+    transition: border-color 0.2s; user-select: none;
+  }
+  .date-display:hover { border-color: #00d4ff; }
+  .date-display.selected { border-color: #00d4ff; color: #00d4ff; font-weight: 600; }
+  .date-display.picking { border-color: #00d4ff; box-shadow: 0 0 0 2px #00d4ff44; }
+
+  .calendar-container {
+    display: none; background: #2d2d44; border: 1px solid #444; border-radius: 8px;
+    padding: 12px; margin-top: 6px; margin-bottom: 10px;
+  }
+  .calendar-container.open { display: block; }
+  .cal-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+  }
+  .cal-header button {
+    background: transparent; border: 1px solid #555; color: #e0e0e0; border-radius: 4px;
+    padding: 4px 10px; cursor: pointer; font-size: 0.9em;
+  }
+  .cal-header button:hover { border-color: #00d4ff; color: #00d4ff; }
+  .cal-month-label { font-weight: 700; font-size: 1em; color: #00d4ff; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-dow {
+    text-align: center; font-size: 0.7em; color: #888; padding: 4px 0;
+    font-weight: 600; text-transform: uppercase;
+  }
+  .cal-day {
+    text-align: center; padding: 7px 2px; border-radius: 4px; cursor: pointer;
+    font-size: 0.85em; color: #ccc; transition: all 0.15s; border: 1px solid transparent;
+  }
+  .cal-day:hover { background: #3a3a5a; color: #fff; }
+  .cal-day.empty { cursor: default; }
+  .cal-day.empty:hover { background: transparent; }
+  .cal-day.today { border-color: #00d4ff; color: #00d4ff; }
+  .cal-day.selected { background: #0984e3; color: #fff; font-weight: 700; }
+  .cal-day.in-range { background: #0984e333; }
+  .cal-day.range-start { background: #0984e3; color: #fff; font-weight: 700; border-radius: 4px 0 0 4px; }
+  .cal-day.range-end { background: #0984e3; color: #fff; font-weight: 700; border-radius: 0 4px 4px 0; }
+
+  /* Notes preview in modal */
+  .notes-preview {
+    background: #1a1a2e; border: 1px solid #333; border-radius: 5px; padding: 10px 12px;
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85em;
+    color: #74b9ff; margin-bottom: 12px; min-height: 32px; line-height: 1.4;
+  }
+  .notes-preview-label { font-size: 0.8em; color: #636e72; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<input type="text" class="edit-unit-name" id="unitName" value="2nd Platoon Accountability" />
+<div class="stats-bar" id="statsBar"></div>
+<div class="controls">
+  <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
+  <button class="btn-generate" onclick="generateReport()">Generate Report</button>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Rank</th>
+        <th>Name (Last, First)</th>
+        <th>Present</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="personnelBody"></tbody>
+  </table>
+</div>
+
+<!-- Add Person Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h2 id="modalTitle">Add Person</h2>
+    <label>Rank</label>
+    <select id="addRank">
+      <option>PVT</option><option>PV2</option><option>PFC</option><option>SPC</option>
+      <option>CPL</option><option>SGT</option><option>SSG</option><option>SFC</option>
+      <option>MSG</option><option>1SG</option><option>SGM</option><option>CSM</option>
+      <option>WO1</option><option>CW2</option><option>CW3</option><option>CW4</option><option>CW5</option>
+      <option>2LT</option><option>1LT</option><option>CPT</option><option>MAJ</option>
+      <option>LTC</option><option>COL</option>
+    </select>
+    <label>Last Name</label>
+    <input type="text" id="addLast" placeholder="e.g. Smith" />
+    <label>First Name</label>
+    <input type="text" id="addFirst" placeholder="e.g. John" />
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeAddModal()">Cancel</button>
+      <button class="btn-small btn-add" onclick="savePerson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- TDY / Leave Modal -->
+<div class="modal-overlay" id="tdyLeaveModal">
+  <div class="modal modal-wide">
+    <h2 id="tdyLeaveTitle">TDY / Leave</h2>
+
+    <label>Status Type</label>
+    <div class="status-toggle-group" id="statusToggles">
+      <button class="status-toggle" data-status="tdy" onclick="setAwayStatus('tdy')">TDY</button>
+      <button class="status-toggle" data-status="leave" onclick="setAwayStatus('leave')">Leave</button>
+      <button class="status-toggle" data-status="pass" onclick="setAwayStatus('pass')">Pass</button>
+      <button class="status-toggle" data-status="other" onclick="setAwayStatus('other')">Other</button>
+      <button class="status-toggle" data-status="ftr" onclick="setAwayStatus('ftr')">FTR</button>
+    </div>
+
+    <div class="tdy-school-row" id="tdySchoolRow">
+      <label>School / Location</label>
+      <input type="text" id="awaySchool" placeholder="e.g. Phase 1 Dothan, IPC, SERE 220" />
+    </div>
+
+    <label>Date Range</label>
+    <div class="date-pick-row">
+      <div class="date-pick-col">
+        <label style="font-size:0.8em;">From</label>
+        <div class="date-display" id="fromDisplay" onclick="toggleCalendar('from')">Select date</div>
+      </div>
+      <div class="date-pick-col">
+        <label style="font-size:0.8em;">To</label>
+        <div class="date-display" id="toDisplay" onclick="toggleCalendar('to')">Select date</div>
+      </div>
+    </div>
+    <div class="calendar-container" id="calendarContainer">
+      <div class="cal-header">
+        <button onclick="calPrev()">&larr;</button>
+        <span class="cal-month-label" id="calMonthLabel"></span>
+        <button onclick="calNext()">&rarr;</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+
+    <div class="notes-preview-label">Generated Note</div>
+    <div class="notes-preview" id="notesPreview"></div>
+
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeTdyLeaveModal()">Cancel</button>
+      <button class="btn-small btn-add" onclick="saveTdyLeave()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Report Modal -->
+<div class="report-overlay" id="reportModal">
+  <div class="report-box">
+    <h2>Accountability Report</h2>
+    <div class="report-text" id="reportText"></div>
+    <div class="report-buttons">
+      <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
+      <button class="btn-small btn-danger" onclick="closeReport()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const RANK_ORDER = [
+  'COL','LTC','MAJ','CPT','1LT','2LT',
+  'CW5','CW4','CW3','CW2','WO1',
+  'CSM','SGM','1SG','MSG','SFC','SSG','SGT','CPL',
+  'SPC','PFC','PV2','PVT'
+];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+const DEFAULT_PERSONNEL = [
+  { rank:'CW2', last:'Carr', first:'Jonathon', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW3', last:'Kunkle', first:'Brandon', status:'leave', notes:'Leave 16-27MAR', from:'2026-03-16', to:'2026-03-27' },
+  { rank:'CW2', last:'Bennett', first:'Christopher', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Cabral', first:'Jeudy', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Carroll', first:'Hunter', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Dunn', first:'Aaron J.', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Federman', first:'Simon', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Fry', first:'Zachary', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Funk', first:'Caleb', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Glossup', first:'Jaden', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Haertner', first:'Nicholas', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Hilts', first:'Brian', status:'tdy', notes:'TF Hunter 28Dec-28May', from:'2025-12-28', to:'2026-05-28' },
+  { rank:'CW2', last:'May', first:'Kevin', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Michot', first:'Ryan A.', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Moenga', first:'Leslie', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Peart', first:'Sachin', status:'tdy', notes:'IPC 03MAR-09APR', from:'2026-03-03', to:'2026-04-09' },
+  { rank:'CW2', last:'Ren', first:'Norman', status:'tdy', notes:'TDY Phase 1 Dothan, 26FEB-28MAR', from:'2026-02-26', to:'2026-03-28' },
+  { rank:'CW2', last:'Smith', first:'Benjamin L.', status:'tdy', notes:'TDY Phase 1 Dothan, 26FEB-28MAR', from:'2026-02-26', to:'2026-03-28' },
+  { rank:'CW2', last:'Taylor', first:'Anthony M.', status:'present', notes:'', from:'', to:'' },
+  { rank:'CW2', last:'Wood', first:'Albert', status:'tdy', notes:'TDY UC35 Orlando, FL 02MAR-03APR, leave next', from:'2026-03-02', to:'2026-04-03' },
+  { rank:'CW2', last:'Torres', first:'Ricardo J.', status:'present', notes:'', from:'', to:'' },
+  { rank:'WO1', last:'Harrington', first:'Brendan', status:'present', notes:'', from:'', to:'' },
+  { rank:'WO1', last:'Morlan', first:'Evan', status:'present', notes:'', from:'', to:'' },
+  { rank:'WO1', last:'Schilt', first:'Emmett', status:'present', notes:'', from:'', to:'' },
+  { rank:'WO1', last:'White', first:'Kenneth J', status:'present', notes:'', from:'', to:'' },
+  { rank:'WO1', last:'Yaden', first:'Paul', status:'tdy', notes:'SERE 220 23-28 March 2026', from:'2026-03-23', to:'2026-03-28' },
+];
+
+let personnel = [];
+let tdyLeaveIndex = -1;
+
+// Calendar state
+let calYear, calMonth; // currently displayed month
+let calTarget = ''; // 'from' or 'to'
+let awayFrom = '', awayTo = '';
+let awayStatus = 'tdy';
+
+function load() {
+  const saved = localStorage.getItem('accountability_personnel');
+  const savedUnit = localStorage.getItem('accountability_unit_name');
+  if (saved) {
+    personnel = JSON.parse(saved);
+  } else {
+    personnel = JSON.parse(JSON.stringify(DEFAULT_PERSONNEL));
+  }
+  if (savedUnit) document.getElementById('unitName').value = savedUnit;
+  render();
+}
+
+function save() {
+  localStorage.setItem('accountability_personnel', JSON.stringify(personnel));
+  localStorage.setItem('accountability_unit_name', document.getElementById('unitName').value);
+}
+
+function rankSort(a, b) {
+  const ai = RANK_ORDER.indexOf(a.rank);
+  const bi = RANK_ORDER.indexOf(b.rank);
+  if (ai !== bi) return ai - bi;
+  return a.last.localeCompare(b.last);
+}
+
+function endDateSort(a, b) {
+  const aDate = a.to || '9999-12-31';
+  const bDate = b.to || '9999-12-31';
+  if (aDate !== bDate) return aDate.localeCompare(bDate);
+  return rankSort(a, b);
+}
+
+function isAway(p) { return p.status !== 'present'; }
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()}${MONTHS_UPPER[d.getMonth()]}`;
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return 'Select date';
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function statusBadge(status) {
+  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR' };
+  return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Render ───
+function render() {
+  const presentList = personnel.filter(p => !isAway(p)).sort(rankSort);
+  const awayList = personnel.filter(p => isAway(p)).sort(endDateSort);
+  const body = document.getElementById('personnelBody');
+  body.innerHTML = '';
+
+  let counts = { present:0, leave:0, pass:0, tdy:0, other:0, ftr:0 };
+  personnel.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+
+  let rowNum = 1;
+
+  presentList.forEach(p => {
+    const i = personnel.indexOf(p);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${rowNum++}</td>
+      <td class="rank-cell">${p.rank}</td>
+      <td class="name-cell">${p.last}, ${p.first}</td>
+      <td><button class="present-btn active">&#10003; Present</button></td>
+      <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
+      <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+    `;
+    body.appendChild(tr);
+  });
+
+  if (awayList.length) {
+    const sep = document.createElement('tr');
+    sep.className = 'section-header';
+    sep.innerHTML = `<td colspan="6">AWAY &mdash; TDY / Leave / Pass / Other (${awayList.length}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
+    body.appendChild(sep);
+
+    awayList.forEach(p => {
+      const i = personnel.indexOf(p);
+      const dateRange = (p.from || p.to) ? `${formatDateShort(p.from)} - ${formatDateShort(p.to)}` : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${rowNum++}</td>
+        <td class="rank-cell">${p.rank}</td>
+        <td class="name-cell">
+          ${p.last}, ${p.first}
+          ${p.notes ? `<div class="away-notes">${escapeHtml(p.notes)}</div>` : ''}
+          ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
+        </td>
+        <td><button class="present-btn inactive" onclick="markPresent(${i})">&#9675; Mark Present</button></td>
+        <td>
+          ${statusBadge(p.status)}
+          <button class="btn-tdy-leave" onclick="openTdyLeave(${i})" style="margin-left:6px;">Edit</button>
+        </td>
+        <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  const total = personnel.length;
+  const leavePass = (counts.leave || 0) + (counts.pass || 0);
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><div class="num">${total}</div><div class="label">Assigned</div></div>
+    <div class="stat"><div class="num" style="color:#00b894">${counts.present}</div><div class="label">Present</div></div>
+    <div class="stat"><div class="num" style="color:#fdcb6e">${leavePass}</div><div class="label">Leave/Pass</div></div>
+    <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy}</div><div class="label">TDY</div></div>
+    <div class="stat"><div class="num" style="color:#e17055">${counts.other}</div><div class="label">Other</div></div>
+    <div class="stat"><div class="num" style="color:#d63031">${counts.ftr}</div><div class="label">FTR</div></div>
+  `;
+  save();
+}
+
+function markPresent(i) {
+  personnel[i].status = 'present';
+  personnel[i].notes = '';
+  personnel[i].from = '';
+  personnel[i].to = '';
+  render();
+}
+
+function removePerson(i) {
+  if (confirm(`Remove ${personnel[i].rank} ${personnel[i].last}, ${personnel[i].first}?`)) {
+    personnel.splice(i, 1);
+    render();
+  }
+}
+
+// ─── Calendar ───
+function toggleCalendar(target) {
+  const container = document.getElementById('calendarContainer');
+  const fromEl = document.getElementById('fromDisplay');
+  const toEl = document.getElementById('toDisplay');
+
+  if (calTarget === target && container.classList.contains('open')) {
+    container.classList.remove('open');
+    fromEl.classList.remove('picking');
+    toEl.classList.remove('picking');
+    calTarget = '';
+    return;
+  }
+
+  calTarget = target;
+  fromEl.classList.toggle('picking', target === 'from');
+  toEl.classList.toggle('picking', target === 'to');
+
+  // Start calendar on the current selection or today
+  const current = target === 'from' ? awayFrom : awayTo;
+  if (current) {
+    const d = new Date(current + 'T00:00:00');
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+  } else {
+    const now = new Date();
+    calYear = now.getFullYear();
+    calMonth = now.getMonth();
+  }
+
+  container.classList.add('open');
+  renderCalendar();
+}
+
+function calPrev() {
+  calMonth--;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderCalendar();
+}
+
+function calNext() {
+  calMonth++;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCalendar();
+}
+
+function renderCalendar() {
+  document.getElementById('calMonthLabel').textContent = `${MONTHS[calMonth]} ${calYear}`;
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+
+  const dows = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  dows.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'cal-dow';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  for (let i = 0; i < firstDay; i++) {
+    const el = document.createElement('div');
+    el.className = 'cal-day empty';
+    grid.appendChild(el);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const el = document.createElement('div');
+    el.className = 'cal-day';
+    el.textContent = day;
+
+    if (dateStr === todayStr) el.classList.add('today');
+    if (dateStr === awayFrom && dateStr === awayTo) {
+      el.classList.add('selected');
+    } else if (dateStr === awayFrom) {
+      el.classList.add('range-start');
+    } else if (dateStr === awayTo) {
+      el.classList.add('range-end');
+    } else if (awayFrom && awayTo && dateStr > awayFrom && dateStr < awayTo) {
+      el.classList.add('in-range');
+    }
+
+    el.onclick = () => pickDate(dateStr);
+    grid.appendChild(el);
+  }
+}
+
+function pickDate(dateStr) {
+  if (calTarget === 'from') {
+    awayFrom = dateStr;
+    // If from is after to, reset to
+    if (awayTo && awayFrom > awayTo) awayTo = '';
+    document.getElementById('fromDisplay').textContent = formatDateDisplay(dateStr);
+    document.getElementById('fromDisplay').classList.add('selected');
+  } else {
+    awayTo = dateStr;
+    // If to is before from, reset from
+    if (awayFrom && awayTo < awayFrom) awayFrom = '';
+    document.getElementById('toDisplay').textContent = formatDateDisplay(dateStr);
+    document.getElementById('toDisplay').classList.add('selected');
+  }
+  updateNotesPreview();
+  renderCalendar();
+
+  // Auto-advance: after picking from, switch to to
+  if (calTarget === 'from' && !awayTo) {
+    calTarget = 'to';
+    document.getElementById('fromDisplay').classList.remove('picking');
+    document.getElementById('toDisplay').classList.add('picking');
+  }
+}
+
+// ─── Status toggles ───
+function setAwayStatus(status) {
+  awayStatus = status;
+  document.querySelectorAll('.status-toggle').forEach(btn => {
+    btn.className = 'status-toggle';
+    if (btn.dataset.status === status) {
+      btn.classList.add(`active-${status}`);
+    }
+  });
+  document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
+  updateNotesPreview();
+}
+
+// ─── Notes preview ───
+function updateNotesPreview() {
+  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
+  let parts = [];
+
+  parts.push(statusLabels[awayStatus] || awayStatus);
+
+  if (awayStatus === 'tdy') {
+    const school = document.getElementById('awaySchool').value.trim();
+    if (school) parts.push(school);
+  }
+
+  if (awayFrom || awayTo) {
+    const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
+    const toStr = awayTo ? formatDateShort(awayTo) : '?';
+    parts.push(`${fromStr}-${toStr}`);
+  }
+
+  document.getElementById('notesPreview').textContent = parts.join(' | ');
+}
+
+// ─── TDY / Leave Modal ───
+function openTdyLeave(i) {
+  tdyLeaveIndex = i;
+  const p = personnel[i];
+  document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
+
+  // Set status
+  const status = (p.status === 'present') ? 'tdy' : p.status;
+  setAwayStatus(status);
+
+  // Parse existing notes to try to extract school
+  if (status === 'tdy' && p.notes) {
+    // Try to extract school from notes (everything before the date range part)
+    document.getElementById('awaySchool').value = p.notes;
+  } else {
+    document.getElementById('awaySchool').value = '';
+  }
+
+  awayFrom = p.from || '';
+  awayTo = p.to || '';
+
+  const fromDisplay = document.getElementById('fromDisplay');
+  const toDisplay = document.getElementById('toDisplay');
+  fromDisplay.textContent = formatDateDisplay(awayFrom);
+  toDisplay.textContent = formatDateDisplay(awayTo);
+  fromDisplay.classList.toggle('selected', !!awayFrom);
+  toDisplay.classList.toggle('selected', !!awayTo);
+  fromDisplay.classList.remove('picking');
+  toDisplay.classList.remove('picking');
+
+  // Close calendar
+  document.getElementById('calendarContainer').classList.remove('open');
+  calTarget = '';
+
+  updateNotesPreview();
+  document.getElementById('tdyLeaveModal').classList.add('active');
+}
+
+function closeTdyLeaveModal() {
+  document.getElementById('tdyLeaveModal').classList.remove('active');
+  document.getElementById('calendarContainer').classList.remove('open');
+  calTarget = '';
+  tdyLeaveIndex = -1;
+}
+
+function saveTdyLeave() {
+  if (tdyLeaveIndex < 0) return;
+  const p = personnel[tdyLeaveIndex];
+
+  p.status = awayStatus;
+  p.from = awayFrom;
+  p.to = awayTo;
+
+  // Build notes from sections
+  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
+  let parts = [];
+  parts.push(statusLabels[awayStatus]);
+
+  if (awayStatus === 'tdy') {
+    const school = document.getElementById('awaySchool').value.trim();
+    if (school) parts.push(school);
+  }
+
+  if (awayFrom || awayTo) {
+    const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
+    const toStr = awayTo ? formatDateShort(awayTo) : '?';
+    parts.push(`${fromStr}-${toStr}`);
+  }
+
+  p.notes = parts.join(' | ');
+
+  closeTdyLeaveModal();
+  render();
+}
+
+// Listen for school input changes
+document.getElementById('awaySchool').addEventListener('input', updateNotesPreview);
+
+// ─── Add Person Modal ───
+function openAddModal() {
+  document.getElementById('modalTitle').textContent = 'Add Person';
+  document.getElementById('addRank').value = 'CW2';
+  document.getElementById('addLast').value = '';
+  document.getElementById('addFirst').value = '';
+  document.getElementById('addModal').classList.add('active');
+  document.getElementById('addLast').focus();
+}
+function closeAddModal() { document.getElementById('addModal').classList.remove('active'); }
+function savePerson() {
+  const rank = document.getElementById('addRank').value;
+  const last = document.getElementById('addLast').value.trim();
+  const first = document.getElementById('addFirst').value.trim();
+  if (!last || !first) { alert('Please enter both first and last name.'); return; }
+  personnel.push({ rank, last, first, status:'present', notes:'', from:'', to:'' });
+  closeAddModal();
+  render();
+}
+
+// ─── Report ───
+function formatDate(d) {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function generateReport() {
+  const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
+  const today = formatDate(new Date());
+
+  const present = personnel.filter(p => p.status === 'present').sort(rankSort);
+  const leave = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
+  const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
+  const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
+  const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
+
+  let lines = [];
+  lines.push(unitName);
+  lines.push(today);
+  lines.push(`${personnel.length} Assigned`);
+  lines.push('');
+
+  lines.push(`PDY ${present.length}`);
+  present.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
+
+  if (leave.length) {
+    lines.push('');
+    lines.push(`Leave & Pass ${leave.length}`);
+    leave.forEach(p => {
+      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
+      if (p.notes) line += `  ${p.notes}`;
+      lines.push(line);
+    });
+  }
+
+  if (tdy.length) {
+    lines.push('');
+    lines.push(`TDY ${tdy.length}`);
+    tdy.forEach(p => {
+      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}:`;
+      if (p.notes) line += `  ${p.notes}`;
+      lines.push(line);
+    });
+  }
+
+  if (other.length) {
+    lines.push('');
+    lines.push(`OTHER/NOT PDY ${other.length}`);
+    other.forEach(p => {
+      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
+      if (p.notes) line += `  ${p.notes}`;
+      lines.push(line);
+    });
+  }
+
+  if (ftr.length) {
+    lines.push('');
+    lines.push(`FTR ${ftr.length}`);
+    ftr.forEach(p => {
+      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
+      if (p.notes) line += `  ${p.notes}`;
+      lines.push(line);
+    });
+  }
+
+  document.getElementById('reportText').textContent = lines.join('\n');
+  document.getElementById('reportModal').classList.add('active');
+}
+
+function copyReport() {
+  const text = document.getElementById('reportText').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.report-buttons .btn-generate');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy to Clipboard', 1500);
+  });
+}
+function closeReport() { document.getElementById('reportModal').classList.remove('active'); }
+
+// ─── Event Listeners ───
+document.getElementById('unitName').addEventListener('input', save);
+document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
+document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
+document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
+
+load();
+</script>
+</body>
+</html>
