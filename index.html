@@ -25,6 +25,17 @@
     font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
   }
   .btn-tdy-leave:hover { background: #5a4bd1; }
+  .btn-edit { background: #636e72; color: #fff; margin-right: 4px; }
+  .btn-edit:hover { background: #4a5568; }
+  .btn-import { background: #00cec9; color: #fff; }
+  .btn-import:hover { background: #00b5b1; }
+
+  /* Import modal */
+  .import-preview { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+  .import-preview table { width: 100%; font-size: 0.85em; }
+  .import-preview td { padding: 3px 6px; border-bottom: 1px solid #3a3a55; }
+  .import-error { color: #e17055; font-size: 0.8em; margin-top: 4px; }
+  .import-hint { font-size: 0.78em; color: #636e72; margin-bottom: 8px; line-height: 1.5; }
 
   /* Modals */
   .modal-overlay {
@@ -207,6 +218,7 @@
 <div class="stats-bar" id="statsBar"></div>
 <div class="controls">
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
+  <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
 </div>
 
@@ -226,7 +238,7 @@
   </table>
 </div>
 
-<!-- Add Person Modal -->
+<!-- Add / Edit Person Modal -->
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <h2 id="modalTitle">Add Person</h2>
@@ -245,7 +257,29 @@
     <input type="text" id="addFirst" placeholder="e.g. John" />
     <div class="modal-buttons">
       <button class="btn-small btn-danger" onclick="closeAddModal()">Cancel</button>
-      <button class="btn-small btn-add" onclick="savePerson()">Save</button>
+      <button class="btn-small btn-add" id="savePersonBtn" onclick="savePerson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal modal-wide">
+    <h2>Import Personnel List</h2>
+    <p class="import-hint">
+      Paste one person per line. Accepted formats:<br>
+      &nbsp;&bull; <code>RANK Last, First</code> &nbsp;(e.g. <em>CW2 Smith, John</em>)<br>
+      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)
+    </p>
+    <label>Paste list</label>
+    <textarea id="importText" rows="8" placeholder="CW2 Smith, John&#10;WO1 Doe, Jane&#10;SGT Jones, Mike" oninput="previewImport()"></textarea>
+    <div id="importPreviewWrap" class="import-preview" style="display:none">
+      <div id="importError" class="import-error"></div>
+      <table id="importPreviewTable"></table>
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeImportModal()">Cancel</button>
+      <button class="btn-small btn-add" id="confirmImportBtn" onclick="confirmImport()" disabled>Add to Roster</button>
     </div>
   </div>
 </div>
@@ -352,6 +386,7 @@ const DEFAULT_PERSONNEL = [
 
 let personnel = [];
 let tdyLeaveIndex = -1;
+let editIndex = -1;
 
 // Calendar state
 let calYear, calMonth; // currently displayed month
@@ -452,7 +487,10 @@ function render() {
       <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
       <td><button class="present-btn active">&#10003; Present</button></td>
       <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-      <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+      <td>
+        <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
+        <button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button>
+      </td>
     `;
     body.appendChild(tr);
   });
@@ -519,7 +557,10 @@ function buildAwayRow(p, rowNum) {
       ${statusBadge(p.status)}
       <button class="btn-tdy-leave" onclick="openTdyLeave(${i})" style="margin-left:6px;">Edit</button>
     </td>
-    <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+    <td>
+      <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
+      <button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button>
+    </td>
   `;
   return tr;
 }
@@ -768,23 +809,140 @@ function saveTdyLeave() {
 // Listen for school input changes
 document.getElementById('awaySchool').addEventListener('input', updateNotesPreview);
 
-// ─── Add Person Modal ───
+// ─── Add / Edit Person Modal ───
 function openAddModal() {
+  editIndex = -1;
   document.getElementById('modalTitle').textContent = 'Add Person';
+  document.getElementById('savePersonBtn').textContent = 'Save';
   document.getElementById('addRank').value = 'CW2';
   document.getElementById('addLast').value = '';
   document.getElementById('addFirst').value = '';
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
-function closeAddModal() { document.getElementById('addModal').classList.remove('active'); }
+
+function openEditModal(i) {
+  editIndex = i;
+  const p = personnel[i];
+  document.getElementById('modalTitle').textContent = 'Edit Person';
+  document.getElementById('savePersonBtn').textContent = 'Update';
+  document.getElementById('addRank').value = p.rank;
+  document.getElementById('addLast').value = p.last;
+  document.getElementById('addFirst').value = p.first;
+  document.getElementById('addModal').classList.add('active');
+  document.getElementById('addLast').focus();
+}
+
+function closeAddModal() {
+  document.getElementById('addModal').classList.remove('active');
+  editIndex = -1;
+}
+
 function savePerson() {
   const rank = document.getElementById('addRank').value;
   const last = document.getElementById('addLast').value.trim();
   const first = document.getElementById('addFirst').value.trim();
   if (!last || !first) { alert('Please enter both first and last name.'); return; }
-  personnel.push({ rank, last, first, status:'present', notes:'', from:'', to:'' });
+  if (editIndex >= 0) {
+    personnel[editIndex].rank = rank;
+    personnel[editIndex].last = last;
+    personnel[editIndex].first = first;
+  } else {
+    personnel.push({ rank, last, first, status:'present', notes:'', from:'', to:'' });
+  }
   closeAddModal();
+  render();
+}
+
+// ─── Import Modal ───
+function openImportModal() {
+  document.getElementById('importText').value = '';
+  document.getElementById('importPreviewWrap').style.display = 'none';
+  document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('importModal').classList.add('active');
+  document.getElementById('importText').focus();
+}
+
+function closeImportModal() {
+  document.getElementById('importModal').classList.remove('active');
+}
+
+function parseImportLine(line) {
+  line = line.trim();
+  if (!line) return null;
+
+  // Try: RANK Last, First  (e.g. "CW2 Smith, John")
+  let m = line.match(/^([A-Z0-9]+)\s+([^,]+),\s*(.+)$/);
+  if (m) {
+    const rank = m[1].trim();
+    const last = m[2].trim();
+    const first = m[3].trim();
+    if (RANK_ORDER.includes(rank) && last && first) return { rank, last, first };
+  }
+
+  // Try: RANK Last First  (e.g. "CW2 Smith John" or "WO1 Smith John Allen")
+  m = line.match(/^([A-Z0-9]+)\s+(\S+)\s+(.+)$/);
+  if (m) {
+    const rank = m[1].trim();
+    const last = m[2].trim();
+    const first = m[3].trim();
+    if (RANK_ORDER.includes(rank) && last && first) return { rank, last, first };
+  }
+
+  return null;
+}
+
+function previewImport() {
+  const text = document.getElementById('importText').value;
+  const lines = text.split('\n');
+  const parsed = [];
+  const errors = [];
+
+  lines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    const result = parseImportLine(line);
+    if (result) {
+      parsed.push(result);
+    } else {
+      errors.push(`Line ${idx + 1}: "${line.trim()}"`);
+    }
+  });
+
+  const wrap = document.getElementById('importPreviewWrap');
+  const errEl = document.getElementById('importError');
+  const table = document.getElementById('importPreviewTable');
+  const btn = document.getElementById('confirmImportBtn');
+
+  if (parsed.length === 0 && errors.length === 0) {
+    wrap.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
+
+  table.innerHTML = parsed.length
+    ? '<tr><th style="text-align:left;padding:3px 6px;color:#aaa">Rank</th><th style="text-align:left;padding:3px 6px;color:#aaa">Name</th></tr>'
+      + parsed.map(p => `<tr><td>${p.rank}</td><td>${p.last}, ${p.first}</td></tr>`).join('')
+    : '';
+
+  btn.disabled = parsed.length === 0;
+  btn.textContent = `Add ${parsed.length} to Roster`;
+}
+
+function confirmImport() {
+  const text = document.getElementById('importText').value;
+  const lines = text.split('\n');
+  let added = 0;
+  lines.forEach(line => {
+    const result = parseImportLine(line);
+    if (result) {
+      personnel.push({ rank: result.rank, last: result.last, first: result.first, status: 'present', notes: '', from: '', to: '' });
+      added++;
+    }
+  });
+  closeImportModal();
   render();
 }
 
@@ -892,6 +1050,7 @@ function closeReport() { document.getElementById('reportModal').classList.remove
 // ─── Event Listeners ───
 document.getElementById('unitName').addEventListener('input', save);
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
+document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
