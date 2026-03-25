@@ -84,6 +84,55 @@ def init_db():
             seed_data
         )
 
+    # Seed 1st platoon only if empty
+    cur.execute('SELECT COUNT(*) FROM personnel WHERE platoon = "1st"')
+    if cur.fetchone()[0] == 0:
+        seed_1st = [
+            # PDY (21) — first names unknown, left blank for editing
+            ('SFC', 'Lopez',        '', 'present', '', '', '',             '1st'),
+            ('SSG', 'Reyes',        '', 'present', '', '', '',             '1st'),
+            ('SGT', 'Hardison',     '', 'present', '', '', '',             '1st'),
+            ('SGT', 'Martinez',     '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Schilling',    '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Garcia',       '', 'present', '', '', '',             '1st'),
+            ('PFC', 'Perrine',      '', 'present', '', '', '',             '1st'),
+            ('PFC', 'Risler',       '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Ketchum',      '', 'present', '', '', '',             '1st'),
+            ('SSG', 'Diaz',         '', 'present', '', '', '',             '1st'),
+            ('SGT', 'Brown',        '', 'present', '', '', '',             '1st'),
+            ('SGT', 'Screeton',     '', 'present', '', '', '',             '1st'),
+            ('SGT', 'Mata',         '', 'present', '', '', '',             '1st'),
+            ('CPL', 'Moreno',       '', 'present', '', '', '',             '1st'),
+            ('CPL', 'Truman',       '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Sullenberger', '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Sharber',      '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Williams',     '', 'present', '', '', '',             '1st'),
+            ('PFC', 'Say',          '', 'present', '', '', '',             '1st'),
+            ('PFC', 'Sharber',      '', 'present', '', '', '',             '1st'),
+            ('SPC', 'Taylor',       '', 'present', '', '', '',             '1st'),
+            # School / TDY (9)
+            ('CW2', 'Matlock',      '', 'tdy',  'WOIC',  '2026-02-22', '2026-03-28', '1st'),
+            ('SGT', 'Mitchell',     '', 'tdy',  'CCNA',  '', '',                      '1st'),
+            ('SPC', 'Hembre',       '', 'tdy',  'BLC',   '2026-03-16', '2026-04-10', '1st'),
+            ('SGT', 'Gutierrez',    '', 'tdy',  'BLC',   '2026-03-16', '2026-04-10', '1st'),
+            ('SPC', 'Cooper',       '', 'tdy',  'CLS',   '', '',                      '1st'),
+            ('SPC', 'Reyes',        '', 'tdy',  'CLS',   '', '',                      '1st'),
+            ('SPC', 'Nier',         '', 'tdy',  'R&U',   '', '',                      '1st'),
+            ('SPC', 'Saah',         '', 'tdy',  'R&U',   '', '',                      '1st'),
+            ('PFC', 'Rush',         '', 'tdy',  'CLS',   '', '',                      '1st'),
+            # Leave (4)
+            ('SSG', 'Gottberg',     '', 'leave', '', '2026-03-23', '2026-03-27',      '1st'),
+            ('SFC', 'Martinez',     '', 'leave', '', '', '',                           '1st'),
+            ('SPC', 'Martie',       '', 'leave', '', '2026-03-23', '2026-03-27',      '1st'),
+            ('SGT', 'Whitsel',      '', 'leave', '', '2026-01-06', '2026-04-02',      '1st'),
+            # TDY (1)
+            ('SFC', 'Butry',        '', 'tdy',  '', '', '',                            '1st'),
+        ]
+        cur.executemany(
+            'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            seed_1st
+        )
+
     conn.commit()
     conn.close()
 
