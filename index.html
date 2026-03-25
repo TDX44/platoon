@@ -25,6 +25,20 @@
     font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
   }
   .btn-tdy-leave:hover { background: #5a4bd1; }
+  .btn-edit { background: #636e72; color: #fff; margin-right: 4px; }
+  .btn-edit:hover { background: #4a5568; }
+  .btn-import { background: #00cec9; color: #fff; }
+  .btn-import:hover { background: #00b5b1; }
+
+  /* Import modal */
+  .import-preview { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+  .import-preview table { width: 100%; font-size: 0.85em; }
+  .import-preview td { padding: 3px 6px; border-bottom: 1px solid #3a3a55; }
+  .import-error { color: #e17055; font-size: 0.8em; margin-top: 4px; }
+  .import-hint { font-size: 0.78em; color: #636e72; margin-bottom: 8px; line-height: 1.5; }
+  .tdy-field-separator { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
+  .tdy-field-separator::before, .tdy-field-separator::after { content: ''; flex: 1; height: 1px; background: #3a3a55; }
+  .tdy-field-separator span { font-size: 0.72em; color: #636e72; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }
 
   /* Modals */
   .modal-overlay {
@@ -92,6 +106,7 @@
   .badge-tdy { background: #0984e3; color: #fff; }
   .badge-other { background: #e17055; color: #fff; }
   .badge-ftr { background: #d63031; color: #fff; }
+  .badge-unaccounted { background: #e67e22; color: #fff; }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -207,6 +222,7 @@
 <div class="stats-bar" id="statsBar"></div>
 <div class="controls">
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
+  <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
 </div>
 
@@ -226,7 +242,7 @@
   </table>
 </div>
 
-<!-- Add Person Modal -->
+<!-- Add / Edit Person Modal -->
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <h2 id="modalTitle">Add Person</h2>
@@ -245,7 +261,29 @@
     <input type="text" id="addFirst" placeholder="e.g. John" />
     <div class="modal-buttons">
       <button class="btn-small btn-danger" onclick="closeAddModal()">Cancel</button>
-      <button class="btn-small btn-add" onclick="savePerson()">Save</button>
+      <button class="btn-small btn-add" id="savePersonBtn" onclick="savePerson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal modal-wide">
+    <h2>Import Personnel List</h2>
+    <p class="import-hint">
+      Paste one person per line. Accepted formats:<br>
+      &nbsp;&bull; <code>RANK Last, First</code> &nbsp;(e.g. <em>CW2 Smith, John</em>)<br>
+      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)
+    </p>
+    <label>Paste list</label>
+    <textarea id="importText" rows="8" placeholder="CW2 Smith, John&#10;WO1 Doe, Jane&#10;SGT Jones, Mike" oninput="previewImport()"></textarea>
+    <div id="importPreviewWrap" class="import-preview" style="display:none">
+      <div id="importError" class="import-error"></div>
+      <table id="importPreviewTable"></table>
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeImportModal()">Cancel</button>
+      <button class="btn-small btn-add" id="confirmImportBtn" onclick="confirmImport()" disabled>Add to Roster</button>
     </div>
   </div>
 </div>
@@ -265,8 +303,10 @@
     </div>
 
     <div class="tdy-school-row" id="tdySchoolRow">
-      <label>School / Location</label>
-      <input type="text" id="awaySchool" placeholder="e.g. Phase 1 Dothan, IPC, SERE 220" />
+      <label>School / Course</label>
+      <input type="text" id="awaySchool" placeholder="e.g. IPC, SERE 220, Phase 1 WOBC" oninput="updateNotesPreview()" />
+      <div class="tdy-field-separator"><span>Location</span></div>
+      <input type="text" id="awayLocation" placeholder="e.g. Dothan AL, Fort Knox KY" oninput="updateNotesPreview()" />
     </div>
 
     <label>Date Range</label>
@@ -323,7 +363,7 @@ const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT
 
 const DEFAULT_PERSONNEL = [
   { rank:'CW2', last:'Carr', first:'Jonathon', status:'present', notes:'', from:'', to:'' },
-  { rank:'CW3', last:'Kunkle', first:'Brandon', status:'leave', notes:'Leave 16-27MAR', from:'2026-03-16', to:'2026-03-27' },
+  { rank:'CW3', last:'Kunkle', first:'Brandon', status:'leave', notes:'', from:'2026-03-16', to:'2026-03-27' },
   { rank:'CW2', last:'Bennett', first:'Christopher', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Cabral', first:'Jeudy', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Carroll', first:'Hunter', status:'present', notes:'', from:'', to:'' },
@@ -333,25 +373,26 @@ const DEFAULT_PERSONNEL = [
   { rank:'CW2', last:'Funk', first:'Caleb', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Glossup', first:'Jaden', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Haertner', first:'Nicholas', status:'present', notes:'', from:'', to:'' },
-  { rank:'CW2', last:'Hilts', first:'Brian', status:'tdy', notes:'TF Hunter 28Dec-28May', from:'2025-12-28', to:'2026-05-28' },
+  { rank:'CW2', last:'Hilts', first:'Brian', status:'tdy', notes:'TF Hunter', from:'2025-12-28', to:'2026-05-28' },
   { rank:'CW2', last:'May', first:'Kevin', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Michot', first:'Ryan A.', status:'present', notes:'', from:'', to:'' },
   { rank:'CW2', last:'Moenga', first:'Leslie', status:'present', notes:'', from:'', to:'' },
-  { rank:'CW2', last:'Peart', first:'Sachin', status:'tdy', notes:'IPC 03MAR-09APR', from:'2026-03-03', to:'2026-04-09' },
-  { rank:'CW2', last:'Ren', first:'Norman', status:'tdy', notes:'TDY Phase 1 Dothan, 26FEB-28MAR', from:'2026-02-26', to:'2026-03-28' },
-  { rank:'CW2', last:'Smith', first:'Benjamin L.', status:'tdy', notes:'TDY Phase 1 Dothan, 26FEB-28MAR', from:'2026-02-26', to:'2026-03-28' },
+  { rank:'CW2', last:'Peart', first:'Sachin', status:'tdy', notes:'IPC', from:'2026-03-03', to:'2026-04-09' },
+  { rank:'CW2', last:'Ren', first:'Norman', status:'tdy', notes:'Phase 1 WOBC - Dothan AL', from:'2026-02-26', to:'2026-03-28' },
+  { rank:'CW2', last:'Smith', first:'Benjamin L.', status:'tdy', notes:'Phase 1 WOBC - Dothan AL', from:'2026-02-26', to:'2026-03-28' },
   { rank:'CW2', last:'Taylor', first:'Anthony M.', status:'present', notes:'', from:'', to:'' },
-  { rank:'CW2', last:'Wood', first:'Albert', status:'tdy', notes:'TDY UC35 Orlando, FL 02MAR-03APR, leave next', from:'2026-03-02', to:'2026-04-03' },
+  { rank:'CW2', last:'Wood', first:'Albert', status:'tdy', notes:'UC35 - Orlando FL', from:'2026-03-02', to:'2026-04-03' },
   { rank:'CW2', last:'Torres', first:'Ricardo J.', status:'present', notes:'', from:'', to:'' },
   { rank:'WO1', last:'Harrington', first:'Brendan', status:'present', notes:'', from:'', to:'' },
   { rank:'WO1', last:'Morlan', first:'Evan', status:'present', notes:'', from:'', to:'' },
   { rank:'WO1', last:'Schilt', first:'Emmett', status:'present', notes:'', from:'', to:'' },
   { rank:'WO1', last:'White', first:'Kenneth J', status:'present', notes:'', from:'', to:'' },
-  { rank:'WO1', last:'Yaden', first:'Paul', status:'tdy', notes:'SERE 220 23-28 March 2026', from:'2026-03-23', to:'2026-03-28' },
+  { rank:'WO1', last:'Yaden', first:'Paul', status:'tdy', notes:'SERE 220', from:'2026-03-23', to:'2026-03-28' },
 ];
 
 let personnel = [];
 let tdyLeaveIndex = -1;
+let editIndex = -1;
 
 // Calendar state
 let calYear, calMonth; // currently displayed month
@@ -405,7 +446,7 @@ function formatDateDisplay(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR' };
+  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR', unaccounted:'Unaccounted' };
   return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
 }
 
@@ -434,6 +475,7 @@ function render() {
   const leaveList = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
   const tdyList = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const otherList = personnel.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+  const unaccountedList = personnel.filter(p => p.status === 'unaccounted').sort(rankSort);
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
 
@@ -452,7 +494,10 @@ function render() {
       <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
       <td><button class="present-btn active">&#10003; Present</button></td>
       <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-      <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+      <td>
+        <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
+        <button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button>
+      </td>
     `;
     body.appendChild(tr);
   });
@@ -475,6 +520,15 @@ function render() {
     tdyList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
   }
 
+  // Unaccounted section (imported but not yet verified)
+  if (unaccountedList.length) {
+    const sep = document.createElement('tr');
+    sep.className = 'section-header';
+    sep.innerHTML = `<td colspan="6" style="color:#e67e22;border-color:#e67e22;">&#9888; UNACCOUNTED (${unaccountedList.length}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">Mark Present or assign a status</span></td>`;
+    body.appendChild(sep);
+    unaccountedList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
+  }
+
   // Other / FTR section
   if (otherList.length) {
     const sep = document.createElement('tr');
@@ -493,6 +547,7 @@ function render() {
     <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy}</div><div class="label">TDY</div></div>
     <div class="stat"><div class="num" style="color:#e17055">${counts.other}</div><div class="label">Other</div></div>
     <div class="stat"><div class="num" style="color:#d63031">${counts.ftr}</div><div class="label">FTR</div></div>
+    ${counts.unaccounted ? `<div class="stat"><div class="num" style="color:#e67e22">${counts.unaccounted}</div><div class="label">Unaccounted</div></div>` : ''}
   `;
   save();
 }
@@ -519,7 +574,10 @@ function buildAwayRow(p, rowNum) {
       ${statusBadge(p.status)}
       <button class="btn-tdy-leave" onclick="openTdyLeave(${i})" style="margin-left:6px;">Edit</button>
     </td>
-    <td><button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button></td>
+    <td>
+      <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
+      <button class="btn-small btn-danger" onclick="removePerson(${i})" title="Remove">&#10005;</button>
+    </td>
   `;
   return tr;
 }
@@ -674,20 +732,21 @@ function updateNotesPreview() {
   const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
   let parts = [];
 
-  parts.push(statusLabels[awayStatus] || awayStatus);
-
   if (awayStatus === 'tdy') {
     const school = document.getElementById('awaySchool').value.trim();
+    const location = document.getElementById('awayLocation').value.trim();
     if (school) parts.push(school);
+    if (location) parts.push(location);
   }
 
   if (awayFrom || awayTo) {
     const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
     const toStr = awayTo ? formatDateShort(awayTo) : '?';
-    parts.push(`${fromStr}-${toStr}`);
+    parts.push(`${fromStr} - ${toStr}`);
   }
 
-  document.getElementById('notesPreview').textContent = parts.join(' | ');
+  const preview = parts.length ? parts.join(' | ') : (statusLabels[awayStatus] || awayStatus);
+  document.getElementById('notesPreview').textContent = preview;
 }
 
 // ─── TDY / Leave Modal ───
@@ -700,12 +759,19 @@ function openTdyLeave(i) {
   const status = (p.status === 'present') ? 'tdy' : p.status;
   setAwayStatus(status);
 
-  // Parse existing notes to try to extract school
+  // Restore school and location from notes (stored as "school - location")
   if (status === 'tdy' && p.notes) {
-    // Try to extract school from notes (everything before the date range part)
-    document.getElementById('awaySchool').value = p.notes;
+    const idx = p.notes.indexOf(' - ');
+    if (idx !== -1) {
+      document.getElementById('awaySchool').value = p.notes.slice(0, idx);
+      document.getElementById('awayLocation').value = p.notes.slice(idx + 3);
+    } else {
+      document.getElementById('awaySchool').value = p.notes;
+      document.getElementById('awayLocation').value = '';
+    }
   } else {
     document.getElementById('awaySchool').value = '';
+    document.getElementById('awayLocation').value = '';
   }
 
   awayFrom = p.from || '';
@@ -743,23 +809,17 @@ function saveTdyLeave() {
   p.from = awayFrom;
   p.to = awayTo;
 
-  // Build notes from sections
-  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
-  let parts = [];
-  parts.push(statusLabels[awayStatus]);
-
+  // Notes stores only descriptive text — status badge and dates render separately
   if (awayStatus === 'tdy') {
     const school = document.getElementById('awaySchool').value.trim();
+    const location = document.getElementById('awayLocation').value.trim();
+    const parts = [];
     if (school) parts.push(school);
+    if (location) parts.push(location);
+    p.notes = parts.join(' - ');
+  } else {
+    p.notes = '';
   }
-
-  if (awayFrom || awayTo) {
-    const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
-    const toStr = awayTo ? formatDateShort(awayTo) : '?';
-    parts.push(`${fromStr}-${toStr}`);
-  }
-
-  p.notes = parts.join(' | ');
 
   closeTdyLeaveModal();
   render();
@@ -768,23 +828,140 @@ function saveTdyLeave() {
 // Listen for school input changes
 document.getElementById('awaySchool').addEventListener('input', updateNotesPreview);
 
-// ─── Add Person Modal ───
+// ─── Add / Edit Person Modal ───
 function openAddModal() {
+  editIndex = -1;
   document.getElementById('modalTitle').textContent = 'Add Person';
+  document.getElementById('savePersonBtn').textContent = 'Save';
   document.getElementById('addRank').value = 'CW2';
   document.getElementById('addLast').value = '';
   document.getElementById('addFirst').value = '';
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
-function closeAddModal() { document.getElementById('addModal').classList.remove('active'); }
+
+function openEditModal(i) {
+  editIndex = i;
+  const p = personnel[i];
+  document.getElementById('modalTitle').textContent = 'Edit Person';
+  document.getElementById('savePersonBtn').textContent = 'Update';
+  document.getElementById('addRank').value = p.rank;
+  document.getElementById('addLast').value = p.last;
+  document.getElementById('addFirst').value = p.first;
+  document.getElementById('addModal').classList.add('active');
+  document.getElementById('addLast').focus();
+}
+
+function closeAddModal() {
+  document.getElementById('addModal').classList.remove('active');
+  editIndex = -1;
+}
+
 function savePerson() {
   const rank = document.getElementById('addRank').value;
   const last = document.getElementById('addLast').value.trim();
   const first = document.getElementById('addFirst').value.trim();
   if (!last || !first) { alert('Please enter both first and last name.'); return; }
-  personnel.push({ rank, last, first, status:'present', notes:'', from:'', to:'' });
+  if (editIndex >= 0) {
+    personnel[editIndex].rank = rank;
+    personnel[editIndex].last = last;
+    personnel[editIndex].first = first;
+  } else {
+    personnel.push({ rank, last, first, status:'present', notes:'', from:'', to:'' });
+  }
   closeAddModal();
+  render();
+}
+
+// ─── Import Modal ───
+function openImportModal() {
+  document.getElementById('importText').value = '';
+  document.getElementById('importPreviewWrap').style.display = 'none';
+  document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('importModal').classList.add('active');
+  document.getElementById('importText').focus();
+}
+
+function closeImportModal() {
+  document.getElementById('importModal').classList.remove('active');
+}
+
+function parseImportLine(line) {
+  line = line.trim();
+  if (!line) return null;
+
+  // Try: RANK Last, First  (e.g. "CW2 Smith, John")
+  let m = line.match(/^([A-Z0-9]+)\s+([^,]+),\s*(.+)$/);
+  if (m) {
+    const rank = m[1].trim();
+    const last = m[2].trim();
+    const first = m[3].trim();
+    if (RANK_ORDER.includes(rank) && last && first) return { rank, last, first };
+  }
+
+  // Try: RANK Last First  (e.g. "CW2 Smith John" or "WO1 Smith John Allen")
+  m = line.match(/^([A-Z0-9]+)\s+(\S+)\s+(.+)$/);
+  if (m) {
+    const rank = m[1].trim();
+    const last = m[2].trim();
+    const first = m[3].trim();
+    if (RANK_ORDER.includes(rank) && last && first) return { rank, last, first };
+  }
+
+  return null;
+}
+
+function previewImport() {
+  const text = document.getElementById('importText').value;
+  const lines = text.split('\n');
+  const parsed = [];
+  const errors = [];
+
+  lines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    const result = parseImportLine(line);
+    if (result) {
+      parsed.push(result);
+    } else {
+      errors.push(`Line ${idx + 1}: "${line.trim()}"`);
+    }
+  });
+
+  const wrap = document.getElementById('importPreviewWrap');
+  const errEl = document.getElementById('importError');
+  const table = document.getElementById('importPreviewTable');
+  const btn = document.getElementById('confirmImportBtn');
+
+  if (parsed.length === 0 && errors.length === 0) {
+    wrap.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
+
+  table.innerHTML = parsed.length
+    ? '<tr><th style="text-align:left;padding:3px 6px;color:#aaa">Rank</th><th style="text-align:left;padding:3px 6px;color:#aaa">Name</th></tr>'
+      + parsed.map(p => `<tr><td>${p.rank}</td><td>${p.last}, ${p.first}</td></tr>`).join('')
+    : '';
+
+  btn.disabled = parsed.length === 0;
+  btn.textContent = `Add ${parsed.length} to Roster`;
+}
+
+function confirmImport() {
+  const text = document.getElementById('importText').value;
+  const lines = text.split('\n');
+  let added = 0;
+  lines.forEach(line => {
+    const result = parseImportLine(line);
+    if (result) {
+      personnel.push({ rank: result.rank, last: result.last, first: result.first, status: 'unaccounted', notes: '', from: '', to: '' });
+      added++;
+    }
+  });
+  closeImportModal();
   render();
 }
 
@@ -802,6 +979,7 @@ function generateReport() {
   const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
   const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
+  const unaccounted = personnel.filter(p => p.status === 'unaccounted').sort(rankSort);
 
   let lines = [];
   lines.push(unitName);
@@ -852,6 +1030,12 @@ function generateReport() {
     });
   }
 
+  if (unaccounted.length) {
+    lines.push('');
+    lines.push(`UNACCOUNTED ${unaccounted.length}`);
+    unaccounted.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
+  }
+
   document.getElementById('reportText').textContent = lines.join('\n');
   document.getElementById('reportModal').classList.add('active');
 }
@@ -892,6 +1076,7 @@ function closeReport() { document.getElementById('reportModal').classList.remove
 // ─── Event Listeners ───
 document.getElementById('unitName').addEventListener('input', save);
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
+document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
