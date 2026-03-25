@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - db_data:/app/data
+    environment:
+      - DB_PATH=/app/data/accountability.db
+    restart: unless-stopped
+
+volumes:
+  db_data:

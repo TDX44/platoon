@@ -3,7 +3,7 @@ import os
 from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder='.', static_url_path='')
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accountability.db')
+DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accountability.db'))
 
 PLATOONS = {'1st': '1st Platoon Accountability', '2nd': '2nd Platoon Accountability', 'hq': 'HQ Platoon Accountability'}
 
