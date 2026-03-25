@@ -29,6 +29,8 @@
   .btn-edit:hover { background: #4a5568; }
   .btn-import { background: #00cec9; color: #fff; }
   .btn-import:hover { background: #00b5b1; }
+  .btn-reset { background: #636e72; color: #fff; }
+  .btn-reset:hover { background: #4a5568; }
   .tdy-field-separator { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
   .tdy-field-separator::before, .tdy-field-separator::after { content: ''; flex: 1; height: 1px; background: #3a3a55; }
   .tdy-field-separator span { font-size: 0.72em; color: #636e72; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -235,8 +237,8 @@
       font-size: 0.8em;
     }
 
-    /* Row number - hide */
-    .table-wrap table tbody tr td:nth-child(1) { display: none !important; }
+    /* Row number - hide (exclude section headers which only have one td) */
+    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(1) { display: none !important; }
     /* Rank - shrink */
     .table-wrap table tbody tr td:nth-child(2) { flex: 0 0 auto; }
     .rank-cell { font-size: 0.75em !important; }
@@ -305,7 +307,7 @@
 <div class="controls">
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
   <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
-  <button class="btn-danger" onclick="resetDay()">Reset Day</button>
+  <button class="btn-reset" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
 </div>
 
@@ -892,7 +894,7 @@ function setAwayStatus(status) {
 // ─── Notes preview ───
 function updateNotesPreview() {
   const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
-  let parts = [];
+  const parts = [statusLabels[awayStatus] || awayStatus];
 
   if (awayStatus === 'tdy') {
     const school = document.getElementById('awaySchool').value.trim();
@@ -904,11 +906,10 @@ function updateNotesPreview() {
   if (awayFrom || awayTo) {
     const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
     const toStr = awayTo ? formatDateShort(awayTo) : '?';
-    parts.push(`${fromStr} - ${toStr}`);
+    parts.push(`${fromStr}-${toStr}`);
   }
 
-  const preview = parts.length ? parts.join(' | ') : (statusLabels[awayStatus] || awayStatus);
-  document.getElementById('notesPreview').textContent = preview;
+  document.getElementById('notesPreview').textContent = parts.join(' | ');
 }
 
 // ─── TDY / Leave Modal ───
@@ -1141,13 +1142,19 @@ function generateReport() {
   lines.push(`PDY ${present.length}`);
   present.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
 
+  function reportDateRange(p) {
+    if (!p.from && !p.to) return '';
+    return `${formatDateShort(p.from)}-${formatDateShort(p.to)}`;
+  }
+
   if (leave.length) {
     lines.push('');
     lines.push(`Leave & Pass ${leave.length}`);
     leave.forEach(p => {
-      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
-      if (p.notes) line += `  ${p.notes}`;
-      lines.push(line);
+      const parts = [`${p.status === 'pass' ? 'Pass' : 'Leave'}`];
+      const dr = reportDateRange(p);
+      if (dr) parts.push(dr);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
     });
   }
 
@@ -1155,9 +1162,19 @@ function generateReport() {
     lines.push('');
     lines.push(`TDY ${tdy.length}`);
     tdy.forEach(p => {
-      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}:`;
-      if (p.notes) line += `  ${p.notes}`;
-      lines.push(line);
+      const parts = ['TDY'];
+      if (p.notes) {
+        const idx = p.notes.indexOf(' - ');
+        if (idx !== -1) {
+          parts.push(p.notes.slice(0, idx));   // school
+          parts.push(p.notes.slice(idx + 3));  // location
+        } else {
+          parts.push(p.notes);
+        }
+      }
+      const dr = reportDateRange(p);
+      if (dr) parts.push(dr);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
     });
   }
 
@@ -1165,9 +1182,11 @@ function generateReport() {
     lines.push('');
     lines.push(`OTHER/NOT PDY ${other.length}`);
     other.forEach(p => {
-      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
-      if (p.notes) line += `  ${p.notes}`;
-      lines.push(line);
+      const parts = ['Other'];
+      if (p.notes) parts.push(p.notes);
+      const dr = reportDateRange(p);
+      if (dr) parts.push(dr);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
     });
   }
 
@@ -1175,9 +1194,10 @@ function generateReport() {
     lines.push('');
     lines.push(`FTR ${ftr.length}`);
     ftr.forEach(p => {
-      let line = `${p.rank.padEnd(5)} ${p.last}, ${p.first}`;
-      if (p.notes) line += `  ${p.notes}`;
-      lines.push(line);
+      const parts = ['FTR'];
+      const dr = reportDateRange(p);
+      if (dr) parts.push(dr);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
     });
   }
 
