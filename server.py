@@ -251,6 +251,27 @@ def me():
 
 # ── User management (admin only) ──
 
+@app.route('/api/me/password', methods=['PUT'])
+@login_required
+def change_own_password():
+    data = request.get_json()
+    current = data.get('current_password') or ''
+    new_pw  = data.get('new_password') or ''
+    if not current or not new_pw:
+        return jsonify({'error': 'Current and new password are required'}), 400
+    if len(new_pw) < 6:
+        return jsonify({'error': 'New password must be at least 6 characters'}), 400
+    user = get_current_user()
+    if not check_password_hash(user['password_hash'], current):
+        return jsonify({'error': 'Current password is incorrect'}), 401
+    conn = get_db()
+    conn.execute('UPDATE users SET password_hash = ? WHERE id = ?',
+                 (generate_password_hash(new_pw), user['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
 @app.route('/api/users', methods=['GET'])
 @admin_required
 def get_users():
