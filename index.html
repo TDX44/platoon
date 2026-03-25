@@ -291,6 +291,31 @@
     .status-toggle { padding: 5px 8px; font-size: 0.75em; }
   }
 
+  /* ─── Home / Platoon selector ─── */
+  #homeScreen {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 80vh; gap: 30px;
+  }
+  .home-title { font-size: 1.8em; font-weight: 700; color: #00d4ff; text-align: center; letter-spacing: 1px; }
+  .home-subtitle { font-size: 0.9em; color: #636e72; text-align: center; margin-top: -20px; }
+  .platoon-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .platoon-card {
+    background: #2d2d44; border: 2px solid #3a3a55; border-radius: 12px;
+    padding: 32px 40px; cursor: pointer; transition: all 0.2s; text-align: center;
+    min-width: 160px;
+  }
+  .platoon-card:hover { border-color: #00d4ff; background: #35355a; transform: translateY(-2px); }
+  .platoon-card-label { font-size: 0.75em; color: #636e72; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .platoon-card-name { font-size: 1.3em; font-weight: 700; color: #e0e0e0; }
+  .platoon-card-count { font-size: 0.8em; color: #636e72; margin-top: 6px; }
+  .btn-back {
+    background: transparent; border: 1px solid #444; color: #aaa;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85em;
+    transition: all 0.2s; margin-right: 8px;
+  }
+  .btn-back:hover { border-color: #00d4ff; color: #00d4ff; }
+  #platoonScreen { display: none; }
+
   /* Notes preview in modal */
   .notes-preview {
     background: #1a1a2e; border: 1px solid #333; border-radius: 5px; padding: 10px 12px;
@@ -302,9 +327,35 @@
 </head>
 <body>
 
-<input type="text" class="edit-unit-name" id="unitName" value="2nd Platoon Accountability" />
+<!-- ─── Home Screen ─── -->
+<div id="homeScreen">
+  <div class="home-title">Platoon Accountability</div>
+  <p class="home-subtitle">Select your platoon to begin</p>
+  <div class="platoon-cards">
+    <button class="platoon-card" onclick="selectPlatoon('1st')">
+      <div class="platoon-card-label">Platoon</div>
+      <div class="platoon-card-name">1st</div>
+      <div class="platoon-card-count" id="count-1st">— personnel</div>
+    </button>
+    <button class="platoon-card" onclick="selectPlatoon('2nd')">
+      <div class="platoon-card-label">Platoon</div>
+      <div class="platoon-card-name">2nd</div>
+      <div class="platoon-card-count" id="count-2nd">— personnel</div>
+    </button>
+    <button class="platoon-card" onclick="selectPlatoon('hq')">
+      <div class="platoon-card-label">Platoon</div>
+      <div class="platoon-card-name">HQ</div>
+      <div class="platoon-card-count" id="count-hq">— personnel</div>
+    </button>
+  </div>
+</div>
+
+<!-- ─── Platoon Screen ─── -->
+<div id="platoonScreen">
+<input type="text" class="edit-unit-name" id="unitName" value="" />
 <div class="stats-bar" id="statsBar"></div>
 <div class="controls">
+  <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
   <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-reset" onclick="resetDay()">Reset Day</button>
@@ -468,8 +519,8 @@ async function api(method, path, body) {
 async function load() {
   try {
     const [data, settings] = await Promise.all([
-      api('GET', '/personnel'),
-      api('GET', '/settings')
+      api('GET', `/personnel?platoon=${currentPlatoon}`),
+      api('GET', `/settings?platoon=${currentPlatoon}`)
     ]);
     // Map DB fields to frontend fields
     personnel = data.map(p => ({
@@ -489,7 +540,7 @@ async function load() {
 
 async function saveUnit() {
   const name = document.getElementById('unitName').value;
-  await api('PUT', '/settings', { unit_name: name });
+  await api('PUT', `/settings?platoon=${currentPlatoon}`, { unit_name: name });
 }
 
 async function apiUpdate(p) {
@@ -1030,7 +1081,7 @@ async function savePerson() {
     p.rank = rank; p.last = last; p.first = first;
     await apiUpdate(p);
   } else {
-    const newPerson = await api('POST', '/personnel', { rank, last, first });
+    const newPerson = await api('POST', '/personnel', { rank, last, first, platoon: currentPlatoon });
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       status: newPerson.status, notes: newPerson.notes || '',
@@ -1100,7 +1151,7 @@ async function confirmImport() {
   });
   // Add sequentially to preserve order
   for (const r of adds) {
-    const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first });
+    const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first, platoon: currentPlatoon });
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       status: newPerson.status, notes: '', from: '', to: '', present_date: ''
@@ -1250,7 +1301,57 @@ document.getElementById('tdyLeaveModal').addEventListener('click', function(e) {
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
 
-load();
+// ─── Platoon routing ───
+let currentPlatoon = '';
+
+async function loadHome() {
+  document.getElementById('homeScreen').style.display = 'flex';
+  document.getElementById('platoonScreen').style.display = 'none';
+  try {
+    const data = await api('GET', '/platoons');
+    for (const [key, info] of Object.entries(data)) {
+      const el = document.getElementById(`count-${key}`);
+      if (el) el.textContent = `${info.count} personnel`;
+    }
+  } catch(e) { /* counts are decorative */ }
+}
+
+function selectPlatoon(platoon) {
+  currentPlatoon = platoon;
+  history.pushState({ platoon }, '', `?platoon=${platoon}`);
+  document.getElementById('homeScreen').style.display = 'none';
+  document.getElementById('platoonScreen').style.display = 'block';
+  load();
+}
+
+function goHome() {
+  currentPlatoon = '';
+  history.pushState({}, '', '/');
+  personnel = [];
+  loadHome();
+}
+
+window.addEventListener('popstate', () => {
+  const p = new URLSearchParams(window.location.search).get('platoon');
+  if (p && ['1st', '2nd', 'hq'].includes(p)) {
+    currentPlatoon = p;
+    document.getElementById('homeScreen').style.display = 'none';
+    document.getElementById('platoonScreen').style.display = 'block';
+    load();
+  } else {
+    loadHome();
+  }
+});
+
+// ─── Init ───
+const _initPlatoon = new URLSearchParams(window.location.search).get('platoon');
+if (_initPlatoon && ['1st', '2nd', 'hq'].includes(_initPlatoon)) {
+  selectPlatoon(_initPlatoon);
+} else {
+  loadHome();
+}
 </script>
+
+</div><!-- end #platoonScreen -->
 </body>
 </html>
