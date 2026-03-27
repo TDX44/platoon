@@ -60,6 +60,31 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT (datetime('now')),
+            user_id   INTEGER DEFAULT 0,
+            username  TEXT DEFAULT '',
+            action    TEXT DEFAULT '',
+            details   TEXT DEFAULT '',
+            platoon   TEXT DEFAULT ''
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS duty_roster (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            date      TEXT NOT NULL,
+            platoon   TEXT NOT NULL,
+            duty_type TEXT NOT NULL DEFAULT 'CQ',
+            rank      TEXT DEFAULT '',
+            last      TEXT DEFAULT '',
+            first     TEXT DEFAULT '',
+            notes     TEXT DEFAULT ''
+        )
+    ''')
+
     # ── Migrations ──
     cols = [row[1] for row in cur.execute('PRAGMA table_info(personnel)').fetchall()]
     if 'present_date' not in cols:
@@ -170,6 +195,30 @@ def init_db():
     conn.close()
 
 
+# ── Audit log helper ──
+
+def log_action(action, details='', platoon=''):
+    try:
+        conn = get_db()
+        user_id, username = 0, 'system'
+        try:
+            uid = session.get('user_id')
+            if uid:
+                row = conn.execute('SELECT id, username FROM users WHERE id = ?', (uid,)).fetchone()
+                if row:
+                    user_id, username = row['id'], row['username']
+        except Exception:
+            pass
+        conn.execute(
+            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (?, ?, ?, ?, ?)',
+            (user_id, username, action, str(details), platoon)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 # ── Auth helpers ──
 
 def get_current_user():
@@ -226,6 +275,7 @@ def login():
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({'error': 'Invalid username or password'}), 401
     session['user_id'] = user['id']
+    log_action('LOGIN', f'User {username} logged in')
     return jsonify({
         'id': user['id'], 'username': user['username'],
         'is_admin': bool(user['is_admin']), 'platoons': user['platoons']
@@ -393,6 +443,7 @@ def add_person():
     conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = ?', (new_id,)).fetchone()
     conn.close()
+    log_action('ADD_PERSON', f'{data.get("rank","")} {data.get("last","")}, {data.get("first","")}', platoon)
     return jsonify(dict(row)), 201
 
 
@@ -422,6 +473,9 @@ def update_person(person_id):
 @login_required
 def delete_person(person_id):
     conn = get_db()
+    row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if row:
+        log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
     conn.execute('DELETE FROM personnel WHERE id = ?', (person_id,))
     conn.commit()
     conn.close()
@@ -457,6 +511,84 @@ def update_settings():
     conn.commit()
     conn.close()
     return get_settings()
+
+
+# ── Audit log ──
+
+@app.route('/api/audit', methods=['GET'])
+@admin_required
+def get_audit():
+    platoon = request.args.get('platoon', '')
+    limit = min(int(request.args.get('limit', 200)), 500)
+    conn = get_db()
+    if platoon:
+        rows = conn.execute(
+            'SELECT * FROM audit_log WHERE platoon = ? ORDER BY id DESC LIMIT ?', (platoon, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+# ── Duty roster ──
+
+@app.route('/api/duty', methods=['GET'])
+@login_required
+def get_duty():
+    platoon = request.args.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    date_filter = request.args.get('date', '')
+    conn = get_db()
+    if date_filter:
+        rows = conn.execute(
+            'SELECT * FROM duty_roster WHERE platoon = ? AND date = ? ORDER BY duty_type, id',
+            (platoon, date_filter)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            'SELECT * FROM duty_roster WHERE platoon = ? ORDER BY date DESC, duty_type, id LIMIT 90',
+            (platoon,)
+        ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/duty', methods=['POST'])
+@login_required
+def add_duty():
+    data = request.get_json()
+    platoon = data.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    conn = get_db()
+    cur = conn.execute(
+        'INSERT INTO duty_roster (date, platoon, duty_type, rank, last, first, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (data.get('date', ''), platoon, data.get('duty_type', 'CQ'),
+         data.get('rank', ''), data.get('last', ''), data.get('first', ''), data.get('notes', ''))
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    row = conn.execute('SELECT * FROM duty_roster WHERE id = ?', (new_id,)).fetchone()
+    conn.close()
+    log_action('ADD_DUTY', f'{data.get("duty_type","CQ")} on {data.get("date","")}', platoon)
+    return jsonify(dict(row)), 201
+
+
+@app.route('/api/duty/<int:entry_id>', methods=['DELETE'])
+@login_required
+def delete_duty(entry_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM duty_roster WHERE id = ?', (entry_id,)).fetchone()
+    if row:
+        log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['platoon'])
+    conn.execute('DELETE FROM duty_roster WHERE id = ?', (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
 
 
 if __name__ == '__main__':

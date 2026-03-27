@@ -355,6 +355,104 @@
     color: #74b9ff; margin-bottom: 12px; min-height: 32px; line-height: 1.4;
   }
   .notes-preview-label { font-size: 0.8em; color: #636e72; margin-bottom: 4px; }
+
+  /* ─── Light mode ─── */
+  body.light-mode { background: #f0f4f8; color: #2d3436; }
+  body.light-mode .modal, body.light-mode .report-box, body.light-mode table,
+  body.light-mode .stats-bar, body.light-mode .login-card, body.light-mode .platoon-card,
+  body.light-mode .calendar-container, body.light-mode .notes-preview,
+  body.light-mode .history-item { background: #ffffff; color: #2d3436; }
+  body.light-mode .date-display { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
+  body.light-mode thead th { background: #0770c2; }
+  body.light-mode tbody tr:hover { background: #e8f0fe; }
+  body.light-mode tbody tr { border-bottom: 1px solid #d0d7e0; }
+  body.light-mode .modal input, body.light-mode .modal select, body.light-mode .modal textarea,
+  body.light-mode .login-card input { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
+  body.light-mode .rank-cell { color: #0770c2; }
+  body.light-mode .report-text { background: #f0f4f8; color: #2d3436; }
+  body.light-mode .edit-unit-name { color: #0770c2; }
+  body.light-mode .edit-unit-name:hover, body.light-mode .edit-unit-name:focus { background: #f0f4f8; }
+  body.light-mode .home-title { color: #0770c2; }
+  body.light-mode .modal h2, body.light-mode .report-box h2 { color: #0770c2; }
+  body.light-mode tr.section-header td, body.light-mode tr.section-header-tdy td { background: #e8edf2; }
+  body.light-mode .status-toggle { border-color: #c0c8d8; color: #636e72; background: transparent; }
+  body.light-mode .stat .num { color: #0770c2; }
+  body.light-mode .btn-back, body.light-mode .btn-logout, body.light-mode .btn-manage-users,
+  body.light-mode .btn-theme { border-color: #c0c8d8; color: #636e72; }
+  body.light-mode .btn-manage-users { background: #f0f4f8; }
+  body.light-mode .user-row { border-bottom-color: #d0d7e0; }
+  body.light-mode .search-input { background: #fff; border-color: #c0c8d8; color: #2d3436; }
+  body.light-mode .formation-toggle { background: #f0f4f8; border: 1px solid #c0c8d8; }
+  body.light-mode .bulk-bar { background: #dbeafe; border-color: #3b82f6; }
+  body.light-mode .bulk-bar-label { color: #1d4ed8; }
+  body.light-mode #bulkStatusSelect { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
+
+  /* ─── Theme toggle button ─── */
+  .btn-theme { background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 14px;
+    border-radius: 6px; cursor: pointer; font-size: 0.82em; transition: all 0.2s; }
+  .btn-theme:hover { border-color: #00d4ff; color: #00d4ff; }
+
+  /* ─── Search bar ─── */
+  .search-wrap { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .search-input { flex: 1; padding: 8px 14px; background: #2d2d44; border: 1px solid #444;
+    border-radius: 6px; color: #e0e0e0; font-size: 0.9em; outline: none; transition: border-color 0.2s; }
+  .search-input:focus { border-color: #00d4ff; }
+  .search-input::placeholder { color: #636e72; }
+
+  /* ─── Sortable headers ─── */
+  thead th.sortable { cursor: pointer; user-select: none; transition: background 0.15s; }
+  thead th.sortable:hover { background: #0770c2; }
+  thead th.sort-asc::after { content: ' ↑'; font-size: 0.8em; }
+  thead th.sort-desc::after { content: ' ↓'; font-size: 0.8em; }
+
+  /* ─── Bulk select bar ─── */
+  .row-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: #0984e3; }
+  .bulk-bar { display: none; align-items: center; gap: 10px; padding: 8px 14px;
+    background: #0984e322; border: 1px solid #0984e3; border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .bulk-bar.visible { display: flex; }
+  .bulk-bar-label { font-weight: 600; color: #74b9ff; font-size: 0.9em; }
+
+  /* ─── Returning-today / overdue badges ─── */
+  .returning-badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 0.7em;
+    font-weight: 600; background: #fdcb6e; color: #222; margin-left: 6px; }
+
+  /* ─── Formation toggle ─── */
+  .formation-toggle { display: flex; gap: 2px; align-items: center; background: #2d2d44;
+    border-radius: 6px; padding: 2px; }
+  .formation-toggle button { padding: 5px 13px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 0.82em; font-weight: 600; background: transparent; color: #aaa; transition: all 0.2s; }
+  .formation-toggle button.active { background: #0984e3; color: #fff; }
+
+  /* ─── History / Audit / Duty modals ─── */
+  .history-list { max-height: 320px; overflow-y: auto; margin-bottom: 10px; }
+  .history-item { padding: 9px 12px; border-bottom: 1px solid #3a3a55; cursor: pointer; transition: background 0.15s; }
+  .history-item:hover { background: #35355a; }
+  .history-item-ts { font-size: 0.75em; color: #636e72; margin-bottom: 2px; }
+  .history-item-summary { font-size: 0.85em; color: #e0e0e0; }
+
+  .audit-list { max-height: 420px; overflow-y: auto; font-size: 0.8em; }
+  .audit-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #3a3a55; }
+  .audit-ts { color: #636e72; white-space: nowrap; min-width: 130px; }
+  .audit-user { color: #74b9ff; min-width: 75px; font-weight: 600; }
+  .audit-action { color: #00d4ff; min-width: 115px; }
+  .audit-details { color: #b2bec3; flex: 1; }
+
+
+  /* ─── Print styles ─── */
+  @media print {
+    body { background: #fff !important; color: #000 !important; padding: 0 !important; }
+    #loginScreen, #homeScreen, .controls, .stats-bar, .btn-tdy-leave, .btn-edit,
+    .btn-danger, td:nth-child(1), td:nth-child(5), td:nth-child(7),
+    .modal-overlay, .report-overlay, .search-wrap, .bulk-bar { display: none !important; }
+    #platoonScreen { display: block !important; }
+    table { background: #fff !important; border-collapse: collapse !important; width: 100% !important; }
+    thead th { background: #333 !important; color: #fff !important; padding: 6px 8px !important; }
+    tbody td { border: 1px solid #ccc !important; color: #000 !important; padding: 5px 8px !important; }
+    .rank-cell { color: #000 !important; font-weight: 700; }
+    tr.section-header td { background: #eee !important; color: #000 !important; }
+    tr.section-header-tdy td { background: #ddeeff !important; color: #000 !important; }
+    .edit-unit-name { border: none !important; background: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -376,6 +474,7 @@
 <!-- ─── Home Screen ─── -->
 <div id="homeScreen">
   <div class="home-actions">
+    <button class="btn-theme" id="themeBtn" onclick="toggleTheme()">&#9788; Light</button>
     <button class="btn-manage-users" id="manageUsersBtn" onclick="openUserMgmt()" style="display:none">&#9881; Users</button>
     <button class="btn-manage-users" onclick="openChangePwModal()">&#128273; Change Password</button>
     <button class="btn-logout" onclick="doLogout()">Sign Out</button>
@@ -407,22 +506,48 @@
 <div class="stats-bar" id="statsBar"></div>
 <div class="controls">
   <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
+  <div class="formation-toggle">
+    <button id="fmAM" class="active" onclick="setFormation('AM')">AM</button>
+    <button id="fmPM" onclick="setFormation('PM')">PM</button>
+  </div>
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
   <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-reset" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
+  <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
+  <button class="btn-reset" onclick="printRoster()">&#128424; Print</button>
+  <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
   <button class="btn-reset" onclick="openChangePwModal()">&#128273; Password</button>
+</div>
+<div class="search-wrap">
+  <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
+  <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
+</div>
+<div class="bulk-bar" id="bulkBar">
+  <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
+  <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:0.85em;">
+    <option value="">— Set Status —</option>
+    <option value="present">Present</option>
+    <option value="tdy">TDY</option>
+    <option value="leave">Leave</option>
+    <option value="pass">Pass</option>
+    <option value="other">Other</option>
+    <option value="ftr">FTR</option>
+  </select>
+  <button class="btn-small btn-add" onclick="applyBulkStatus()">Apply</button>
+  <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
 </div>
 
 <div class="table-wrap">
   <table>
     <thead>
       <tr>
+        <th style="width:28px"><input type="checkbox" id="selectAllChk" class="row-checkbox" onchange="toggleSelectAll()"></th>
         <th>#</th>
-        <th>Rank</th>
-        <th>Name (Last, First)</th>
+        <th class="sortable" id="th-rank" onclick="sortBy('rank')">Rank</th>
+        <th class="sortable" id="th-name" onclick="sortBy('name')">Name (Last, First)</th>
         <th>Present</th>
-        <th>Status</th>
+        <th class="sortable" id="th-status" onclick="sortBy('status')">Status</th>
         <th></th>
       </tr>
     </thead>
@@ -447,6 +572,8 @@
     <input type="text" id="addLast" placeholder="e.g. Smith" />
     <label>First Name</label>
     <input type="text" id="addFirst" placeholder="e.g. John" />
+    <label id="addNotesLabel">Notes (optional)</label>
+    <input type="text" id="addNotes" placeholder="e.g. POC: SGT Jones" />
     <div class="modal-buttons">
       <button class="btn-small btn-danger" onclick="closeAddModal()">Cancel</button>
       <button class="btn-small btn-add" id="savePersonBtn" onclick="savePerson()">Save</button>
@@ -534,48 +661,48 @@
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
+      <button class="btn-small btn-import" onclick="downloadReport()">&#8595; Download .txt</button>
       <button class="btn-small btn-danger" onclick="closeReport()">Close</button>
     </div>
   </div>
 </div>
 
-<!-- User Management Modal -->
-<div class="modal-overlay" id="userMgmtModal">
+
+<!-- Report History Modal -->
+<div class="modal-overlay" id="historyModal">
   <div class="modal modal-wide">
-    <h2>Manage Users</h2>
-    <div id="userListWrap" style="max-height:320px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
+    <h2>&#128337; Report History</h2>
+    <div class="history-list" id="historyList"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-add" onclick="openUserEditModal(null)">+ Add User</button>
-      <button class="btn-small btn-danger" onclick="closeUserMgmt()">Close</button>
+      <button class="btn-small btn-danger" onclick="closeHistory()">Close</button>
     </div>
   </div>
 </div>
 
-<!-- Add / Edit User Modal -->
-<div class="modal-overlay" id="userEditModal">
-  <div class="modal">
-    <h2 id="userEditTitle">Add User</h2>
-    <label>Username</label>
-    <input type="text" id="userEditUsername" placeholder="Username" autocomplete="off" />
-    <label id="userEditPwLabel">Password</label>
-    <input type="password" id="userEditPassword" placeholder="Password" autocomplete="new-password" />
-    <label>Platoon Access</label>
-    <div class="platoon-checks">
-      <label><input type="checkbox" id="chk1st" /> 1st Platoon</label>
-      <label><input type="checkbox" id="chk2nd" /> 2nd Platoon</label>
-      <label><input type="checkbox" id="chkHq"  /> HQ Platoon</label>
-    </div>
-    <label class="admin-check-label">
-      <input type="checkbox" id="userEditAdmin" onchange="toggleAdminCheck()" />
-      Administrator (all platoons + user management)
-    </label>
-    <div id="userEditError" class="login-error" style="display:none"></div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeUserEdit()">Cancel</button>
-      <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
+<!-- History View Modal -->
+<div class="report-overlay" id="historyViewModal">
+  <div class="report-box">
+    <h2 id="historyViewTitle">Report</h2>
+    <div class="report-text" id="historyViewText"></div>
+    <div class="report-buttons">
+      <button class="btn-small btn-generate" onclick="copyHistoryReport()">Copy</button>
+      <button class="btn-small btn-import" onclick="downloadHistoryReport()">&#8595; Download .txt</button>
+      <button class="btn-small btn-danger" onclick="backToHistory()">&#8592; Back</button>
     </div>
   </div>
 </div>
+
+<!-- Audit Log Modal -->
+<div class="modal-overlay" id="auditModal">
+  <div class="modal" style="width:680px;max-width:95vw;">
+    <h2>&#128269; Audit Log</h2>
+    <div class="audit-list" id="auditList"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="document.getElementById('auditModal').classList.remove('active')">Close</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 const RANK_ORDER = [
@@ -596,6 +723,13 @@ let calYear, calMonth;
 let calTarget = '';
 let awayFrom = '', awayTo = '';
 let awayStatus = 'tdy';
+
+// Test-features state
+let sortCol = 'rank';
+let sortDir = 1;
+let bulkSelected = new Set();
+let currentFormation = 'AM';
+let historyViewData = null;
 
 // ─── API helpers ───
 const API = '/api';
@@ -703,9 +837,10 @@ function escapeHtml(str) {
 
 // ─── Render ───
 function render() {
-  // Auto-return: move people back to present if their end date has passed
   const todayStr = getTodayStr();
   const recentlyReturned = new Set();
+
+  // Auto-return: move people back to present if their end date has passed
   personnel.forEach(p => {
     if (p.status !== 'present' && p.to && p.to < todayStr) {
       p.returnedFrom = p.notes || p.status;
@@ -715,19 +850,38 @@ function render() {
       p.from = '';
       p.to = '';
       recentlyReturned.add(p);
-      // Persist auto-return to DB
       apiUpdate(p);
     }
   });
 
-  const unaccountedList = personnel.filter(p => isUnaccounted(p)).sort(rankSort);
-  const presentList = personnel.filter(p => isPresentToday(p)).sort(rankSort);
-  const leaveList = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
-  const tdyList = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
-  const otherList = personnel.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+  // Apply search filter
+  const term = getSearchTerm();
+  const clearBtn = document.getElementById('clearSearchBtn');
+  if (clearBtn) clearBtn.style.display = term ? 'inline-block' : 'none';
+  const visible = term ? personnel.filter(p =>
+    p.rank.toLowerCase().includes(term) ||
+    p.last.toLowerCase().includes(term) ||
+    p.first.toLowerCase().includes(term) ||
+    (p.notes || '').toLowerCase().includes(term)
+  ) : personnel;
+
+  // Build section lists with sort applied
+  const unaccountedList = applySort(visible.filter(p => isUnaccounted(p)));
+  const presentList     = applySort(visible.filter(p => isPresentToday(p)));
+  const leaveList       = sortCol !== 'rank'
+    ? applySort(visible.filter(p => p.status === 'leave' || p.status === 'pass'))
+    : visible.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
+  const tdyList         = sortCol !== 'rank'
+    ? applySort(visible.filter(p => p.status === 'tdy'))
+    : visible.filter(p => p.status === 'tdy').sort(endDateSort);
+  const otherList       = sortCol !== 'rank'
+    ? applySort(visible.filter(p => p.status === 'other' || p.status === 'ftr'))
+    : visible.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
 
+  // Counts always use full (unfiltered) personnel
   let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0 };
   personnel.forEach(p => {
     if (isUnaccounted(p)) { counts.unaccounted++; }
@@ -736,18 +890,18 @@ function render() {
 
   let rowNum = 1;
 
-  // Unaccounted section (need to be marked present)
+  // Unaccounted section
   if (unaccountedList.length) {
     const sep = document.createElement('tr');
     sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="6" style="color:#e17055;border-color:#e17055;">NOT YET ACCOUNTED FOR (${unaccountedList.length})</td>`;
+    sep.innerHTML = `<td colspan="7" style="color:#e17055;border-color:#e17055;">NOT YET ACCOUNTED FOR (${counts.unaccounted}${term ? ` — showing ${unaccountedList.length}` : ''})</td>`;
     body.appendChild(sep);
-
     unaccountedList.forEach(p => {
       const i = personnel.indexOf(p);
       const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
       const tr = document.createElement('tr');
       tr.innerHTML = `
+        <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
         <td>${rowNum++}</td>
         <td class="rank-cell">${p.rank}</td>
         <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
@@ -762,19 +916,19 @@ function render() {
     });
   }
 
-  // Present today section
+  // Present section
   if (presentList.length) {
     const sep = document.createElement('tr');
     sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="6" style="color:#00b894;border-color:#00b894;">PRESENT FOR DUTY (${presentList.length})</td>`;
+    sep.innerHTML = `<td colspan="7" style="color:#00b894;border-color:#00b894;">PRESENT FOR DUTY (${counts.present}${term ? ` — showing ${presentList.length}` : ''})</td>`;
     body.appendChild(sep);
   }
-
   presentList.forEach(p => {
     const i = personnel.indexOf(p);
     const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
       <td>${rowNum++}</td>
       <td class="rank-cell">${p.rank}</td>
       <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
@@ -792,27 +946,27 @@ function render() {
   if (leaveList.length) {
     const sep = document.createElement('tr');
     sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="6">LEAVE / PASS (${leaveList.length}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
+    sep.innerHTML = `<td colspan="7">LEAVE / PASS (${(counts.leave||0)+(counts.pass||0)}${term?` — showing ${leaveList.length}`:''}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
     body.appendChild(sep);
-    leaveList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
+    leaveList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
   }
 
   // TDY / School section
   if (tdyList.length) {
     const sep = document.createElement('tr');
     sep.className = 'section-header-tdy';
-    sep.innerHTML = `<td colspan="6">TDY / SCHOOL (${tdyList.length}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
+    sep.innerHTML = `<td colspan="7">TDY / SCHOOL (${counts.tdy||0}${term?` — showing ${tdyList.length}`:''}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
     body.appendChild(sep);
-    tdyList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
+    tdyList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
   }
 
   // Other / FTR section
   if (otherList.length) {
     const sep = document.createElement('tr');
     sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="6" style="color:#e17055;border-color:#e17055;">OTHER / FTR (${otherList.length})</td>`;
+    sep.innerHTML = `<td colspan="7" style="color:#e17055;border-color:#e17055;">OTHER / FTR (${(counts.other||0)+(counts.ftr||0)}${term?` — showing ${otherList.length}`:''})`;
     body.appendChild(sep);
-    otherList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++)); });
+    otherList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
   }
 
   const total = personnel.length;
@@ -822,10 +976,14 @@ function render() {
     <div class="stat"><div class="num" style="color:${counts.unaccounted ? '#e17055' : '#888'}">${counts.unaccounted}</div><div class="label">Unaccounted</div></div>
     <div class="stat"><div class="num" style="color:#00b894">${counts.present}</div><div class="label">Present</div></div>
     <div class="stat"><div class="num" style="color:#fdcb6e">${leavePass}</div><div class="label">Leave/Pass</div></div>
-    <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy}</div><div class="label">TDY</div></div>
-    <div class="stat"><div class="num" style="color:#e17055">${counts.other}</div><div class="label">Other</div></div>
-    <div class="stat"><div class="num" style="color:#d63031">${counts.ftr}</div><div class="label">FTR</div></div>
+    <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy||0}</div><div class="label">TDY</div></div>
+    <div class="stat"><div class="num" style="color:#e17055">${counts.other||0}</div><div class="label">Other</div></div>
+    <div class="stat"><div class="num" style="color:#d63031">${counts.ftr||0}</div><div class="label">FTR</div></div>
+    <div class="stat"><div class="num" style="color:#aaa;font-size:1em;">${currentFormation}</div><div class="label">Formation</div></div>
   `;
+
+  updateSortHeaders();
+  updateBulkBar();
 }
 
 function getTodayStr() {
@@ -833,15 +991,18 @@ function getTodayStr() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-function buildAwayRow(p, rowNum) {
+function buildAwayRow(p, rowNum, todayStr) {
   const i = personnel.indexOf(p);
   const dateRange = (p.from || p.to) ? `${formatDateShort(p.from)} - ${formatDateShort(p.to)}` : '';
+  const returningToday = p.to && p.to === (todayStr || getTodayStr());
+  const returningBadge = returningToday ? `<span class="returning-badge">RETURNING TODAY</span>` : '';
   const tr = document.createElement('tr');
   tr.innerHTML = `
+    <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
     <td>${rowNum}</td>
     <td class="rank-cell">${p.rank}</td>
     <td class="name-cell">
-      ${p.last}, ${p.first}
+      ${p.last}, ${p.first}${returningBadge}
       ${p.notes ? `<div class="away-notes">${escapeHtml(p.notes)}</div>` : ''}
       ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
     </td>
@@ -1143,6 +1304,9 @@ function openAddModal() {
   document.getElementById('addRank').value = 'CW2';
   document.getElementById('addLast').value = '';
   document.getElementById('addFirst').value = '';
+  document.getElementById('addNotes').value = '';
+  document.getElementById('addNotes').disabled = false;
+  document.getElementById('addNotesLabel').textContent = 'Notes (optional)';
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
@@ -1155,6 +1319,17 @@ function openEditModal(i) {
   document.getElementById('addRank').value = p.rank;
   document.getElementById('addLast').value = p.last;
   document.getElementById('addFirst').value = p.first;
+  const notesEl = document.getElementById('addNotes');
+  const notesLbl = document.getElementById('addNotesLabel');
+  if (p.status === 'present') {
+    notesEl.value = p.notes || '';
+    notesEl.disabled = false;
+    notesLbl.textContent = 'Notes (optional)';
+  } else {
+    notesEl.value = p.notes || '';
+    notesEl.disabled = true;
+    notesLbl.textContent = 'Notes (managed via TDY / Leave modal)';
+  }
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
@@ -1169,9 +1344,11 @@ async function savePerson() {
   const last = document.getElementById('addLast').value.trim();
   const first = document.getElementById('addFirst').value.trim();
   if (!last || !first) { alert('Please enter both first and last name.'); return; }
+  const notes = document.getElementById('addNotes').value.trim();
   if (editIndex >= 0) {
     const p = personnel[editIndex];
     p.rank = rank; p.last = last; p.first = first;
+    if (p.status === 'present') p.notes = notes;
     await apiUpdate(p);
   } else {
     const newPerson = await api('POST', '/personnel', { rank, last, first, platoon: currentPlatoon });
@@ -1269,7 +1446,7 @@ function generateReport() {
   }
 
   const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
-  const today = formatDate(new Date());
+  const today = formatDate(new Date()) + ' | ' + currentFormation + ' Formation';
 
   const present = personnel.filter(p => isPresentToday(p)).sort(rankSort);
   const leave = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
@@ -1295,10 +1472,10 @@ function generateReport() {
     lines.push('');
     lines.push(`Leave & Pass ${leave.length}`);
     leave.forEach(p => {
-      const parts = [`${p.status === 'pass' ? 'Pass' : 'Leave'}`];
+      const parts = [];
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1306,7 +1483,7 @@ function generateReport() {
     lines.push('');
     lines.push(`TDY ${tdy.length}`);
     tdy.forEach(p => {
-      const parts = ['TDY'];
+      const parts = [];
       if (p.notes) {
         const idx = p.notes.indexOf(' - ');
         if (idx !== -1) {
@@ -1318,7 +1495,7 @@ function generateReport() {
       }
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1326,11 +1503,11 @@ function generateReport() {
     lines.push('');
     lines.push(`OTHER/NOT PDY ${other.length}`);
     other.forEach(p => {
-      const parts = ['Other'];
+      const parts = [];
       if (p.notes) parts.push(p.notes);
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1338,15 +1515,15 @@ function generateReport() {
     lines.push('');
     lines.push(`FTR ${ftr.length}`);
     ftr.forEach(p => {
-      const parts = ['FTR'];
       const dr = reportDateRange(p);
-      if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${dr ? '  ' + dr : ''}`);
     });
   }
 
-  document.getElementById('reportText').textContent = lines.join('\n');
+  const reportText = lines.join('\n');
+  document.getElementById('reportText').textContent = reportText;
   document.getElementById('reportModal').classList.add('active');
+  saveToHistory(reportText, unitName);
 }
 
 function copyReport() {
@@ -1381,6 +1558,215 @@ function fallbackCopy(text, btn) {
   setTimeout(() => btn.textContent = 'Copy to Clipboard', 1500);
 }
 function closeReport() { document.getElementById('reportModal').classList.remove('active'); }
+
+// ─── Theme ───
+function toggleTheme() {
+  document.body.classList.toggle('light-mode');
+  const btn = document.getElementById('themeBtn');
+  if (document.body.classList.contains('light-mode')) {
+    btn.innerHTML = '&#9790; Dark';
+    localStorage.setItem('theme', 'light');
+  } else {
+    btn.innerHTML = '&#9788; Light';
+    localStorage.setItem('theme', 'dark');
+  }
+}
+function initTheme() {
+  if (localStorage.getItem('theme') === 'light') {
+    document.body.classList.add('light-mode');
+    const btn = document.getElementById('themeBtn');
+    if (btn) btn.innerHTML = '&#9790; Dark';
+  }
+}
+
+// ─── Formation ───
+function setFormation(slot) {
+  currentFormation = slot;
+  document.getElementById('fmAM').classList.toggle('active', slot === 'AM');
+  document.getElementById('fmPM').classList.toggle('active', slot === 'PM');
+  render();
+}
+
+// ─── Search ───
+function getSearchTerm() {
+  const inp = document.getElementById('searchInput');
+  return inp ? inp.value.trim().toLowerCase() : '';
+}
+function onSearch() { render(); }
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('clearSearchBtn').style.display = 'none';
+  render();
+}
+
+// ─── Sort ───
+function sortBy(col) {
+  if (sortCol === col) { sortDir = -sortDir; } else { sortCol = col; sortDir = 1; }
+  render();
+}
+function applySort(list) {
+  if (sortCol === 'name') return [...list].sort((a, b) => sortDir * a.last.localeCompare(b.last));
+  if (sortCol === 'status') {
+    const order = ['present', 'tdy', 'leave', 'pass', 'other', 'ftr'];
+    return [...list].sort((a, b) => {
+      const ai = order.indexOf(a.status), bi = order.indexOf(b.status);
+      return ai !== bi ? sortDir * (ai - bi) : a.last.localeCompare(b.last);
+    });
+  }
+  return [...list].sort((a, b) => sortDir * rankSort(a, b));
+}
+function updateSortHeaders() {
+  ['rank', 'name', 'status'].forEach(col => {
+    const th = document.getElementById(`th-${col}`);
+    if (!th) return;
+    th.className = 'sortable';
+    if (sortCol === col) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+
+// ─── Bulk select ───
+function toggleSelectRow(id) {
+  bulkSelected.has(id) ? bulkSelected.delete(id) : bulkSelected.add(id);
+  updateBulkBar();
+}
+function toggleSelectAll() {
+  const chk = document.getElementById('selectAllChk');
+  if (chk.checked) { personnel.forEach(p => bulkSelected.add(p.id)); }
+  else { bulkSelected.clear(); }
+  document.querySelectorAll('.row-checkbox[data-id]').forEach(c => {
+    c.checked = bulkSelected.has(parseInt(c.dataset.id));
+  });
+  updateBulkBar();
+}
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const countEl = document.getElementById('bulkCount');
+  const size = bulkSelected.size;
+  if (bar) bar.classList.toggle('visible', size > 0);
+  if (countEl) countEl.textContent = size;
+  const allChk = document.getElementById('selectAllChk');
+  if (allChk) {
+    allChk.checked = size > 0 && size === personnel.length;
+    allChk.indeterminate = size > 0 && size < personnel.length;
+  }
+}
+function clearBulkSelect() {
+  bulkSelected.clear();
+  document.querySelectorAll('.row-checkbox').forEach(c => c.checked = false);
+  updateBulkBar();
+}
+async function applyBulkStatus() {
+  const status = document.getElementById('bulkStatusSelect').value;
+  if (!status) { alert('Select a status to apply.'); return; }
+  if (!bulkSelected.size) return;
+  if (!confirm(`Set ${bulkSelected.size} personnel to "${status}"?`)) return;
+  const updates = [];
+  for (const id of bulkSelected) {
+    const p = personnel.find(x => x.id === id);
+    if (!p) continue;
+    p.status = status;
+    if (status === 'present') { p.notes = ''; p.from = ''; p.to = ''; p.present_date = getTodayStr(); }
+    updates.push(apiUpdate(p));
+  }
+  await Promise.all(updates);
+  clearBulkSelect();
+  render();
+}
+
+// ─── Download / Print ───
+function downloadReport() {
+  const text = document.getElementById('reportText').textContent;
+  const unitName = (document.getElementById('unitName').value || 'report').replace(/[^a-z0-9]/gi, '_');
+  const filename = `${unitName}_${getTodayStr()}_${currentFormation}.txt`;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function printRoster() { window.print(); }
+
+// ─── Report history ───
+function saveToHistory(reportText, unitName) {
+  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
+  history.unshift({ timestamp: new Date().toISOString(), platoon: currentPlatoon, unitName, text: reportText });
+  if (history.length > 50) history.splice(50);
+  localStorage.setItem('reportHistory', JSON.stringify(history));
+}
+function openHistory() {
+  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
+  const list = document.getElementById('historyList');
+  if (!history.length) {
+    list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
+  } else {
+    list.innerHTML = history.map((r, i) => {
+      const d = new Date(r.timestamp);
+      const ts = `${d.toLocaleDateString()} ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+      return `<div class="history-item" onclick="viewHistory(${i})">
+        <div class="history-item-ts">${ts} &nbsp;·&nbsp; ${r.platoon || ''}</div>
+        <div class="history-item-summary">${escapeHtml(r.unitName || 'Report')}</div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('historyModal').classList.add('active');
+}
+function closeHistory() { document.getElementById('historyModal').classList.remove('active'); }
+function viewHistory(i) {
+  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
+  const r = history[i];
+  if (!r) return;
+  historyViewData = r;
+  const d = new Date(r.timestamp);
+  document.getElementById('historyViewTitle').textContent = `${r.unitName || 'Report'} — ${d.toLocaleDateString()}`;
+  document.getElementById('historyViewText').textContent = r.text;
+  document.getElementById('historyModal').classList.remove('active');
+  document.getElementById('historyViewModal').classList.add('active');
+}
+function backToHistory() {
+  document.getElementById('historyViewModal').classList.remove('active');
+  openHistory();
+}
+function copyHistoryReport() {
+  const text = document.getElementById('historyViewText').textContent;
+  const btn = document.querySelector('#historyViewModal .btn-generate');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 1500);
+    });
+  }
+}
+function downloadHistoryReport() {
+  if (!historyViewData) return;
+  const name = (historyViewData.unitName || 'report').replace(/[^a-z0-9]/gi, '_');
+  const filename = `${name}_${historyViewData.timestamp.slice(0,10)}.txt`;
+  const blob = new Blob([historyViewData.text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ─── Audit log ───
+async function openAuditLog() {
+  document.getElementById('auditModal').classList.add('active');
+  const list = document.getElementById('auditList');
+  list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:8px 0">Loading…</p>';
+  const data = await api('GET', `/audit?platoon=${currentPlatoon}&limit=200`);
+  if (!data || !data.length) {
+    list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:8px 0">No audit entries.</p>'; return;
+  }
+  list.innerHTML = data.map(r => {
+    const ts = (r.timestamp || '').replace('T',' ').slice(0,16);
+    return `<div class="audit-row">
+      <div class="audit-ts">${ts}</div>
+      <div class="audit-user">${escapeHtml(r.username||'')}</div>
+      <div class="audit-action">${escapeHtml(r.action||'')}</div>
+      <div class="audit-details">${escapeHtml(r.details||'')}</div>
+    </div>`;
+  }).join('');
+}
 
 // ─── Event Listeners ───
 let unitNameTimer;
@@ -1497,6 +1883,8 @@ function selectPlatoon(platoon) {
   history.pushState({ platoon }, '', `?platoon=${platoon}`);
   document.getElementById('homeScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'block';
+  const auditBtn = document.getElementById('auditLogBtn');
+  if (auditBtn) auditBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
   load();
 }
 
@@ -1679,10 +2067,49 @@ window.addEventListener('popstate', () => {
   } else { loadHome(); }
 });
 
+initTheme();
 initApp();
 </script>
 
 </div><!-- end #platoonScreen -->
+
+<!-- User Management Modal (global — works from any screen) -->
+<div class="modal-overlay" id="userMgmtModal">
+  <div class="modal modal-wide">
+    <h2>Manage Users</h2>
+    <div id="userListWrap" style="max-height:320px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-add" onclick="openUserEditModal(null)">+ Add User</button>
+      <button class="btn-small btn-danger" onclick="closeUserMgmt()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add / Edit User Modal (global — works from any screen) -->
+<div class="modal-overlay" id="userEditModal">
+  <div class="modal">
+    <h2 id="userEditTitle">Add User</h2>
+    <label>Username</label>
+    <input type="text" id="userEditUsername" placeholder="Username" autocomplete="off" />
+    <label id="userEditPwLabel">Password</label>
+    <input type="password" id="userEditPassword" placeholder="Password" autocomplete="new-password" />
+    <label>Platoon Access</label>
+    <div class="platoon-checks">
+      <label><input type="checkbox" id="chk1st" /> 1st Platoon</label>
+      <label><input type="checkbox" id="chk2nd" /> 2nd Platoon</label>
+      <label><input type="checkbox" id="chkHq"  /> HQ Platoon</label>
+    </div>
+    <label class="admin-check-label">
+      <input type="checkbox" id="userEditAdmin" onchange="toggleAdminCheck()" />
+      Administrator (all platoons + user management)
+    </label>
+    <div id="userEditError" class="login-error" style="display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeUserEdit()">Cancel</button>
+      <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- Change Password Modal (global — works from any screen) -->
 <div class="modal-overlay" id="changePwModal">
