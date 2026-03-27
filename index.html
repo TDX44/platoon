@@ -361,7 +361,7 @@
   body.light-mode .modal, body.light-mode .report-box, body.light-mode table,
   body.light-mode .stats-bar, body.light-mode .login-card, body.light-mode .platoon-card,
   body.light-mode .calendar-container, body.light-mode .notes-preview,
-  body.light-mode .history-item, body.light-mode .duty-list { background: #ffffff; color: #2d3436; }
+  body.light-mode .history-item { background: #ffffff; color: #2d3436; }
   body.light-mode .date-display { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
   body.light-mode thead th { background: #0770c2; }
   body.light-mode tbody tr:hover { background: #e8f0fe; }
@@ -385,7 +385,6 @@
   body.light-mode .formation-toggle { background: #f0f4f8; border: 1px solid #c0c8d8; }
   body.light-mode .bulk-bar { background: #dbeafe; border-color: #3b82f6; }
   body.light-mode .bulk-bar-label { color: #1d4ed8; }
-  body.light-mode #dutyDate, body.light-mode #dutyType, body.light-mode #dutyPersonSelect,
   body.light-mode #bulkStatusSelect { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
 
   /* ─── Theme toggle button ─── */
@@ -438,11 +437,6 @@
   .audit-action { color: #00d4ff; min-width: 115px; }
   .audit-details { color: #b2bec3; flex: 1; }
 
-  .duty-list { max-height: 340px; overflow-y: auto; margin-bottom: 10px; }
-  .duty-row { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid #3a3a55; align-items: center; }
-  .duty-date-label { color: #fdcb6e; font-size: 0.8em; font-weight: 700; min-width: 84px; }
-  .duty-type-badge { padding: 2px 7px; border-radius: 3px; font-size: 0.72em; font-weight: 600; background: #6c5ce7; color: #fff; }
-  .duty-name { flex: 1; font-size: 0.88em; }
 
   /* ─── Print styles ─── */
   @media print {
@@ -520,7 +514,6 @@
   <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-reset" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
-  <button class="btn-import" onclick="openDutyRoster()">&#128203; Duty Roster</button>
   <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
   <button class="btn-reset" onclick="printRoster()">&#128424; Print</button>
   <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
@@ -747,30 +740,6 @@
   </div>
 </div>
 
-<!-- Duty Roster Modal -->
-<div class="modal-overlay" id="dutyModal">
-  <div class="modal modal-wide">
-    <h2>&#128203; Duty Roster</h2>
-    <div class="duty-list" id="dutyList"></div>
-    <div style="border-top:1px solid #3a3a55;padding-top:12px;margin-top:4px;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-        <input type="date" id="dutyDate" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:5px;padding:6px 10px;font-size:0.88em;" />
-        <select id="dutyType" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:5px;padding:6px 10px;font-size:0.88em;">
-          <option>CQ</option><option>SDO</option><option>SDNCO</option><option>TOC</option><option>CQ Runner</option><option>Other</option>
-        </select>
-        <select id="dutyPersonSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:5px;padding:6px 10px;font-size:0.88em;flex:1;min-width:150px;">
-          <option value="">Select person…</option>
-        </select>
-      </div>
-      <div style="display:flex;justify-content:flex-end;">
-        <button class="btn-small btn-add" onclick="addDutyEntry()">+ Add Entry</button>
-      </div>
-    </div>
-    <div class="modal-buttons" style="margin-top:10px;">
-      <button class="btn-small btn-danger" onclick="document.getElementById('dutyModal').classList.remove('active')">Close</button>
-    </div>
-  </div>
-</div>
 
 <script>
 const RANK_ORDER = [
@@ -1540,10 +1509,10 @@ function generateReport() {
     lines.push('');
     lines.push(`Leave & Pass ${leave.length}`);
     leave.forEach(p => {
-      const parts = [`${p.status === 'pass' ? 'Pass' : 'Leave'}`];
+      const parts = [];
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1551,7 +1520,7 @@ function generateReport() {
     lines.push('');
     lines.push(`TDY ${tdy.length}`);
     tdy.forEach(p => {
-      const parts = ['TDY'];
+      const parts = [];
       if (p.notes) {
         const idx = p.notes.indexOf(' - ');
         if (idx !== -1) {
@@ -1563,7 +1532,7 @@ function generateReport() {
       }
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1571,11 +1540,11 @@ function generateReport() {
     lines.push('');
     lines.push(`OTHER/NOT PDY ${other.length}`);
     other.forEach(p => {
-      const parts = ['Other'];
+      const parts = [];
       if (p.notes) parts.push(p.notes);
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -1583,10 +1552,8 @@ function generateReport() {
     lines.push('');
     lines.push(`FTR ${ftr.length}`);
     ftr.forEach(p => {
-      const parts = ['FTR'];
       const dr = reportDateRange(p);
-      if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${dr ? '  ' + dr : ''}`);
     });
   }
 
@@ -1836,58 +1803,6 @@ async function openAuditLog() {
       <div class="audit-details">${escapeHtml(r.details||'')}</div>
     </div>`;
   }).join('');
-}
-
-// ─── Duty roster ───
-async function openDutyRoster() {
-  document.getElementById('dutyModal').classList.add('active');
-  document.getElementById('dutyDate').value = getTodayStr();
-  const personSel = document.getElementById('dutyPersonSelect');
-  personSel.innerHTML = '<option value="">Select person…</option>' +
-    [...personnel].sort(rankSort).map(p =>
-      `<option value="${p.id}" data-rank="${escapeHtml(p.rank)}" data-last="${escapeHtml(p.last)}" data-first="${escapeHtml(p.first)}">${p.rank} ${p.last}, ${p.first}</option>`
-    ).join('');
-  await loadDutyRoster();
-}
-async function loadDutyRoster() {
-  const list = document.getElementById('dutyList');
-  list.innerHTML = '<p style="color:#636e72;font-size:0.82em;padding:6px 0">Loading…</p>';
-  const data = await api('GET', `/duty?platoon=${currentPlatoon}`);
-  if (!data || !data.length) {
-    list.innerHTML = '<p style="color:#636e72;font-size:0.82em;padding:6px 0">No duty entries yet.</p>'; return;
-  }
-  const byDate = {};
-  data.forEach(r => { if (!byDate[r.date]) byDate[r.date] = []; byDate[r.date].push(r); });
-  list.innerHTML = Object.entries(byDate).map(([date, entries]) => {
-    const d = new Date(date + 'T00:00:00');
-    const ds = `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-    return `<div style="margin-bottom:8px;">
-      <div class="duty-date-label">${ds}</div>
-      ${entries.map(e => `<div class="duty-row">
-        <span class="duty-type-badge">${escapeHtml(e.duty_type)}</span>
-        <span class="duty-name">${e.rank ? escapeHtml(e.rank)+' ' : ''}${escapeHtml(e.last||'')}${e.first?', '+escapeHtml(e.first):''}</span>
-        ${e.notes ? `<span style="color:#636e72;font-size:0.8em">${escapeHtml(e.notes)}</span>` : ''}
-        <button class="btn-small btn-danger" onclick="deleteDutyEntry(${e.id})" style="padding:3px 7px;font-size:0.72em;">&#10005;</button>
-      </div>`).join('')}
-    </div>`;
-  }).join('');
-}
-async function addDutyEntry() {
-  const date = document.getElementById('dutyDate').value;
-  const dutyType = document.getElementById('dutyType').value;
-  const sel = document.getElementById('dutyPersonSelect');
-  const opt = sel.options[sel.selectedIndex];
-  if (!date) { alert('Select a date.'); return; }
-  const rank = opt && opt.value ? opt.dataset.rank || '' : '';
-  const last = opt && opt.value ? opt.dataset.last || '' : '';
-  const first = opt && opt.value ? opt.dataset.first || '' : '';
-  await api('POST', '/duty', { date, platoon: currentPlatoon, duty_type: dutyType, rank, last, first });
-  await loadDutyRoster();
-}
-async function deleteDutyEntry(id) {
-  if (!confirm('Remove this duty entry?')) return;
-  await api('DELETE', `/duty/${id}`);
-  await loadDutyRoster();
 }
 
 // ─── Event Listeners ───
