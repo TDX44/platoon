@@ -546,7 +546,6 @@
   <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
   <button class="btn-reset" onclick="printRoster()">&#128424; Print</button>
   <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
-  <button class="btn-reset" onclick="openChangePwModal()">&#128273; Password</button>
 </div>
 <div class="search-wrap">
   <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
@@ -1031,9 +1030,10 @@ function buildAwayRow(p, rowNum, todayStr) {
     <td>${rowNum}</td>
     <td class="rank-cell">${p.rank}</td>
     <td class="name-cell">
-      ${p.last}, ${p.first}${returningBadge}
+      ${p.last}, ${p.first}
       ${p.notes ? `<div class="away-notes">${escapeHtml(p.notes)}</div>` : ''}
       ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
+      ${returningBadge ? `<div style="margin-top:3px;">${returningBadge}</div>` : ''}
     </td>
     <td style="display:flex;align-items:center;gap:6px;">${statusBadge(p.status)}<button class="present-btn inactive" onclick="markPresent(${i})">&#9675; Mark Present</button></td>
     <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
