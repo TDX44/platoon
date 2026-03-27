@@ -111,6 +111,7 @@
   .badge-tdy { background: #0984e3; color: #fff; }
   .badge-other { background: #e17055; color: #fff; }
   .badge-ftr { background: #d63031; color: #fff; }
+  .badge-loan { background: #6c5ce7; color: #fff; }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -161,6 +162,7 @@
   .status-toggle.active-pass { border-color: #ffeaa7; background: #ffeaa722; color: #ffeaa7; }
   .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
   .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
+  .status-toggle.active-loan { border-color: #6c5ce7; background: #6c5ce722; color: #a29bfe; }
 
   /* TDY School field */
   .tdy-school-row { display: none; }
@@ -685,6 +687,12 @@
       <button class="status-toggle" data-status="pass" onclick="setAwayStatus('pass')">Pass</button>
       <button class="status-toggle" data-status="other" onclick="setAwayStatus('other')">Other</button>
       <button class="status-toggle" data-status="ftr" onclick="setAwayStatus('ftr')">FTR</button>
+      <button class="status-toggle" data-status="loan" onclick="setAwayStatus('loan')">On Loan</button>
+    </div>
+
+    <div id="loanRow" style="display:none;">
+      <label>Position</label>
+      <input type="text" id="loanPosition" placeholder="e.g. S2 NCOIC, BN Intel Officer" oninput="updateNotesPreview()" />
     </div>
 
     <div class="tdy-school-row" id="tdySchoolRow">
@@ -896,7 +904,7 @@ function formatDateDisplay(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR' };
+  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR', loan:'On Loan' };
   return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
 }
 
@@ -946,14 +954,16 @@ function render() {
   const otherList       = sortCol !== 'rank'
     ? applySort(visible.filter(p => p.status === 'other' || p.status === 'ftr'))
     : visible.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+  const loanList        = applySort(visible.filter(p => p.status === 'loan'));
 
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
 
-  // Counts always use full (unfiltered) personnel
-  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0 };
+  // Counts always use full (unfiltered) personnel — loan excluded from accountability counts
+  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, loan:0 };
   personnel.forEach(p => {
-    if (isUnaccounted(p)) { counts.unaccounted++; }
+    if (p.status === 'loan') { counts.loan++; }
+    else if (isUnaccounted(p)) { counts.unaccounted++; }
     else { counts[p.status] = (counts[p.status] || 0) + 1; }
   });
 
@@ -1036,7 +1046,29 @@ function render() {
     otherList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
   }
 
-  const total = personnel.length;
+  // On Loan section (bottom, excluded from accountability)
+  if (loanList.length) {
+    const sep = document.createElement('tr');
+    sep.className = 'section-header';
+    sep.innerHTML = `<td colspan="7" style="color:#a29bfe;border-color:#6c5ce7;">ON LOAN TO BATTALION (${counts.loan}${term ? ` — showing ${loanList.length}` : ''})</td>`;
+    body.appendChild(sep);
+    loanList.forEach(p => {
+      const i = personnel.indexOf(p);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+        <td>${rowNum++}</td>
+        <td class="rank-cell">${p.rank}</td>
+        <td class="name-cell">${p.last}, ${p.first}${p.notes ? `<div class="away-notes" style="color:#a29bfe;">${escapeHtml(p.notes)}</div>` : ''}</td>
+        <td></td>
+        <td>${statusBadge('loan')}</td>
+        <td><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  const total = personnel.filter(p => p.status !== 'loan').length;
   const leavePass = (counts.leave || 0) + (counts.pass || 0);
   document.getElementById('statsBar').innerHTML = `
     <div class="stat"><div class="num">${total}</div><div class="label">Assigned</div></div>
@@ -1046,6 +1078,7 @@ function render() {
     <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy||0}</div><div class="label">TDY</div></div>
     <div class="stat"><div class="num" style="color:#e17055">${counts.other||0}</div><div class="label">Other</div></div>
     <div class="stat"><div class="num" style="color:#d63031">${counts.ftr||0}</div><div class="label">FTR</div></div>
+    ${counts.loan ? `<div class="stat"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
   `;
 
   updateSortHeaders();
@@ -1258,17 +1291,21 @@ function setAwayStatus(status) {
   awayStatus = status;
   document.querySelectorAll('.status-toggle').forEach(btn => {
     btn.className = 'status-toggle';
-    if (btn.dataset.status === status) {
-      btn.classList.add(`active-${status}`);
-    }
+    if (btn.dataset.status === status) btn.classList.add(`active-${status}`);
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
+  document.getElementById('loanRow').style.display = status === 'loan' ? 'block' : 'none';
+  // Hide date picker for loan (no dates needed)
+  document.querySelector('.date-pick-row').style.display = status === 'loan' ? 'none' : '';
+  document.getElementById('calendarContainer').classList.remove('open');
+  document.getElementById('notesPreview').closest('div').previousElementSibling.style.display = status === 'loan' ? 'none' : '';
+  document.getElementById('notesPreview').closest('div').style.display = status === 'loan' ? 'none' : '';
   updateNotesPreview();
 }
 
 // ─── Notes preview ───
 function updateNotesPreview() {
-  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
+  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR', loan:'On Loan' };
   const parts = [statusLabels[awayStatus] || awayStatus];
 
   if (awayStatus === 'tdy') {
@@ -1297,7 +1334,10 @@ function openTdyLeave(i) {
   const status = (p.status === 'present') ? 'tdy' : p.status;
   setAwayStatus(status);
 
-  // Restore school and location from notes (stored as "school - location")
+  // Restore school/location or position from notes
+  document.getElementById('awaySchool').value = '';
+  document.getElementById('awayLocation').value = '';
+  document.getElementById('loanPosition').value = '';
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
@@ -1305,11 +1345,9 @@ function openTdyLeave(i) {
       document.getElementById('awayLocation').value = p.notes.slice(idx + 3);
     } else {
       document.getElementById('awaySchool').value = p.notes;
-      document.getElementById('awayLocation').value = '';
     }
-  } else {
-    document.getElementById('awaySchool').value = '';
-    document.getElementById('awayLocation').value = '';
+  } else if (status === 'loan' && p.notes) {
+    document.getElementById('loanPosition').value = p.notes;
   }
 
   awayFrom = p.from || '';
@@ -1344,10 +1382,7 @@ async function saveTdyLeave() {
   const p = personnel[tdyLeaveIndex];
 
   p.status = awayStatus;
-  p.from = awayFrom;
-  p.to = awayTo;
 
-  // Notes stores only descriptive text — status badge and dates render separately
   if (awayStatus === 'tdy') {
     const school = document.getElementById('awaySchool').value.trim();
     const location = document.getElementById('awayLocation').value.trim();
@@ -1355,8 +1390,13 @@ async function saveTdyLeave() {
     if (school) parts.push(school);
     if (location) parts.push(location);
     p.notes = parts.join(' - ');
+    p.from = awayFrom; p.to = awayTo;
+  } else if (awayStatus === 'loan') {
+    p.notes = document.getElementById('loanPosition').value.trim();
+    p.from = ''; p.to = '';
   } else {
     p.notes = '';
+    p.from = awayFrom; p.to = awayTo;
   }
 
   await apiUpdate(p);
@@ -1509,8 +1549,8 @@ function formatDate(d) {
 }
 
 function generateReport() {
-  // Check for unaccounted personnel
-  const unaccounted = personnel.filter(p => isUnaccounted(p));
+  // Check for unaccounted personnel (loan excluded)
+  const unaccounted = personnel.filter(p => p.status !== 'loan' && isUnaccounted(p));
   if (unaccounted.length > 0) {
     const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
     alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
@@ -1525,11 +1565,13 @@ function generateReport() {
   const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
   const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
+  // loan excluded from report entirely
 
+  const assignedCount = personnel.filter(p => p.status !== 'loan').length;
   let lines = [];
   lines.push(unitName);
   lines.push(today);
-  lines.push(`${personnel.length} Assigned`);
+  lines.push(`${assignedCount} Assigned`);
   lines.push('');
 
   lines.push(`PDY ${present.length}`);
@@ -2239,7 +2281,7 @@ function showPinMsg(msg, color) {
 function exportCSV() {
   const today = getTodayStr();
   const rows = [['#','Rank','Last','First','Status','Notes','From','To']];
-  personnel.forEach((p, i) => {
+  personnel.filter(p => p.status !== 'loan').forEach((p, i) => {
     const status = p.status === 'present'
       ? (p.present_date === today ? 'Present' : 'Unaccounted')
       : p.status.charAt(0).toUpperCase() + p.status.slice(1);
