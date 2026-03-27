@@ -551,6 +551,8 @@
     <div class="hamburger-dropdown" id="hamburgerDropdown">
       <button onclick="toggleTheme();closeHamburger()" id="themeMenuItem">&#9788; Light Mode</button>
       <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">&#9881; Manage Users</button>
+      <button id="backupMenuItem" onclick="exportBackup();closeHamburger()" style="display:none">&#128190; Export Backup</button>
+      <button id="restoreMenuItem" onclick="openRestoreModal();closeHamburger()" style="display:none">&#128228; Import Backup</button>
       <button onclick="openChangePwModal();closeHamburger()">&#128273; Change Password</button>
       <button onclick="openPinSetupModal();closeHamburger()">&#128290; Set PIN</button>
       <button onclick="doLogout()" style="color:#ff7675;">&#8594; Sign Out</button>
@@ -1980,9 +1982,11 @@ async function loadHome() {
   document.getElementById('platoonScreen').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'none';
 
-  // Show admin item only for admins
-  document.getElementById('manageUsersMenuItem').style.display =
-    currentUser && currentUser.is_admin ? 'block' : 'none';
+  // Show admin items only for admins
+  const isAdmin = currentUser && currentUser.is_admin;
+  document.getElementById('manageUsersMenuItem').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('backupMenuItem').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('restoreMenuItem').style.display = isAdmin ? 'block' : 'none';
 
   // Filter platoon cards by access
   ['1st', '2nd', 'hq'].forEach(p => {
@@ -2375,6 +2379,57 @@ function extendSession() {
   }, { passive: true })
 );
 
+// ─── Backup / Restore ───
+async function exportBackup() {
+  try {
+    const res = await fetch('/api/backup');
+    if (!res.ok) { alert('Export failed.'); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const today = getTodayStr();
+    a.download = `platoon-backup-${today}.json`;
+    a.click();
+  } catch(e) {
+    alert('Export failed: ' + e.message);
+  }
+}
+
+function openRestoreModal() {
+  document.getElementById('restoreFile').value = '';
+  document.getElementById('restoreMsg').style.display = 'none';
+  document.getElementById('restoreModal').classList.add('active');
+}
+function closeRestoreModal() {
+  document.getElementById('restoreModal').classList.remove('active');
+}
+
+async function importBackup() {
+  const file = document.getElementById('restoreFile').files[0];
+  const msgEl = document.getElementById('restoreMsg');
+  if (!file) { showRestoreMsg('Please select a backup file.', '#ff7675'); return; }
+  if (!confirm('This will overwrite ALL current data. Are you sure?')) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const res = await fetch('/api/backup/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) { showRestoreMsg(data.error || 'Restore failed.', '#ff7675'); return; }
+    showRestoreMsg(`Restored ${data.personnel} personnel and ${data.users} users. Reloading…`, '#00b894');
+    setTimeout(() => { closeRestoreModal(); location.reload(); }, 2000);
+  } catch(e) {
+    showRestoreMsg('Invalid file or parse error: ' + e.message, '#ff7675');
+  }
+}
+
+function showRestoreMsg(msg, color) {
+  const el = document.getElementById('restoreMsg');
+  el.textContent = msg; el.style.color = color; el.style.display = 'block';
+}
+
 initTheme();
 initApp();
 </script>
@@ -2467,6 +2522,21 @@ initApp();
     <div class="modal-buttons">
       <button class="btn-small btn-danger" onclick="closeResetConfirm()">Cancel</button>
       <button class="btn-small btn-add" onclick="confirmReset()">Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Backup Modal -->
+<div class="modal-overlay" id="restoreModal">
+  <div class="modal" style="max-width:380px;">
+    <h2>&#128228; Import Backup</h2>
+    <p style="font-size:0.85em;color:#ff7675;margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
+    <label style="display:block;margin-bottom:6px;">Select backup file (.json)</label>
+    <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:#1a1a2e;border:1px solid #444;border-radius:5px;color:#e0e0e0;margin-bottom:12px;">
+    <div id="restoreMsg" style="display:none;margin-bottom:10px;font-size:0.85em;"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeRestoreModal()">Cancel</button>
+      <button class="btn-small btn-add" onclick="importBackup()">Restore</button>
     </div>
   </div>
 </div>

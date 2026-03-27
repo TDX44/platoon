@@ -599,6 +599,87 @@ def delete_duty(entry_id):
     return jsonify({'success': True})
 
 
+# ── Backup / Restore ──
+
+@app.route('/api/backup', methods=['GET'])
+@admin_required
+def export_backup():
+    conn = get_db()
+    personnel = [dict(r) for r in conn.execute('SELECT * FROM personnel').fetchall()]
+    settings   = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
+    users      = [dict(r) for r in conn.execute(
+        'SELECT id, username, is_admin, platoons, pin_hash FROM users'
+    ).fetchall()]
+    conn.close()
+    payload = {
+        'version': 1,
+        'exported_at': datetime.utcnow().isoformat() + 'Z',
+        'personnel': personnel,
+        'settings': settings,
+        'users': users,
+    }
+    log_action('BACKUP_EXPORT', 'Full backup exported')
+    from flask import Response
+    import json
+    return Response(
+        json.dumps(payload, indent=2),
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=platoon-backup-{date.today()}.json'}
+    )
+
+
+@app.route('/api/backup/restore', methods=['POST'])
+@admin_required
+def import_backup():
+    payload = request.get_json()
+    if not payload or payload.get('version') != 1:
+        return jsonify({'error': 'Invalid or unsupported backup file'}), 400
+
+    conn = get_db()
+    try:
+        # Restore personnel
+        if 'personnel' in payload:
+            conn.execute('DELETE FROM personnel')
+            for p in payload['personnel']:
+                conn.execute(
+                    'INSERT INTO personnel (id, rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (p.get('id'), p.get('rank',''), p.get('last',''), p.get('first',''),
+                     p.get('status','present'), p.get('notes',''),
+                     p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
+                     p.get('platoon','2nd'))
+                )
+
+        # Restore settings
+        if 'settings' in payload:
+            conn.execute('DELETE FROM settings')
+            for s in payload['settings']:
+                conn.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
+
+        # Restore users (keep current admin if not in backup to avoid lockout)
+        if 'users' in payload:
+            current_uid = session.get('user_id')
+            conn.execute('DELETE FROM users WHERE id != ?', (current_uid,))
+            for u in payload['users']:
+                if u['id'] == current_uid:
+                    continue  # skip — current user already exists
+                conn.execute(
+                    'INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, platoons, pin_hash) VALUES (?, ?, ?, ?, ?, ?)',
+                    (u['id'], u['username'], u.get('password_hash',''), u.get('is_admin',0),
+                     u.get('platoons',''), u.get('pin_hash',''))
+                )
+
+        conn.commit()
+        log_action('BACKUP_RESTORE', 'Full backup restored')
+        return jsonify({'success': True,
+                        'personnel': len(payload.get('personnel',[])),
+                        'users': len(payload.get('users',[]))})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
 # ── Session timeout ──
 SESSION_TIMEOUT_MINUTES = 30
 
