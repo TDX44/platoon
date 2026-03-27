@@ -218,8 +218,12 @@
     .stats-bar { gap: 4px; padding: 6px 8px; margin-bottom: 8px; }
     .stat .num { font-size: 1em; }
     .stat .label { font-size: 0.6em; }
-    .controls { gap: 6px; margin-bottom: 10px; }
-    .controls button { padding: 8px 10px; font-size: 0.85em; flex: 1; min-width: 0; }
+
+    /* Controls: 2-column grid, back button spans full width */
+    .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
+    .controls .btn-back { grid-column: 1 / -1; }
+    .controls-secondary { grid-template-columns: repeat(3, 1fr); }
+    .controls button { padding: 10px 6px; font-size: 0.82em; white-space: nowrap; }
 
     /* Convert table to card layout */
     .table-wrap { overflow-x: visible; }
@@ -228,8 +232,8 @@
     .table-wrap table tbody { display: block; }
     .table-wrap table tbody tr {
       display: flex !important; flex-wrap: nowrap; align-items: center; gap: 4px;
-      background: #2d2d44; border-radius: 6px; margin-bottom: 3px;
-      padding: 8px 8px; border: 1px solid #3a3a55; min-height: 44px;
+      background: #2d2d44; border-radius: 6px; margin-bottom: 4px;
+      padding: 8px; border: 1px solid #3a3a55; min-height: 44px;
     }
     .table-wrap table tbody tr:hover { background: #35355a; }
     .table-wrap table tbody tr td {
@@ -237,28 +241,26 @@
       font-size: 0.8em;
     }
 
-    /* Row number - hide (exclude section headers which only have one td) */
+    /* Col 1: Checkbox — hide on mobile */
     .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(1) { display: none !important; }
-    /* Rank - shrink */
-    .table-wrap table tbody tr td:nth-child(2) { flex: 0 0 auto; }
+    /* Col 2: # Number — hide */
+    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(2) { display: none !important; }
+    /* Col 3: Rank */
+    .table-wrap table tbody tr td:nth-child(3) { flex: 0 0 auto; }
     .rank-cell { font-size: 0.75em !important; }
-    /* Name - fill remaining space */
-    .table-wrap table tbody tr td:nth-child(3) { flex: 1 1 0 !important; min-width: 0; overflow: hidden; }
-    .name-cell { white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; font-size: 0.8em !important; }
-    .away-notes { font-size: 0.7em !important; white-space: normal !important; overflow: visible !important; }
-    .away-dates { font-size: 0.65em !important; white-space: normal !important; }
-    tr.away-row { align-items: flex-start !important; padding-top: 10px !important; padding-bottom: 10px !important; }
-    tr.away-row .name-cell { white-space: normal !important; overflow: visible !important; text-overflow: unset !important; }
-    /* Present btn */
-    .table-wrap table tbody tr td:nth-child(4) { flex: 0 0 auto; }
-    /* Status / TDY Leave btn */
+    /* Col 4: Name — fill remaining space */
+    .table-wrap table tbody tr td:nth-child(4) { flex: 1 1 0 !important; min-width: 0; overflow: hidden; }
+    .name-cell { white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; font-size: 0.82em !important; }
+    /* Col 5: Present btn */
     .table-wrap table tbody tr td:nth-child(5) { flex: 0 0 auto; }
-    /* Remove btn */
+    /* Col 6: Status / TDY Leave */
     .table-wrap table tbody tr td:nth-child(6) { flex: 0 0 auto; }
+    /* Col 7: Edit + Delete */
+    .table-wrap table tbody tr td:nth-child(7) { flex: 0 0 auto; }
 
-    .present-btn { padding: 10px 10px; font-size: 0.75em; white-space: nowrap; }
-    .btn-tdy-leave { padding: 10px 8px; font-size: 0.7em; white-space: nowrap; }
-    .btn-small { padding: 10px 8px; font-size: 0.75em; }
+    .present-btn { padding: 8px 10px; font-size: 0.72em; white-space: nowrap; }
+    .btn-tdy-leave { padding: 8px 7px; font-size: 0.68em; white-space: nowrap; }
+    .btn-small { padding: 8px 8px; font-size: 0.72em; }
     .status-badge { padding: 1px 5px; font-size: 0.65em; }
     .returned-badge { padding: 1px 5px; font-size: 0.6em; }
 
@@ -267,9 +269,25 @@
       display: block !important; padding: 6px 8px !important;
       border-radius: 4px; margin-top: 8px; margin-bottom: 2px;
     }
-    tr.section-header td, tr.section-header-tdy td {
-      padding: 0 !important; font-size: 0.8em;
+    tr.section-header td, tr.section-header-tdy td { padding: 0 !important; font-size: 0.8em; }
+
+    /* Away rows: wrap — info on top, action buttons below */
+    tr.away-row {
+      flex-wrap: wrap !important; align-items: flex-start !important;
+      padding: 8px !important; gap: 0 4px !important;
     }
+    tr.away-row td:nth-child(4) { flex: 1 1 0 !important; min-width: 0; overflow: visible !important; }
+    tr.away-row .name-cell {
+      white-space: normal !important; overflow: visible !important; text-overflow: unset !important;
+      font-size: 0.82em !important; line-height: 1.4;
+    }
+    .away-notes { font-size: 0.72em !important; color: #b2bec3; white-space: normal !important; overflow: visible !important; }
+    .away-dates { font-size: 0.68em !important; color: #74b9ff; white-space: normal !important; }
+    /* Mark present: push to its own full-width row */
+    tr.away-row td:nth-child(5) { flex: 0 0 100% !important; order: 10; margin-top: 6px; }
+    tr.away-row td:nth-child(5) .present-btn { width: 100% !important; font-size: 0.72em !important; text-align: center; }
+    tr.away-row td:nth-child(6) { order: 11; flex: 0 0 auto !important; margin-top: 4px; }
+    tr.away-row td:nth-child(7) { order: 12; flex: 0 0 auto !important; margin-top: 4px; }
 
     /* Modal adjustments */
     .modal { padding: 15px; width: 100%; max-width: 95vw; }
@@ -281,7 +299,6 @@
     .date-display { padding: 6px 4px; font-size: 0.8em; }
     .cal-day { padding: 8px 2px; font-size: 0.85em; }
     .cal-header button { padding: 5px 12px; }
-
     .report-box { padding: 12px; }
     .report-text { font-size: 0.7em; padding: 8px; }
   }
@@ -507,7 +524,7 @@
   <button class="btn-reset" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
 </div>
-<div class="controls" style="margin-top:6px;">
+<div class="controls controls-secondary" style="margin-top:6px;">
   <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
   <button class="btn-reset" onclick="printRoster()">&#128424; Print</button>
   <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
