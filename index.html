@@ -271,23 +271,51 @@
     }
     tr.section-header td, tr.section-header-tdy td { padding: 0 !important; font-size: 0.8em; }
 
-    /* Away rows: wrap — info on top, action buttons below */
+    /* Away rows: CSS Grid — left col = rank+name+info, right col = stacked buttons */
     tr.away-row {
-      flex-wrap: wrap !important; align-items: flex-start !important;
-      padding: 8px !important; gap: 0 4px !important;
+      display: grid !important;
+      grid-template-columns: auto 1fr auto !important;
+      grid-template-rows: auto auto auto !important;
+      padding: 8px !important; gap: 0 8px !important;
+      align-items: start !important;
     }
-    tr.away-row td:nth-child(4) { flex: 1 1 0 !important; min-width: 0; overflow: visible !important; }
+    /* hide checkbox (#1) and seq-number (#2) */
+    tr.away-row td:nth-child(1),
+    tr.away-row td:nth-child(2) { display: none !important; }
+    /* rank — left strip, spans all 3 rows */
+    tr.away-row td:nth-child(3) {
+      grid-column: 1; grid-row: 1 / 4;
+      align-self: start; padding: 0 4px 0 0 !important;
+    }
+    /* name/info — middle, spans all 3 rows */
+    tr.away-row td:nth-child(4) {
+      grid-column: 2; grid-row: 1 / 4;
+      min-width: 0; overflow: visible !important;
+    }
     tr.away-row .name-cell {
       white-space: normal !important; overflow: visible !important; text-overflow: unset !important;
       font-size: 0.82em !important; line-height: 1.4;
     }
     .away-notes { font-size: 0.72em !important; color: #b2bec3; white-space: normal !important; overflow: visible !important; }
     .away-dates { font-size: 0.68em !important; color: #74b9ff; white-space: normal !important; }
-    /* Mark present: push to its own full-width row */
-    tr.away-row td:nth-child(5) { flex: 0 0 100% !important; order: 10; margin-top: 6px; }
-    tr.away-row td:nth-child(5) .present-btn { width: 100% !important; font-size: 0.72em !important; text-align: center; }
-    tr.away-row td:nth-child(6) { order: 11; flex: 0 0 auto !important; margin-top: 4px; }
-    tr.away-row td:nth-child(7) { order: 12; flex: 0 0 auto !important; margin-top: 4px; }
+    /* Mark Present — right col, row 1 */
+    tr.away-row td:nth-child(5) {
+      grid-column: 3; grid-row: 1;
+      display: flex !important; justify-content: flex-end !important;
+    }
+    tr.away-row td:nth-child(5) .present-btn { font-size: 0.68em !important; white-space: nowrap; }
+    /* status badge — right col, row 2 */
+    tr.away-row td:nth-child(6) {
+      grid-column: 3; grid-row: 2;
+      display: flex !important; justify-content: flex-end !important;
+      margin-top: 4px !important; padding: 0 !important;
+    }
+    /* actions — right col, row 3 */
+    tr.away-row td:nth-child(7) {
+      grid-column: 3; grid-row: 3;
+      display: flex !important; justify-content: flex-end !important;
+      margin-top: 4px !important; padding: 0 !important;
+    }
 
     /* Modal adjustments */
     .modal { padding: 15px; width: 100%; max-width: 95vw; }
@@ -326,6 +354,31 @@
   .btn-login:disabled { background: #555; cursor: default; }
   .login-card label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
   .login-card input { width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid #444; border-radius: 5px; background: #1a1a2e; color: #e0e0e0; font-size: 0.95em; }
+
+  /* ─── Hamburger menu ─── */
+  .hamburger-wrap { position: absolute; top: 0; left: 0; z-index: 50; }
+  .hamburger-btn {
+    background: transparent; border: 1px solid #444; color: #aaa;
+    font-size: 1.3em; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    transition: all 0.2s; line-height: 1;
+  }
+  .hamburger-btn:hover { border-color: #00d4ff; color: #00d4ff; }
+  .hamburger-dropdown {
+    display: none; flex-direction: column; position: absolute; top: calc(100% + 6px); left: 0;
+    background: #2d2d44; border: 1px solid #444; border-radius: 8px;
+    min-width: 190px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); overflow: hidden;
+  }
+  .hamburger-dropdown.open { display: flex; }
+  .hamburger-dropdown button {
+    background: transparent; border: none; color: #e0e0e0; padding: 12px 16px;
+    text-align: left; cursor: pointer; font-size: 0.9em; font-weight: 500;
+    transition: background 0.15s; border-bottom: 1px solid #3a3a55; width: 100%;
+  }
+  .hamburger-dropdown button:last-child { border-bottom: none; }
+  .hamburger-dropdown button:hover { background: #35355a; }
+  body.light-mode .hamburger-dropdown { background: #fff; border-color: #c0c8d8; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+  body.light-mode .hamburger-dropdown button { color: #2d3436; border-bottom-color: #e0e6ef; }
+  body.light-mode .hamburger-dropdown button:hover { background: #f0f4f8; }
 
   /* ─── Home / Platoon selector ─── */
   #homeScreen {
@@ -486,11 +539,14 @@
 
 <!-- ─── Home Screen ─── -->
 <div id="homeScreen">
-  <div class="home-actions">
-    <button class="btn-theme" id="themeBtn" onclick="toggleTheme()">&#9788; Light</button>
-    <button class="btn-manage-users" id="manageUsersBtn" onclick="openUserMgmt()" style="display:none">&#9881; Users</button>
-    <button class="btn-manage-users" onclick="openChangePwModal()">&#128273; Change Password</button>
-    <button class="btn-logout" onclick="doLogout()">Sign Out</button>
+  <div class="hamburger-wrap">
+    <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleHamburger()" aria-label="Menu">&#9776;</button>
+    <div class="hamburger-dropdown" id="hamburgerDropdown">
+      <button onclick="toggleTheme();closeHamburger()" id="themeMenuItem">&#9788; Light Mode</button>
+      <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">&#9881; Manage Users</button>
+      <button onclick="openChangePwModal();closeHamburger()">&#128273; Change Password</button>
+      <button onclick="doLogout()" style="color:#ff7675;">&#8594; Sign Out</button>
+    </div>
   </div>
   <div class="home-title">Platoon Accountability</div>
   <p class="home-subtitle">Select your platoon to begin</p>
@@ -1569,23 +1625,31 @@ function fallbackCopy(text, btn) {
 }
 function closeReport() { document.getElementById('reportModal').classList.remove('active'); }
 
+// ─── Hamburger menu ───
+function toggleHamburger() {
+  document.getElementById('hamburgerDropdown').classList.toggle('open');
+}
+function closeHamburger() {
+  document.getElementById('hamburgerDropdown').classList.remove('open');
+}
+
 // ─── Theme ───
 function toggleTheme() {
   document.body.classList.toggle('light-mode');
-  const btn = document.getElementById('themeBtn');
+  const item = document.getElementById('themeMenuItem');
   if (document.body.classList.contains('light-mode')) {
-    btn.innerHTML = '&#9790; Dark';
+    if (item) item.innerHTML = '&#9790; Dark Mode';
     localStorage.setItem('theme', 'light');
   } else {
-    btn.innerHTML = '&#9788; Light';
+    if (item) item.innerHTML = '&#9788; Light Mode';
     localStorage.setItem('theme', 'dark');
   }
 }
 function initTheme() {
   if (localStorage.getItem('theme') === 'light') {
     document.body.classList.add('light-mode');
-    const btn = document.getElementById('themeBtn');
-    if (btn) btn.innerHTML = '&#9790; Dark';
+    const item = document.getElementById('themeMenuItem');
+    if (item) item.innerHTML = '&#9790; Dark Mode';
   }
 }
 
@@ -1861,9 +1925,9 @@ async function loadHome() {
   document.getElementById('platoonScreen').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'none';
 
-  // Show admin button only for admins
-  document.getElementById('manageUsersBtn').style.display =
-    currentUser && currentUser.is_admin ? 'inline-block' : 'none';
+  // Show admin item only for admins
+  document.getElementById('manageUsersMenuItem').style.display =
+    currentUser && currentUser.is_admin ? 'block' : 'none';
 
   // Filter platoon cards by access
   ['1st', '2nd', 'hq'].forEach(p => {
@@ -2056,6 +2120,7 @@ async function submitChangePw() {
 
 // ─── Init ───
 document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.addEventListener('click', e => { if (!e.target.closest('.hamburger-wrap')) closeHamburger(); });
 document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
 document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
 document.getElementById('changePwModal').addEventListener('click', function(e) { if (e.target === this) closeChangePwModal(); });
