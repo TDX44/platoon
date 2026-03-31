@@ -3,8 +3,9 @@ services:
     build: .
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DATA_DIR: /data
     volumes:
       - platoon_data:/data
