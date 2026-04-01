@@ -2067,6 +2067,9 @@ function showLoginScreen() {
   document.getElementById('loginError').style.display = 'none';
   document.getElementById('loginUsername').value = '';
   document.getElementById('loginPassword').value = '';
+  const btn = document.getElementById('loginBtn');
+  btn.textContent = 'Sign In'; btn.disabled = false;
+  showPwLogin();
 }
 
 async function doLogin() {
