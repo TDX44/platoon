@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import datetime, date
 from functools import wraps
+from datetime import timedelta
 from flask import Flask, request, jsonify, send_from_directory, session
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -14,6 +15,8 @@ app.secret_key = os.environ.get('SECRET_KEY', 'platoon-tracker-change-in-product
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = False
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
+app.config['SESSION_PERMANENT'] = True
 
 _default_data_dir = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.environ.get('DATA_DIR', _default_data_dir), 'accountability.db')
@@ -221,6 +224,7 @@ def login():
     conn.close()
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({'error': 'Invalid username or password'}), 401
+    session.permanent = True
     session['user_id'] = user['id']
     session['_last_active'] = time.time()
     log_action('LOGIN', f'User {username} logged in')
