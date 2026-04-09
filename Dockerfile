@@ -5,7 +5,6 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY . .
 RUN mkdir -p /data && chown appuser:appgroup /data
-VOLUME ["/data"]
 ENV DATA_DIR=/data
 USER appuser
 EXPOSE 5000

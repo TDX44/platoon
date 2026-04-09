@@ -1,1 +1,3 @@
 accountability.db
+data/*
+!data/.gitkeep
