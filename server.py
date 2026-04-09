@@ -4,12 +4,16 @@ import secrets
 import string
 import threading
 import time
+import base64
 from datetime import datetime, date
 from functools import wraps
 from datetime import timedelta
-from flask import Flask, request, jsonify, send_from_directory, session
-from werkzeug.security import generate_password_hash, check_password_hash
+from urllib.error import URLError
+from flask import Flask, request, jsonify, send_from_directory, session, g
+from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+import jwt
+from jwt import PyJWKClient
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -22,6 +26,29 @@ app.config['SESSION_PERMANENT'] = True
 
 _default_data_dir = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.environ.get('DATA_DIR', _default_data_dir), 'accountability.db')
+PLACEHOLDER_PASSWORD_HASH = 'clerk-managed'
+
+
+def _parse_csv_env(name):
+    return [item.strip() for item in os.environ.get(name, '').split(',') if item.strip()]
+
+
+def _decode_clerk_publishable_key(publishable_key):
+    try:
+        encoded = publishable_key.split('_', 2)[-1]
+        encoded += '=' * (-len(encoded) % 4)
+        return base64.urlsafe_b64decode(encoded).decode('utf-8')
+    except Exception:
+        return ''
+
+
+CLERK_PUBLISHABLE_KEY = os.environ.get('CLERK_PUBLISHABLE_KEY', '').strip()
+CLERK_FRONTEND_API_URL = os.environ.get('CLERK_FRONTEND_API_URL', '').strip() or _decode_clerk_publishable_key(CLERK_PUBLISHABLE_KEY)
+CLERK_JWKS_URL = f'{CLERK_FRONTEND_API_URL.rstrip("/")}/.well-known/jwks.json' if CLERK_FRONTEND_API_URL else ''
+CLERK_AUTHORIZED_PARTIES = _parse_csv_env('CLERK_AUTHORIZED_PARTIES')
+CLERK_ADMIN_EMAILS = {email.lower() for email in _parse_csv_env('CLERK_ADMIN_EMAILS')}
+CLERK_ENABLED = bool(CLERK_PUBLISHABLE_KEY and CLERK_JWKS_URL)
+_JWKS_CLIENT = PyJWKClient(CLERK_JWKS_URL) if CLERK_ENABLED else None
 
 PLATOONS = {
     '1st': '1st Platoon Accountability',
@@ -68,7 +95,10 @@ def init_db():
             username      TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             is_admin      INTEGER DEFAULT 0,
-            platoons      TEXT DEFAULT ''
+            platoons      TEXT DEFAULT '',
+            clerk_user_id TEXT DEFAULT '',
+            email         TEXT DEFAULT '',
+            full_name     TEXT DEFAULT ''
         )
     ''')
 
@@ -108,15 +138,20 @@ def init_db():
     ucols = [row[1] for row in cur.execute('PRAGMA table_info(users)').fetchall()]
     if 'pin_hash' not in ucols:
         cur.execute('ALTER TABLE users ADD COLUMN pin_hash TEXT DEFAULT ""')
+    for col in ('clerk_user_id', 'email', 'full_name'):
+        if col not in ucols:
+            cur.execute(f'ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT ""')
+
+    cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_user_id ON users(clerk_user_id)')
 
     # Scheduled TDY/Leave columns
     for col, default in [('sched_status',''), ('sched_from',''), ('sched_to',''), ('sched_notes','')]:
         if col not in cols:
             cur.execute(f'ALTER TABLE personnel ADD COLUMN {col} TEXT DEFAULT ""')
 
-    # ── Seed admin user ──
+    # ── Seed legacy admin user only when Clerk is not configured ──
     cur.execute('SELECT COUNT(*) FROM users')
-    if cur.fetchone()[0] == 0:
+    if cur.fetchone()[0] == 0 and not CLERK_ENABLED:
         password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
         cur.execute(
             'INSERT OR IGNORE INTO users (username, password_hash, is_admin, platoons) VALUES (?, ?, 1, ?)',
@@ -129,6 +164,13 @@ def init_db():
         sys.stderr.write(f'  Password : {password}\n')
         sys.stderr.write(f'  Change this password after first login!\n')
         sys.stderr.write(f'{"=" * 52}\n\n')
+        sys.stderr.flush()
+    elif CLERK_ENABLED and not CLERK_ADMIN_EMAILS:
+        import sys
+        sys.stderr.write(
+            '\n[auth] Clerk is enabled without CLERK_ADMIN_EMAILS. '
+            'The first Clerk user to sign in will be granted admin access automatically.\n\n'
+        )
         sys.stderr.flush()
 
     # ── Seed placeholder data ──
@@ -154,11 +196,9 @@ def log_action(action, details='', platoon=''):
         conn = get_db()
         user_id, username = 0, 'system'
         try:
-            uid = session.get('user_id')
-            if uid:
-                row = conn.execute('SELECT id, username FROM users WHERE id = ?', (uid,)).fetchone()
-                if row:
-                    user_id, username = row['id'], row['username']
+            user = getattr(g, 'current_user', None)
+            if user:
+                user_id, username = user['id'], user['username']
         except Exception:
             pass
         conn.execute(
@@ -173,13 +213,150 @@ def log_action(action, details='', platoon=''):
 
 # ── Auth helpers ──
 
+def _get_request_origin():
+    forwarded_proto = request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
+    forwarded_host = request.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+    proto = forwarded_proto or request.scheme
+    host = forwarded_host or request.host
+    return f'{proto}://{host}'
+
+
+def _get_session_token():
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.lower().startswith('bearer '):
+        return auth_header.split(' ', 1)[1].strip()
+    return request.cookies.get('__session', '').strip()
+
+
+def _verify_clerk_session_token():
+    if not CLERK_ENABLED:
+        return None, 'Clerk is not configured on the server.'
+
+    token = _get_session_token()
+    if not token:
+        return None, 'Unauthorized'
+
+    try:
+        signing_key = _JWKS_CLIENT.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=['RS256'],
+            options={'require': ['exp', 'iat', 'nbf', 'sub']},
+        )
+    except (jwt.InvalidTokenError, URLError, ValueError) as exc:
+        return None, str(exc) or 'Unauthorized'
+
+    permitted_origins = CLERK_AUTHORIZED_PARTIES or [_get_request_origin()]
+    azp = claims.get('azp')
+    if azp and azp not in permitted_origins:
+        return None, 'Unauthorized'
+
+    if claims.get('sts') == 'pending':
+        return None, 'Account setup is still pending in Clerk.'
+
+    return claims, None
+
+
+def clerk_auth_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        claims, error = _verify_clerk_session_token()
+        if error:
+            status = 500 if error.startswith('Clerk is not configured') else 401
+            return jsonify({'error': error}), status
+        g.auth_claims = claims
+        return f(*args, **kwargs)
+    return decorated
+
+
 def get_current_user():
-    if 'user_id' not in session:
+    if hasattr(g, 'current_user'):
+        return g.current_user
+
+    claims = getattr(g, 'auth_claims', None)
+    if not claims:
+        claims, error = _verify_clerk_session_token()
+        if error:
+            return None
+        g.auth_claims = claims
+
+    clerk_user_id = claims.get('sub')
+    if not clerk_user_id:
         return None
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    user = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
     conn.close()
-    return dict(user) if user else None
+    g.current_user = dict(user) if user else None
+    return g.current_user
+
+
+def _display_name_for_user(payload):
+    for key in ('full_name', 'username', 'email'):
+        value = (payload.get(key) or '').strip()
+        if value:
+            return value
+    return 'User'
+
+
+def _should_auto_grant_admin(conn, email):
+    if email and email.lower() in CLERK_ADMIN_EMAILS:
+        return True
+
+    if CLERK_ADMIN_EMAILS:
+        return False
+
+    synced_admin = conn.execute(
+        'SELECT 1 FROM users WHERE clerk_user_id != "" AND is_admin = 1 LIMIT 1'
+    ).fetchone()
+    any_synced = conn.execute(
+        'SELECT 1 FROM users WHERE clerk_user_id != "" LIMIT 1'
+    ).fetchone()
+    return not synced_admin and not any_synced
+
+
+def sync_clerk_user(payload):
+    claims = getattr(g, 'auth_claims', None)
+    if not claims:
+        claims, error = _verify_clerk_session_token()
+        if error:
+            return None, error
+        g.auth_claims = claims
+
+    clerk_user_id = claims.get('sub')
+    if not clerk_user_id:
+        return None, 'Missing Clerk user id.'
+
+    username = (payload.get('username') or '').strip()
+    email = (payload.get('email') or '').strip().lower()
+    full_name = (payload.get('full_name') or '').strip()
+    if not username:
+        username = email or f'user-{clerk_user_id[:8]}'
+
+    conn = get_db()
+    try:
+        existing = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
+        if existing:
+            conn.execute(
+                'UPDATE users SET username = ?, email = ?, full_name = ? WHERE clerk_user_id = ?',
+                (username, email, full_name, clerk_user_id)
+            )
+        else:
+            is_admin = 1 if _should_auto_grant_admin(conn, email) else 0
+            platoons = '*' if is_admin else ''
+            conn.execute(
+                'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
+            )
+        conn.commit()
+        row = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
+        g.current_user = dict(row) if row else None
+        return g.current_user, None
+    except sqlite3.IntegrityError:
+        return None, 'That username is already in use locally. Ask an admin to rename or merge the account.'
+    finally:
+        conn.close()
 
 
 def has_platoon_access(user, platoon):
@@ -191,8 +368,10 @@ def has_platoon_access(user, platoon):
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if 'user_id' not in session:
+        user = get_current_user()
+        if not user:
             return jsonify({'error': 'Unauthorized'}), 401
+        g.current_user = user
         return f(*args, **kwargs)
     return decorated
 
@@ -200,10 +379,11 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({'error': 'Unauthorized'}), 401
         user = get_current_user()
-        if not user or not user['is_admin']:
+        if not user:
+            return jsonify({'error': 'Unauthorized'}), 401
+        g.current_user = user
+        if not user['is_admin']:
             return jsonify({'error': 'Forbidden'}), 403
         return f(*args, **kwargs)
     return decorated
@@ -216,124 +396,64 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = (data.get('username') or '').strip().lower()
-    password = data.get('password') or ''
-    conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE LOWER(username) = ?', (username,)).fetchone()
-    conn.close()
-    if not user or not check_password_hash(user['password_hash'], password):
-        return jsonify({'error': 'Invalid username or password'}), 401
-    session.permanent = True
-    session['user_id'] = user['id']
-    session['_last_active'] = time.time()
-    log_action('LOGIN', f'User {username} logged in')
+@app.route('/api/auth/config', methods=['GET'])
+def auth_config():
     return jsonify({
-        'id': user['id'], 'username': user['username'],
-        'is_admin': bool(user['is_admin']), 'platoons': user['platoons']
+        'enabled': CLERK_ENABLED,
+        'publishable_key': CLERK_PUBLISHABLE_KEY,
+        'frontend_api_url': CLERK_FRONTEND_API_URL,
     })
 
 
-@app.route('/api/signup', methods=['POST'])
-def signup():
-    data = request.get_json()
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
-    if not username or not password:
-        return jsonify({'error': 'Username and password are required'}), 400
-    if len(username) < 3:
-        return jsonify({'error': 'Username must be at least 3 characters'}), 400
-    if len(password) < 6:
-        return jsonify({'error': 'Password must be at least 6 characters'}), 400
-    conn = get_db()
-    existing = conn.execute('SELECT id FROM users WHERE LOWER(username) = ?', (username.lower(),)).fetchone()
-    if existing:
-        conn.close()
-        return jsonify({'error': 'Username already taken'}), 409
-    conn.execute(
-        'INSERT INTO users (username, password_hash, is_admin, platoons) VALUES (?, ?, 0, ?)',
-        (username, generate_password_hash(password), '')
-    )
-    conn.commit()
-    conn.close()
-    log_action('SIGNUP', f'New user registered: {username}')
-    return jsonify({'success': True})
+@app.route('/api/auth/sync', methods=['POST'])
+@clerk_auth_required
+def auth_sync():
+    payload = request.get_json() or {}
+    user, error = sync_clerk_user(payload)
+    if error:
+        return jsonify({'error': error}), 409
+    log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
+    return jsonify({
+        'id': user['id'],
+        'username': user['username'],
+        'email': user.get('email', ''),
+        'full_name': user.get('full_name', ''),
+        'is_admin': bool(user['is_admin']),
+        'platoons': user['platoons'],
+    })
 
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
-    session.clear()
     return jsonify({'success': True})
 
 
 @app.route('/api/me', methods=['GET'])
+@login_required
 def me():
-    user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
+    user = g.current_user
     return jsonify({
-        'id': user['id'], 'username': user['username'],
-        'is_admin': bool(user['is_admin']), 'platoons': user['platoons']
+        'id': user['id'],
+        'username': user['username'],
+        'email': user.get('email', ''),
+        'full_name': user.get('full_name', ''),
+        'is_admin': bool(user['is_admin']),
+        'platoons': user['platoons'],
     })
 
 
 # ── User management (admin only) ──
 
-@app.route('/api/me/password', methods=['PUT'])
-@login_required
-def change_own_password():
-    data = request.get_json()
-    current = data.get('current_password') or ''
-    new_pw  = data.get('new_password') or ''
-    if not current or not new_pw:
-        return jsonify({'error': 'Current and new password are required'}), 400
-    if len(new_pw) < 6:
-        return jsonify({'error': 'New password must be at least 6 characters'}), 400
-    user = get_current_user()
-    if not check_password_hash(user['password_hash'], current):
-        return jsonify({'error': 'Current password is incorrect'}), 401
-    conn = get_db()
-    conn.execute('UPDATE users SET password_hash = ? WHERE id = ?',
-                 (generate_password_hash(new_pw), user['id']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-
 @app.route('/api/users', methods=['GET'])
 @admin_required
 def get_users():
     conn = get_db()
-    rows = conn.execute('SELECT id, username, is_admin, platoons FROM users ORDER BY username').fetchall()
+    rows = conn.execute(
+        'SELECT id, username, email, full_name, is_admin, platoons FROM users '
+        'WHERE clerk_user_id != "" ORDER BY username'
+    ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
-
-
-@app.route('/api/users', methods=['POST'])
-@admin_required
-def create_user():
-    data = request.get_json()
-    username = (data.get('username') or '').strip().lower()
-    password = data.get('password') or ''
-    if not username or not password:
-        return jsonify({'error': 'Username and password are required'}), 400
-    is_admin = 1 if data.get('is_admin') else 0
-    platoons = data.get('platoons') or ''
-    try:
-        conn = get_db()
-        cur = conn.execute(
-            'INSERT INTO users (username, password_hash, is_admin, platoons) VALUES (?, ?, ?, ?)',
-            (username, generate_password_hash(password), is_admin, platoons)
-        )
-        new_id = cur.lastrowid
-        conn.commit()
-        row = conn.execute('SELECT id, username, is_admin, platoons FROM users WHERE id = ?', (new_id,)).fetchone()
-        conn.close()
-        return jsonify(dict(row)), 201
-    except Exception:
-        return jsonify({'error': 'Username already exists'}), 409
 
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
@@ -347,27 +467,34 @@ def update_user(user_id):
     if 'platoons' in data:
         fields.append('platoons = ?')
         values.append(data['platoons'])
-    if data.get('password'):
-        fields.append('password_hash = ?')
-        values.append(generate_password_hash(data['password']))
+    if 'username' in data:
+        fields.append('username = ?')
+        values.append((data['username'] or '').strip())
     if not fields:
         return jsonify({'error': 'Nothing to update'}), 400
     values.append(user_id)
     conn = get_db()
-    conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = ?', values)
-    conn.commit()
-    row = conn.execute('SELECT id, username, is_admin, platoons FROM users WHERE id = ?', (user_id,)).fetchone()
-    conn.close()
-    return jsonify(dict(row))
+    try:
+        conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = ? AND clerk_user_id != ""', values)
+        conn.commit()
+        row = conn.execute(
+            'SELECT id, username, email, full_name, is_admin, platoons FROM users WHERE id = ?',
+            (user_id,)
+        ).fetchone()
+        return jsonify(dict(row))
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Username already exists'}), 409
+    finally:
+        conn.close()
 
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def delete_user(user_id):
-    if user_id == session.get('user_id'):
+    if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
-    conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.execute('DELETE FROM users WHERE id = ? AND clerk_user_id != ""', (user_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -586,7 +713,7 @@ def export_backup():
         personnel = [dict(r) for r in conn.execute('SELECT * FROM personnel').fetchall()]
         settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
         users     = [dict(r) for r in conn.execute(
-            'SELECT id, username, is_admin, platoons, pin_hash FROM users'
+            'SELECT id, username, email, full_name, is_admin, platoons, clerk_user_id FROM users'
         ).fetchall()]
         label = 'full'
     else:
@@ -664,15 +791,17 @@ def import_backup():
 
         restored_users = 0
         if user['is_admin'] and 'users' in payload:
-            current_uid = session.get('user_id')
+            current_uid = user['id']
             conn.execute('DELETE FROM users WHERE id != ?', (current_uid,))
             for u in payload['users']:
                 if u['id'] == current_uid:
                     continue
                 conn.execute(
-                    'INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, platoons, pin_hash) VALUES (?, ?, ?, ?, ?, ?)',
-                    (u['id'], u['username'], u.get('password_hash',''), u.get('is_admin',0),
-                     u.get('platoons',''), u.get('pin_hash',''))
+                    'INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, platoons, clerk_user_id, email, full_name, pin_hash) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (u['id'], u['username'], PLACEHOLDER_PASSWORD_HASH, u.get('is_admin', 0),
+                     u.get('platoons', ''), u.get('clerk_user_id', ''), u.get('email', ''),
+                     u.get('full_name', ''), '')
                 )
                 restored_users += 1
 
@@ -695,60 +824,6 @@ def activate_scheduled():
     conn.commit()
     conn.close()
     return jsonify({'activated': activated})
-
-
-# ── Session timeout ──
-SESSION_TIMEOUT_MINUTES = 30
-
-@app.before_request
-def check_session_timeout():
-    if 'user_id' in session:
-        last = session.get('_last_active')
-        now = time.time()
-        if last and (now - last) > SESSION_TIMEOUT_MINUTES * 60:
-            session.clear()
-            return jsonify({'error': 'Session expired'}), 401
-        session['_last_active'] = now
-
-
-# ── PIN login ──
-
-@app.route('/api/pin-login', methods=['POST'])
-def pin_login():
-    data = request.get_json()
-    pin = (data.get('pin') or '').strip()
-    if not pin or len(pin) != 4 or not pin.isdigit():
-        return jsonify({'error': 'Invalid PIN format'}), 400
-    conn = get_db()
-    users = conn.execute('SELECT * FROM users WHERE pin_hash IS NOT NULL AND pin_hash != ""').fetchall()
-    conn.close()
-    matches = [u for u in users if check_password_hash(u['pin_hash'], pin)]
-    if len(matches) > 1:
-        return jsonify({'error': 'PIN conflict — please use password login'}), 401
-    user = matches[0] if matches else None
-    if not user:
-        return jsonify({'error': 'Invalid PIN'}), 401
-    session['user_id'] = user['id']
-    session['_last_active'] = time.time()
-    return jsonify({
-        'id': user['id'], 'username': user['username'],
-        'is_admin': bool(user['is_admin']), 'platoons': user['platoons']
-    })
-
-
-@app.route('/api/me/pin', methods=['PUT'])
-@login_required
-def set_pin():
-    data = request.get_json()
-    pin = (data.get('pin') or '').strip()
-    if pin and (len(pin) != 4 or not pin.isdigit()):
-        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
-    conn = get_db()
-    new_hash = generate_password_hash(pin) if pin else ''
-    conn.execute('UPDATE users SET pin_hash = ? WHERE id = ?', (new_hash, session['user_id']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
 
 
 # ── Reset route (used by auto-reset and manual reset) ──

@@ -324,6 +324,10 @@
   .btn-login:disabled { background: #555; cursor: default; }
   .login-card label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
   .login-card input { width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid #444; border-radius: 5px; background: #1a1a2e; color: #e0e0e0; font-size: 0.95em; }
+  .login-note { text-align: center; color: #b2bec3; font-size: 0.85em; margin-top: 14px; line-height: 1.5; }
+  #clerkAuthMount { min-height: 320px; }
+  .user-row-meta { font-size: 0.78em; color: #8aa0b6; margin-top: 2px; font-weight: 400; }
+  .user-row-name-block { flex: 1; min-width: 0; }
 
   /* ─── PIN pad ─── */
   .pin-display {
@@ -536,45 +540,8 @@
     <div class="login-title">Platoon Accountability</div>
     <div class="login-subtitle" id="loginSubtitle">Sign in to continue</div>
     <div id="loginError" class="login-error" style="display:none"></div>
-
-    <!-- Password login -->
-    <div id="pwLoginForm">
-      <label>Username</label>
-      <input type="text" id="loginUsername" placeholder="Username" autocomplete="username" />
-      <label>Password</label>
-      <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
-      <button class="btn-login" id="loginBtn" onclick="doLogin()">Sign In</button>
-      <button class="btn-login" style="background:#636e72;margin-top:8px;" onclick="showPinLogin()">Use PIN Instead</button>
-      <div style="text-align:center;margin-top:14px;font-size:0.85em;color:#636e72;">
-        No account? <a href="#" onclick="showSignup();return false;" style="color:#00d4ff;text-decoration:none;">Request Access</a>
-      </div>
-    </div>
-
-    <!-- Signup form -->
-    <div id="signupForm" style="display:none;">
-      <div id="signupError" class="login-error" style="display:none"></div>
-      <div id="signupSuccess" style="display:none;background:#00b89422;border:1px solid #00b894;color:#00b894;padding:10px;border-radius:6px;margin-bottom:12px;font-size:0.9em;text-align:center;"></div>
-      <label>Username</label>
-      <input type="text" id="signupUsername" placeholder="Choose a username" autocomplete="username" />
-      <label>Password</label>
-      <input type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" />
-      <label>Confirm Password</label>
-      <input type="password" id="signupConfirm" placeholder="Repeat password" autocomplete="new-password" />
-      <button class="btn-login" id="signupBtn" onclick="doSignup()">Request Access</button>
-      <button class="btn-login" style="background:#636e72;margin-top:8px;" onclick="showPwLogin()">Back to Sign In</button>
-    </div>
-
-    <!-- PIN login -->
-    <div id="pinLoginForm" style="display:none;">
-      <div class="pin-display" id="pinDisplay">&#9679;&#9679;&#9679;&#9679;</div>
-      <div class="pin-pad">
-        <button onclick="pinPad('1')">1</button><button onclick="pinPad('2')">2</button><button onclick="pinPad('3')">3</button>
-        <button onclick="pinPad('4')">4</button><button onclick="pinPad('5')">5</button><button onclick="pinPad('6')">6</button>
-        <button onclick="pinPad('7')">7</button><button onclick="pinPad('8')">8</button><button onclick="pinPad('9')">9</button>
-        <button onclick="pinClear()" style="font-size:0.8em;">CLR</button><button onclick="pinPad('0')">0</button><button onclick="pinBack()">&#9003;</button>
-      </div>
-      <button class="btn-login" style="background:#636e72;margin-top:8px;" onclick="showPwLogin()">Use Password Instead</button>
-    </div>
+    <div id="clerkAuthMount"></div>
+    <div class="login-note" id="loginNote">Use your Clerk account to sign in. New users will appear in the app automatically, and an admin can grant platoon access afterward.</div>
   </div>
 </div>
 
@@ -599,9 +566,8 @@
         &#128100; Account <span class="menu-arrow">&#9658;</span>
       </button>
       <div class="menu-submenu" id="usersGroup">
-        <button onclick="openChangePwModal();closeHamburger()">&#128273; Change Password</button>
-        <button onclick="openPinSetupModal();closeHamburger()">&#128290; Set PIN</button>
-        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">&#9881; Manage Users</button>
+        <button onclick="openClerkProfile();closeHamburger()">&#128100; Manage Account</button>
+        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">&#9881; Manage Access</button>
       </div>
 
       <button onclick="doLogout()" style="color:#ff7675;">&#8594; Sign Out</button>
@@ -857,6 +823,9 @@ const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT
 let personnel = [];
 let tdyLeaveIndex = -1;
 let currentUser = null;
+let clerk = null;
+let authConfig = null;
+let clerkReadyPromise = null;
 
 // Calendar state
 let calYear, calMonth;
@@ -2062,48 +2031,115 @@ function showLoginScreen() {
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('homeScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
-  document.getElementById('loginError').style.display = 'none';
-  document.getElementById('loginUsername').value = '';
-  document.getElementById('loginPassword').value = '';
-  const btn = document.getElementById('loginBtn');
-  btn.textContent = 'Sign In'; btn.disabled = false;
-  showPwLogin();
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  ensureClerk()
+    .then(() => mountClerkSignIn())
+    .catch(err => {
+      errEl.textContent = err.message || 'Unable to load Clerk.';
+      errEl.style.display = 'block';
+    });
 }
 
-async function doLogin() {
-  const username = document.getElementById('loginUsername').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  const errEl = document.getElementById('loginError');
-  const btn = document.getElementById('loginBtn');
-  if (!username || !password) {
-    errEl.textContent = 'Please enter your username and password.';
-    errEl.style.display = 'block'; return;
-  }
-  btn.textContent = 'Signing in…'; btn.disabled = true;
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Login failed.';
-      errEl.style.display = 'block';
-      btn.textContent = 'Sign In'; btn.disabled = false; return;
+async function loadAuthConfig() {
+  if (authConfig) return authConfig;
+  const res = await fetch('/api/auth/config', { credentials: 'same-origin' });
+  authConfig = await res.json();
+  return authConfig;
+}
+
+async function ensureClerk() {
+  if (clerkReadyPromise) return clerkReadyPromise;
+  clerkReadyPromise = (async () => {
+    const config = await loadAuthConfig();
+    if (!config.enabled || !config.publishable_key || !config.frontend_api_url) {
+      throw new Error('Clerk is not configured yet. Set CLERK_PUBLISHABLE_KEY on the server first.');
     }
-    currentUser = data;
-    document.getElementById('loginScreen').style.display = 'none';
-    routeAfterLogin();
-  } catch(e) {
-    errEl.textContent = 'Connection error. Is the server running?';
-    errEl.style.display = 'block';
-    btn.textContent = 'Sign In'; btn.disabled = false;
+
+    if (!window.Clerk) {
+      await new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-clerk-script="true"]');
+        if (existing) {
+          existing.addEventListener('load', resolve, { once: true });
+          existing.addEventListener('error', () => reject(new Error('Unable to load Clerk script.')), { once: true });
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+        script.dataset.clerkScript = 'true';
+        script.src = `${config.frontend_api_url.replace(/\/$/, '')}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Unable to load Clerk script.'));
+        document.head.appendChild(script);
+      });
+    }
+
+    clerk = window.Clerk;
+    await clerk.load({ publishableKey: config.publishable_key });
+    return clerk;
+  })().catch(err => {
+    clerkReadyPromise = null;
+    throw err;
+  });
+  return clerkReadyPromise;
+}
+
+function mountClerkSignIn() {
+  const mount = document.getElementById('clerkAuthMount');
+  if (!mount || !clerk) return;
+  mount.innerHTML = '';
+  clerk.mountSignIn(mount, {
+    appearance: {
+      variables: {
+        colorPrimary: '#0984e3',
+        colorBackground: '#2d2d44',
+        colorInputBackground: '#1a1a2e',
+        colorInputText: '#e0e0e0',
+        colorText: '#e0e0e0',
+        colorNeutral: '#b2bec3',
+      },
+    },
+    afterSignInUrl: window.location.href,
+    afterSignUpUrl: window.location.href,
+  });
+}
+
+async function syncClerkUser() {
+  const activeClerk = await ensureClerk();
+  if (!activeClerk.user) return null;
+
+  const primaryEmail = activeClerk.user.primaryEmailAddress ? activeClerk.user.primaryEmailAddress.emailAddress : '';
+  const username = activeClerk.user.username || primaryEmail || activeClerk.user.id;
+  const full_name = activeClerk.user.fullName || [activeClerk.user.firstName, activeClerk.user.lastName].filter(Boolean).join(' ');
+  const res = await fetch('/api/auth/sync', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email: primaryEmail, full_name }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Unable to sync the Clerk user with the app.');
   }
+  return data;
 }
 
 async function doLogout() {
+  if (clerk) {
+    await clerk.signOut({ redirectUrl: window.location.origin + window.location.pathname });
+  }
   await fetch('/api/logout', { method: 'POST' });
   showLoginScreen();
+}
+
+function openClerkProfile() {
+  if (clerk && typeof clerk.openUserProfile === 'function') {
+    clerk.openUserProfile();
+  } else {
+    alert('Clerk account management is not ready yet.');
+  }
 }
 
 function userHasAccess(platoon) {
@@ -2124,10 +2160,20 @@ function routeAfterLogin() {
 
 async function initApp() {
   try {
-    const res = await fetch('/api/me', { credentials: 'same-origin' });
-    if (res.ok) { currentUser = await res.json(); routeAfterLogin(); }
-    else { showLoginScreen(); }
-  } catch(e) { showLoginScreen(); }
+    await ensureClerk();
+    if (!clerk.user) {
+      mountClerkSignIn();
+      showLoginScreen();
+      return;
+    }
+    currentUser = await syncClerkUser();
+    routeAfterLogin();
+  } catch(e) {
+    showLoginScreen();
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = e.message || 'Unable to initialize sign-in.';
+    errEl.style.display = 'block';
+  }
 }
 
 // ─── Platoon routing ───
@@ -2190,50 +2236,53 @@ async function refreshUserList() {
   const users = await api('GET', '/users');
   if (!users) return;
   const wrap = document.getElementById('userListWrap');
-  if (!users.length) { wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No users.</p>'; return; }
+  if (!users.length) {
+    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No synced users yet. Have someone sign in with Clerk first, then grant access here.</p>';
+    return;
+  }
   wrap.innerHTML = users.map(u => {
     const isSelf = currentUser && u.id === currentUser.id;
+    const rawLabel = u.full_name || u.username;
+    const label = escapeHtml(rawLabel);
+    const meta = [u.email, u.username && u.username !== u.full_name ? `@${u.username}` : ''].filter(Boolean).join(' • ');
     const badges = u.is_admin
       ? `<span class="platoon-badge admin-badge">Admin</span>`
       : (u.platoons || '').split(',').filter(p => p.trim()).map(p =>
           `<span class="platoon-badge">${p.trim().toUpperCase()}</span>`
         ).join('') || `<span style="color:#636e72;font-size:0.78em">No access</span>`;
     return `<div class="user-row">
-      <div class="user-row-name">${escapeHtml(u.username)}${isSelf ? ' <span style="color:#636e72;font-size:0.72em">(you)</span>' : ''}</div>
+      <div class="user-row-name-block">
+        <div class="user-row-name">${label}${isSelf ? ' <span style="color:#636e72;font-size:0.72em">(you)</span>' : ''}</div>
+        ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
+      </div>
       <div class="user-row-badges">${badges}</div>
       <button class="btn-small btn-edit" onclick="openUserEditModal(${u.id})" title="Edit">&#9998;</button>
-      ${!isSelf ? `<button class="btn-small btn-danger" onclick="deleteUser(${u.id},'${escapeHtml(u.username)}')" title="Delete">&#10005;</button>` : ''}
+      ${!isSelf ? `<button class="btn-small btn-danger" onclick='deleteUser(${u.id}, ${JSON.stringify(rawLabel)})' title="Remove access">&#10005;</button>` : ''}
     </div>`;
   }).join('');
 }
 
 async function openUserEditModal(userId) {
   editingUserId = userId;
-  const isNew = userId === null;
-  document.getElementById('userEditTitle').textContent = isNew ? 'Add User' : 'Edit User';
-  document.getElementById('userEditPwLabel').textContent = isNew ? 'Password' : 'Password (leave blank to keep)';
+  document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
-  document.getElementById('userEditUsername').disabled = !isNew;
-  document.getElementById('userEditPassword').value = '';
+  document.getElementById('userEditUsername').disabled = false;
   document.getElementById('userEditAdmin').checked = false;
   document.getElementById('chk1st').checked = false;
   document.getElementById('chk2nd').checked = false;
   document.getElementById('chkHq').checked = false;
   document.getElementById('userEditError').style.display = 'none';
-
-  if (!isNew) {
-    const users = await api('GET', '/users');
-    if (!users) return;
-    const u = users.find(x => x.id === userId);
-    if (u) {
-      document.getElementById('userEditUsername').value = u.username;
-      document.getElementById('userEditAdmin').checked = !!u.is_admin;
-      const pl = (u.platoons || '').split(',').map(p => p.trim());
-      document.getElementById('chk1st').checked = pl.includes('1st');
-      document.getElementById('chk2nd').checked = pl.includes('2nd');
-      document.getElementById('chkHq').checked = pl.includes('hq');
-      toggleAdminCheck();
-    }
+  const users = await api('GET', '/users');
+  if (!users) return;
+  const u = users.find(x => x.id === userId);
+  if (u) {
+    document.getElementById('userEditUsername').value = u.username;
+    document.getElementById('userEditAdmin').checked = !!u.is_admin;
+    const pl = (u.platoons || '').split(',').map(p => p.trim());
+    document.getElementById('chk1st').checked = pl.includes('1st');
+    document.getElementById('chk2nd').checked = pl.includes('2nd');
+    document.getElementById('chkHq').checked = pl.includes('hq');
+    toggleAdminCheck();
   }
   document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('userEditModal').classList.add('active');
@@ -2253,24 +2302,15 @@ function toggleAdminCheck() {
 }
 
 async function saveUserEdit() {
-  const isNew = editingUserId === null;
   const username = document.getElementById('userEditUsername').value.trim();
-  const password = document.getElementById('userEditPassword').value;
   const is_admin = document.getElementById('userEditAdmin').checked;
   const errEl = document.getElementById('userEditError');
-  if (isNew && (!username || !password)) {
-    errEl.textContent = 'Username and password are required.'; errEl.style.display = 'block'; return;
+  if (!username) {
+    errEl.textContent = 'A display name is required.'; errEl.style.display = 'block'; return;
   }
   const platoons = is_admin ? '*' :
     ['1st','2nd','hq'].filter(p => document.getElementById(`chk${p === 'hq' ? 'Hq' : p}`).checked).join(',');
-  let result;
-  if (isNew) {
-    result = await api('POST', '/users', { username, password, is_admin, platoons });
-  } else {
-    const body = { is_admin, platoons };
-    if (password) body.password = password;
-    result = await api('PUT', `/users/${editingUserId}`, body);
-  }
+  const result = await api('PUT', `/users/${editingUserId}`, { username, is_admin, platoons });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;
   }
@@ -2280,65 +2320,16 @@ async function saveUserEdit() {
 }
 
 async function deleteUser(userId, username) {
-  if (!confirm(`Delete user "${username}"?`)) return;
+  if (!confirm(`Remove app access for "${username}"? Their Clerk account will stay active.`)) return;
   const result = await api('DELETE', `/users/${userId}`);
   if (result && result.error) { alert(result.error); return; }
   await refreshUserList();
 }
 
-// ─── Change Password ───
-function openChangePwModal() {
-  document.getElementById('cpCurrent').value = '';
-  document.getElementById('cpNew').value = '';
-  document.getElementById('cpConfirm').value = '';
-  document.getElementById('cpError').style.display = 'none';
-  document.getElementById('cpSuccess').style.display = 'none';
-  document.getElementById('changePwModal').classList.add('active');
-  document.getElementById('cpCurrent').focus();
-}
-
-function closeChangePwModal() {
-  document.getElementById('changePwModal').classList.remove('active');
-}
-
-async function submitChangePw() {
-  const current = document.getElementById('cpCurrent').value;
-  const newPw = document.getElementById('cpNew').value;
-  const confirm = document.getElementById('cpConfirm').value;
-  const errEl = document.getElementById('cpError');
-  const okEl = document.getElementById('cpSuccess');
-  errEl.style.display = 'none';
-  okEl.style.display = 'none';
-
-  if (!current || !newPw || !confirm) {
-    errEl.textContent = 'All fields are required.'; errEl.style.display = 'block'; return;
-  }
-  if (newPw !== confirm) {
-    errEl.textContent = 'New passwords do not match.'; errEl.style.display = 'block'; return;
-  }
-  if (newPw.length < 6) {
-    errEl.textContent = 'New password must be at least 6 characters.'; errEl.style.display = 'block'; return;
-  }
-
-  const result = await api('PUT', '/me/password', { current_password: current, new_password: newPw });
-  if (!result) return;
-  if (result.error) {
-    errEl.textContent = result.error; errEl.style.display = 'block'; return;
-  }
-  okEl.textContent = 'Password changed successfully!';
-  okEl.style.display = 'block';
-  document.getElementById('cpCurrent').value = '';
-  document.getElementById('cpNew').value = '';
-  document.getElementById('cpConfirm').value = '';
-  setTimeout(closeChangePwModal, 1500);
-}
-
 // ─── Init ───
-document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 document.addEventListener('click', e => { if (!e.target.closest('.hamburger-wrap')) closeHamburger(); });
 document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
 document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
-document.getElementById('changePwModal').addEventListener('click', function(e) { if (e.target === this) closeChangePwModal(); });
 
 window.addEventListener('popstate', () => {
   const p = new URLSearchParams(window.location.search).get('platoon');
@@ -2349,143 +2340,6 @@ window.addEventListener('popstate', () => {
     load();
   } else { loadHome(); }
 });
-
-// ─── PIN Login ───
-let pinBuffer = '';
-
-function showPinLogin() {
-  document.getElementById('pwLoginForm').style.display = 'none';
-  document.getElementById('pinLoginForm').style.display = 'block';
-  document.getElementById('loginSubtitle').textContent = 'Enter your PIN';
-  pinBuffer = ''; updatePinDisplay('pinDisplay');
-}
-function showPwLogin() {
-  document.getElementById('pinLoginForm').style.display = 'none';
-  document.getElementById('signupForm').style.display = 'none';
-  document.getElementById('pwLoginForm').style.display = 'block';
-  document.getElementById('loginSubtitle').textContent = 'Sign in to continue';
-  document.getElementById('loginError').style.display = 'none';
-}
-function showSignup() {
-  document.getElementById('pwLoginForm').style.display = 'none';
-  document.getElementById('pinLoginForm').style.display = 'none';
-  document.getElementById('signupForm').style.display = 'block';
-  document.getElementById('loginSubtitle').textContent = 'Create an account';
-  document.getElementById('signupError').style.display = 'none';
-  document.getElementById('signupSuccess').style.display = 'none';
-  document.getElementById('signupUsername').value = '';
-  document.getElementById('signupPassword').value = '';
-  document.getElementById('signupConfirm').value = '';
-}
-async function doSignup() {
-  const username = document.getElementById('signupUsername').value.trim();
-  const password = document.getElementById('signupPassword').value;
-  const confirm  = document.getElementById('signupConfirm').value;
-  const errEl    = document.getElementById('signupError');
-  const successEl = document.getElementById('signupSuccess');
-  const btn      = document.getElementById('signupBtn');
-  errEl.style.display = 'none';
-  successEl.style.display = 'none';
-  if (!username || !password) {
-    errEl.textContent = 'All fields are required.'; errEl.style.display = 'block'; return;
-  }
-  if (password !== confirm) {
-    errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; return;
-  }
-  btn.textContent = 'Requesting…'; btn.disabled = true;
-  try {
-    const res = await fetch('/api/signup', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Signup failed.'; errEl.style.display = 'block';
-    } else {
-      successEl.textContent = 'Account created! An admin will grant you access. You can now sign in.';
-      successEl.style.display = 'block';
-      document.getElementById('signupUsername').value = '';
-      document.getElementById('signupPassword').value = '';
-      document.getElementById('signupConfirm').value = '';
-    }
-  } catch(e) {
-    errEl.textContent = 'Connection error.'; errEl.style.display = 'block';
-  }
-  btn.textContent = 'Request Access'; btn.disabled = false;
-}
-function updatePinDisplay(id) {
-  const el = document.getElementById(id);
-  const filled = '&#9679;'.repeat(pinBuffer.length);
-  const empty = '&#9675;'.repeat(4 - pinBuffer.length);
-  el.innerHTML = filled + empty;
-}
-function pinPad(d) {
-  if (pinBuffer.length >= 4) return;
-  pinBuffer += d; updatePinDisplay('pinDisplay');
-  if (pinBuffer.length === 4) setTimeout(doPinLogin, 150);
-}
-function pinBack() { pinBuffer = pinBuffer.slice(0, -1); updatePinDisplay('pinDisplay'); }
-function pinClear() { pinBuffer = ''; updatePinDisplay('pinDisplay'); }
-
-async function doPinLogin() {
-  const errEl = document.getElementById('loginError');
-  try {
-    const res = await fetch('/api/pin-login', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: pinBuffer })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Invalid PIN.'; errEl.style.display = 'block';
-      pinBuffer = ''; updatePinDisplay('pinDisplay'); return;
-    }
-    errEl.style.display = 'none';
-    currentUser = data;
-    document.getElementById('loginScreen').style.display = 'none';
-    routeAfterLogin();
-  } catch(e) {
-    errEl.textContent = 'Connection error.'; errEl.style.display = 'block';
-    pinBuffer = ''; updatePinDisplay('pinDisplay');
-  }
-}
-
-// ─── PIN Setup ───
-let pinSetupBuffer = '';
-
-function openPinSetupModal() {
-  pinSetupBuffer = ''; updatePinDisplay('pinSetupDisplay');
-  document.getElementById('pinSetupDisplay').innerHTML = '&#9675;&#9675;&#9675;&#9675;';
-  document.getElementById('pinSetupMsg').style.display = 'none';
-  document.getElementById('pinSetupModal').classList.add('active');
-}
-function closePinSetupModal() { document.getElementById('pinSetupModal').classList.remove('active'); }
-function pinSetupPad(d) {
-  if (pinSetupBuffer.length >= 4) return;
-  pinSetupBuffer += d; updatePinSetupDisplay();
-}
-function pinSetupBack() { pinSetupBuffer = pinSetupBuffer.slice(0, -1); updatePinSetupDisplay(); }
-function pinSetupClear() { pinSetupBuffer = ''; updatePinSetupDisplay(); }
-function updatePinSetupDisplay() {
-  const el = document.getElementById('pinSetupDisplay');
-  el.innerHTML = '&#9679;'.repeat(pinSetupBuffer.length) + '&#9675;'.repeat(4 - pinSetupBuffer.length);
-}
-async function savePin() {
-  if (pinSetupBuffer.length !== 4) {
-    showPinMsg('Enter a 4-digit PIN.', '#ff7675'); return;
-  }
-  const res = await api('PUT', '/me/pin', { pin: pinSetupBuffer });
-  if (res && !res.error) { showPinMsg('PIN saved!', '#00b894'); setTimeout(closePinSetupModal, 1200); }
-  else showPinMsg(res?.error || 'Error saving PIN.', '#ff7675');
-}
-async function removePin() {
-  const res = await api('PUT', '/me/pin', { pin: '' });
-  if (res && !res.error) { showPinMsg('PIN removed.', '#fdcb6e'); setTimeout(closePinSetupModal, 1200); }
-  else showPinMsg(res?.error || 'Error.', '#ff7675');
-}
-function showPinMsg(msg, color) {
-  const el = document.getElementById('pinSetupMsg');
-  el.textContent = msg; el.style.color = color; el.style.display = 'block';
-}
 
 // ─── Export CSV ───
 function exportCSV() {
@@ -2639,23 +2493,20 @@ initApp();
 <!-- User Management Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userMgmtModal">
   <div class="modal modal-wide">
-    <h2>Manage Users</h2>
+    <h2>Manage Access</h2>
     <div id="userListWrap" style="max-height:320px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-add" onclick="openUserEditModal(null)">+ Add User</button>
       <button class="btn-small btn-danger" onclick="closeUserMgmt()">Close</button>
     </div>
   </div>
 </div>
 
-<!-- Add / Edit User Modal (global — works from any screen) -->
+<!-- Edit User Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userEditModal">
   <div class="modal">
-    <h2 id="userEditTitle">Add User</h2>
-    <label>Username</label>
-    <input type="text" id="userEditUsername" placeholder="Username" autocomplete="off" />
-    <label id="userEditPwLabel">Password</label>
-    <input type="password" id="userEditPassword" placeholder="Password" autocomplete="new-password" />
+    <h2 id="userEditTitle">Edit Access</h2>
+    <label>Display Name</label>
+    <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
     <label>Platoon Access</label>
     <div class="platoon-checks">
       <label><input type="checkbox" id="chk1st" /> 1st Platoon</label>
@@ -2670,45 +2521,6 @@ initApp();
     <div class="modal-buttons">
       <button class="btn-small btn-danger" onclick="closeUserEdit()">Cancel</button>
       <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Change Password Modal (global — works from any screen) -->
-<div class="modal-overlay" id="changePwModal">
-  <div class="modal">
-    <h2>Change Password</h2>
-    <label>Current Password</label>
-    <input type="password" id="cpCurrent" placeholder="Current password" autocomplete="current-password" />
-    <label>New Password</label>
-    <input type="password" id="cpNew" placeholder="New password (min 6 chars)" autocomplete="new-password" />
-    <label>Confirm New Password</label>
-    <input type="password" id="cpConfirm" placeholder="Confirm new password" autocomplete="new-password" />
-    <div id="cpError" class="login-error" style="display:none"></div>
-    <div id="cpSuccess" style="display:none;background:#00b89422;border:1px solid #00b894;color:#00b894;padding:8px 12px;border-radius:5px;font-size:0.85em;margin-bottom:12px;"></div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeChangePwModal()">Cancel</button>
-      <button class="btn-small btn-add" onclick="submitChangePw()">Save</button>
-    </div>
-  </div>
-</div>
-<!-- PIN Setup Modal -->
-<div class="modal-overlay" id="pinSetupModal">
-  <div class="modal" style="max-width:320px;">
-    <h2>&#128290; Set PIN</h2>
-    <p style="font-size:0.85em;color:#b2bec3;margin-bottom:12px;">Set a 4-digit PIN for quick login. Leave blank to remove your PIN.</p>
-    <div class="pin-display" id="pinSetupDisplay">&#8212;&#8212;&#8212;&#8212;</div>
-    <div class="pin-pad">
-      <button onclick="pinSetupPad('1')">1</button><button onclick="pinSetupPad('2')">2</button><button onclick="pinSetupPad('3')">3</button>
-      <button onclick="pinSetupPad('4')">4</button><button onclick="pinSetupPad('5')">5</button><button onclick="pinSetupPad('6')">6</button>
-      <button onclick="pinSetupPad('7')">7</button><button onclick="pinSetupPad('8')">8</button><button onclick="pinSetupPad('9')">9</button>
-      <button onclick="pinSetupClear()" style="font-size:0.8em;">CLR</button><button onclick="pinSetupPad('0')">0</button><button onclick="pinSetupBack()">&#9003;</button>
-    </div>
-    <div id="pinSetupMsg" style="display:none;margin-top:8px;font-size:0.85em;"></div>
-    <div class="modal-buttons" style="margin-top:12px;">
-      <button class="btn-small btn-danger" onclick="closePinSetupModal()">Cancel</button>
-      <button class="btn-small btn-danger" onclick="removePin()" style="background:#636e72;">Remove PIN</button>
-      <button class="btn-small btn-add" onclick="savePin()">Save PIN</button>
     </div>
   </div>
 </div>
