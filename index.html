@@ -14,22 +14,20 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
 
-  .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: stretch; justify-content: flex-start; }
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; justify-content: center; }
   .controls button {
-    padding: 12px 16px; border: none; border-radius: 3px; cursor: pointer;
-    font-size: 0.92em; font-weight: 700; transition: background 0.2s, transform 0.15s, box-shadow 0.15s;
-    min-height: 48px; min-width: 136px; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.18);
+    padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 0.95em; font-weight: 600; transition: background 0.2s;
   }
-  .controls button:hover { transform: translateY(-1px); }
   .btn-add { background: #00b894; color: #fff; }
   .btn-add:hover { background: #00a381; }
   .btn-generate { background: #0984e3; color: #fff; }
   .btn-generate:hover { background: #0770c2; }
   .btn-danger { background: #d63031; color: #fff; }
   .btn-danger:hover { background: #b71c1c; }
-  .btn-small { padding: 10px 12px; font-size: 0.85em; border: none; border-radius: 3px; cursor: pointer; font-weight: 700; min-height: 40px; }
+  .btn-small { padding: 10px 12px; font-size: 0.85em; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
   .btn-tdy-leave {
-    padding: 10px 12px; border: none; border-radius: 3px; cursor: pointer;
+    padding: 10px 12px; border: none; border-radius: 4px; cursor: pointer;
     font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
   }
   .btn-tdy-leave:hover { background: #5a4bd1; }
@@ -68,7 +66,7 @@
   /* Stats bar */
   .stats-bar {
     display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;
-    margin-bottom: 18px; padding: 14px; background: #2d2d44; border-radius: 10px; border: 1px solid #3a3a55;
+    margin-bottom: 20px; padding: 12px; background: #2d2d44; border-radius: 8px;
   }
   .stat { text-align: center; }
   .stat .num { font-size: 1.4em; font-weight: 700; color: #00d4ff; }
@@ -301,13 +299,10 @@
     .stat .label { font-size: 0.6em; }
 
     /* Controls: 2-column grid, back button spans full width */
-    .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+    .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
     .controls .btn-back { grid-column: 1 / -1; }
     .controls-secondary { grid-template-columns: repeat(3, 1fr); }
-    .controls button { min-width: 0; min-height: 50px; padding: 10px 8px; font-size: 0.8em; white-space: nowrap; }
-    .toolbar-grid { grid-template-columns: 1fr; }
-    .toolbar-heading { flex-direction: column; align-items: flex-start; }
-    .toolbar-section { padding: 12px; }
+    .controls button { padding: 10px 6px; font-size: 0.82em; white-space: nowrap; }
 
     /* Convert table to card layout */
     .table-wrap { overflow-x: visible; }
@@ -532,59 +527,12 @@
   .platoon-card-name { font-size: 1.3em; font-weight: 700; color: #e0e0e0; }
   .platoon-card-count { font-size: 0.8em; color: #636e72; margin-top: 6px; }
   .btn-back {
-    background: #202033; border: 1px solid #444; color: #c7d0e4;
-    padding: 10px 14px; border-radius: 3px; cursor: pointer; font-size: 0.85em;
-    transition: all 0.2s; margin-right: 0;
+    background: transparent; border: 1px solid #444; color: #aaa;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85em;
+    transition: all 0.2s; margin-right: 8px;
   }
-  .btn-back:hover { border-color: #00d4ff; color: #00d4ff; background: #25253c; }
+  .btn-back:hover { border-color: #00d4ff; color: #00d4ff; }
   #platoonScreen { display: none; }
-  .platoon-shell { max-width: 1200px; margin: 0 auto; }
-  .platoon-toolbar {
-    background: linear-gradient(180deg, rgba(45,45,68,0.98), rgba(34,34,52,0.98));
-    border: 1px solid #3a3a55;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 14px;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.16);
-  }
-  .toolbar-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
-  .toolbar-title {
-    font-size: 0.76em;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: #7d88a6;
-    font-weight: 700;
-  }
-  .toolbar-subtitle {
-    font-size: 0.94em;
-    color: #b7c0d6;
-  }
-  .toolbar-grid {
-    display: grid;
-    grid-template-columns: 1.3fr 1fr;
-    gap: 14px;
-    align-items: start;
-  }
-  .toolbar-section {
-    background: rgba(26,26,46,0.68);
-    border: 1px solid #333851;
-    border-radius: 10px;
-    padding: 14px;
-  }
-  .toolbar-section-title {
-    font-size: 0.74em;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #7d88a6;
-    margin-bottom: 10px;
-    font-weight: 700;
-  }
 
   /* Notes preview in modal */
   .notes-preview {
@@ -633,7 +581,7 @@
   /* ─── Search bar ─── */
   .search-wrap { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
   .search-input { flex: 1; padding: 8px 14px; background: #2d2d44; border: 1px solid #444;
-    border-radius: 3px; color: #e0e0e0; font-size: 0.9em; outline: none; transition: border-color 0.2s; min-height: 44px; }
+    border-radius: 6px; color: #e0e0e0; font-size: 0.9em; outline: none; transition: border-color 0.2s; }
   .search-input:focus { border-color: #00d4ff; }
   .search-input::placeholder { color: #636e72; }
 
@@ -645,10 +593,10 @@
 
   /* ─── Bulk select bar ─── */
   .row-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: #0984e3; }
-  .bulk-bar { display: none; align-items: center; gap: 10px; padding: 10px 12px;
-    background: #0984e322; border: 1px solid #0984e3; border-radius: 10px; margin-bottom: 0; flex-wrap: wrap; }
+  .bulk-bar { display: none; align-items: center; gap: 10px; padding: 8px 14px;
+    background: #0984e322; border: 1px solid #0984e3; border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .bulk-bar.visible { display: flex; }
-  .bulk-bar-label { font-weight: 700; color: #74b9ff; font-size: 0.9em; }
+  .bulk-bar-label { font-weight: 600; color: #74b9ff; font-size: 0.9em; }
 
   /* ─── Returning-today / overdue badges ─── */
   .returning-badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 0.7em;
@@ -756,54 +704,37 @@
 
 <!-- ─── Platoon Screen ─── -->
 <div id="platoonScreen">
-<div class="platoon-shell">
 <input type="text" class="edit-unit-name" id="unitName" value="" />
 <div class="stats-bar" id="statsBar"></div>
-<div class="platoon-toolbar">
-  <div class="toolbar-heading">
-    <div>
-      <div class="toolbar-title">Platoon Tools</div>
-      <div class="toolbar-subtitle">Quick actions, reporting, and roster updates in one place.</div>
-    </div>
-    <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
-  </div>
-  <div class="toolbar-grid">
-    <div class="toolbar-section">
-      <div class="toolbar-section-title">Roster Actions</div>
-      <div class="controls">
-        <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
-        <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
-        <button class="btn-reset" onclick="resetDay()">Reset Day</button>
-        <button class="btn-generate" onclick="generateReport()">Generate Report</button>
-      </div>
-      <div class="controls controls-secondary" style="margin-top:0;">
-        <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
-        <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
-        <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
-      </div>
-    </div>
-    <div class="toolbar-section">
-      <div class="toolbar-section-title">Find And Update</div>
-      <div class="search-wrap">
-        <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
-        <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
-      </div>
-      <div class="bulk-bar" id="bulkBar">
-        <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
-        <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:8px 10px;font-size:0.85em;min-height:40px;">
-          <option value="">— Set Status —</option>
-          <option value="present">Present</option>
-          <option value="tdy">TDY</option>
-          <option value="leave">Leave</option>
-          <option value="pass">Pass</option>
-          <option value="other">Other</option>
-          <option value="ftr">FTR</option>
-        </select>
-        <button class="btn-small btn-add" onclick="applyBulkStatus()">Apply</button>
-        <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
-      </div>
-    </div>
-  </div>
+<div class="controls">
+  <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
+  <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
+  <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
+  <button class="btn-reset" onclick="resetDay()">Reset Day</button>
+  <button class="btn-generate" onclick="generateReport()">Generate Report</button>
+</div>
+<div class="controls controls-secondary" style="margin-top:6px;">
+  <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
+  <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
+  <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
+</div>
+<div class="search-wrap">
+  <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
+  <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
+</div>
+<div class="bulk-bar" id="bulkBar">
+  <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
+  <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:0.85em;">
+    <option value="">— Set Status —</option>
+    <option value="present">Present</option>
+    <option value="tdy">TDY</option>
+    <option value="leave">Leave</option>
+    <option value="pass">Pass</option>
+    <option value="other">Other</option>
+    <option value="ftr">FTR</option>
+  </select>
+  <button class="btn-small btn-add" onclick="applyBulkStatus()">Apply</button>
+  <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
 </div>
 
 <div class="table-wrap">
@@ -821,7 +752,6 @@
     </thead>
     <tbody id="personnelBody"></tbody>
   </table>
-</div>
 </div>
 
 <!-- Add / Edit Person Modal -->
