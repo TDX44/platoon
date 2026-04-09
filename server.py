@@ -348,12 +348,36 @@ def sync_clerk_user(payload):
             )
         else:
             is_admin = 1 if _should_auto_grant_admin(conn, email) else 0
-            platoons = '*' if is_admin else ''
-            conn.execute(
-                'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
-            )
+            legacy = None
+            if email:
+                legacy = conn.execute(
+                    'SELECT * FROM users WHERE LOWER(email) = ? AND (clerk_user_id IS NULL OR clerk_user_id = "")',
+                    (email,)
+                ).fetchone()
+            if not legacy and username:
+                legacy = conn.execute(
+                    'SELECT * FROM users WHERE LOWER(username) = ? AND (clerk_user_id IS NULL OR clerk_user_id = "")',
+                    (username.lower(),)
+                ).fetchone()
+
+            if legacy:
+                platoons = legacy['platoons']
+                should_be_admin = bool(legacy['is_admin']) or is_admin
+                if should_be_admin and not platoons:
+                    platoons = '*'
+                conn.execute(
+                    'UPDATE users SET username = ?, password_hash = ?, is_admin = ?, platoons = ?, '
+                    'clerk_user_id = ?, email = ?, full_name = ?, pin_hash = "" WHERE id = ?',
+                    (username, PLACEHOLDER_PASSWORD_HASH, 1 if should_be_admin else 0, platoons,
+                     clerk_user_id, email, full_name, legacy['id'])
+                )
+            else:
+                platoons = '*' if is_admin else ''
+                conn.execute(
+                    'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
+                )
         conn.commit()
         row = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
         g.current_user = dict(row) if row else None
