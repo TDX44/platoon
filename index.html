@@ -2075,6 +2075,9 @@ async function loadClerkScript(url) {
     script.crossOrigin = 'anonymous';
     script.dataset.clerkScript = 'true';
     script.dataset.clerkSrc = url;
+    if (authConfig && authConfig.publishable_key) {
+      script.dataset.clerkPublishableKey = authConfig.publishable_key;
+    }
     script.src = url;
     script.onload = resolve;
     script.onerror = () => reject(new Error(`Unable to load Clerk from ${url}`));
@@ -2091,22 +2094,11 @@ async function ensureClerk() {
     }
 
     if (!window.Clerk) {
-      const urls = [
-        'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js',
-        `${config.frontend_api_url.replace(/\/$/, '')}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`,
-      ];
-      let lastError = null;
-      for (const url of urls) {
-        try {
-          setLoginStatus(`Loading Clerk sign-in from ${new URL(url).host}…`);
-          await loadClerkScript(url);
-          break;
-        } catch (err) {
-          lastError = err;
-        }
-      }
+      const clerkScriptUrl = `${config.frontend_api_url.replace(/\/$/, '')}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`;
+      setLoginStatus(`Loading Clerk sign-in from ${new URL(clerkScriptUrl).host}…`);
+      await loadClerkScript(clerkScriptUrl);
       if (!window.Clerk) {
-        throw lastError || new Error('Unable to load Clerk script.');
+        throw new Error(`Unable to load Clerk from ${clerkScriptUrl}`);
       }
     }
 

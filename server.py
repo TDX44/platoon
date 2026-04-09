@@ -35,7 +35,7 @@ def _parse_csv_env(name):
 
 def _decode_clerk_publishable_key(publishable_key):
     try:
-        encoded = publishable_key.split('_', 2)[-1]
+        encoded = publishable_key.split('_', 2)[-1].split('$', 1)[0]
         encoded += '=' * (-len(encoded) % 4)
         return base64.urlsafe_b64decode(encoded).decode('utf-8')
     except Exception:
