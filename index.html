@@ -219,184 +219,6 @@
   .cal-day.range-start { background: #0984e3; color: #fff; font-weight: 700; border-radius: 4px 0 0 4px; }
   .cal-day.range-end { background: #0984e3; color: #fff; font-weight: 700; border-radius: 0 4px 4px 0; }
 
-  /* ─── Mobile responsive ─── */
-  @media (max-width: 640px) {
-    body { padding: 6px; }
-    #loginScreen {
-      min-height: 100svh;
-      padding: 18px 12px 24px;
-      align-items: flex-start;
-    }
-    .login-card { width: 100%; max-width: 420px; gap: 10px; }
-    .login-brand {
-      border-radius: 16px;
-      padding: 20px 18px 14px;
-      box-shadow: 0 18px 40px rgba(0,0,0,0.24);
-    }
-    .login-title { font-size: 1.35em; }
-    .login-subtitle { font-size: 0.82em; margin-bottom: 8px; }
-    #clerkAuthMount { min-height: 0; }
-    #clerkAuthMount > * { width: 100%; }
-    .login-status { font-size: 0.76em; }
-
-    #homeScreen {
-      min-height: 100svh;
-      justify-content: flex-start;
-      gap: 18px;
-      padding: 64px 8px 20px;
-    }
-    .hamburger-wrap {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      right: 10px;
-      display: flex;
-      justify-content: flex-start;
-      pointer-events: none;
-    }
-    .hamburger-btn, .hamburger-dropdown { pointer-events: auto; }
-    .hamburger-btn {
-      min-height: 44px;
-      padding: 10px 14px;
-      background: rgba(45,45,68,0.92);
-      backdrop-filter: blur(8px);
-    }
-    .hamburger-dropdown {
-      position: fixed;
-      top: 60px;
-      left: 10px;
-      right: 10px;
-      min-width: 0;
-      max-height: calc(100svh - 80px);
-      overflow-y: auto;
-    }
-    .hamburger-dropdown button { min-height: 44px; }
-    .home-title {
-      font-size: 1.35em;
-      letter-spacing: 0.4px;
-      line-height: 1.2;
-    }
-    .home-subtitle {
-      margin-top: -10px;
-      font-size: 0.82em;
-    }
-    .platoon-cards {
-      width: 100%;
-      gap: 10px;
-    }
-    .platoon-card {
-      width: 100%;
-      min-width: 0;
-      padding: 18px 16px;
-      border-radius: 10px;
-    }
-    .platoon-card-name { font-size: 1.15em; }
-    .platoon-card-count { font-size: 0.78em; }
-
-    .edit-unit-name { font-size: 1.1em; margin-bottom: 4px; }
-    .stats-bar { gap: 4px; padding: 6px 8px; margin-bottom: 8px; }
-    .stat .num { font-size: 1em; }
-    .stat .label { font-size: 0.6em; }
-
-    /* Controls: 2-column grid, back button spans full width */
-    .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
-    .controls .btn-back { grid-column: 1 / -1; }
-    .controls-secondary { grid-template-columns: repeat(3, 1fr); }
-    .controls button { padding: 10px 6px; font-size: 0.82em; white-space: nowrap; }
-
-    /* Convert table to card layout */
-    .table-wrap { overflow-x: visible; }
-    .table-wrap table { display: block; background: transparent; }
-    .table-wrap table thead { display: none; }
-    .table-wrap table tbody { display: block; }
-    .table-wrap table tbody tr {
-      display: flex !important; flex-wrap: nowrap; align-items: center; gap: 4px;
-      background: #2d2d44; border-radius: 6px; margin-bottom: 4px;
-      padding: 8px; border: 1px solid #3a3a55; min-height: 44px;
-    }
-    .table-wrap table tbody tr:hover { background: #35355a; }
-    .table-wrap table tbody tr td {
-      display: block !important; padding: 0 !important; border: none !important;
-      font-size: 0.8em;
-    }
-
-    /* Col 1: Checkbox — hide on mobile */
-    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(1) { display: none !important; }
-    /* Col 2: # Number — hide */
-    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(2) { display: none !important; }
-    /* Col 3: Rank */
-    .table-wrap table tbody tr td:nth-child(3) { flex: 0 0 auto; }
-    .rank-cell { font-size: 0.75em !important; }
-    /* Col 4: Name — fill remaining space */
-    .table-wrap table tbody tr td:nth-child(4) { flex: 1 1 0 !important; min-width: 0; overflow: hidden; }
-    .name-cell { white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; font-size: 0.82em !important; }
-    /* Col 5: Present btn */
-    .table-wrap table tbody tr td:nth-child(5) { flex: 0 0 auto; }
-    /* Col 6: Status / TDY Leave */
-    .table-wrap table tbody tr td:nth-child(6) { flex: 0 0 auto; }
-    /* Col 7: Edit + Delete */
-    .table-wrap table tbody tr td:nth-child(7) { flex: 0 0 auto; }
-
-    .present-btn { padding: 8px 10px; font-size: 0.72em; white-space: nowrap; }
-    .btn-tdy-leave { padding: 8px 7px; font-size: 0.68em; white-space: nowrap; }
-    .btn-small { padding: 8px 8px; font-size: 0.72em; }
-    .status-badge { padding: 1px 5px; font-size: 0.65em; }
-    .returned-badge { padding: 1px 5px; font-size: 0.6em; }
-
-    /* Section headers */
-    tr.section-header, tr.section-header-tdy {
-      display: block !important; padding: 6px 8px !important;
-      border-radius: 4px; margin-top: 8px; margin-bottom: 2px;
-    }
-    tr.section-header td, tr.section-header-tdy td { padding: 0 !important; font-size: 0.8em; }
-
-    /* Away rows: name cell allows wrapping for notes/dates */
-    tr.away-row .name-cell {
-      white-space: normal !important; overflow: visible !important; text-overflow: unset !important;
-      font-size: 0.82em !important; line-height: 1.4;
-    }
-    .away-notes { font-size: 0.72em !important; color: #b2bec3; white-space: normal !important; overflow: visible !important; }
-    .away-dates { font-size: 0.68em !important; color: #74b9ff; white-space: normal !important; }
-
-    /* Modal adjustments */
-    .modal { padding: 15px; width: 100%; max-width: 95vw; }
-    .modal-wide { width: 100%; }
-    .modal h2 { font-size: 1em; margin-bottom: 10px; }
-    .user-row {
-      flex-wrap: wrap;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .user-row-name-block {
-      min-width: 100%;
-      flex-basis: 100%;
-    }
-    .user-row-badges {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-    .status-toggle-group { gap: 3px; }
-    .status-toggle { padding: 5px 8px; font-size: 0.75em; }
-    .date-pick-row { gap: 6px; }
-    .date-display { padding: 6px 4px; font-size: 0.8em; }
-    .cal-day { padding: 8px 2px; font-size: 0.85em; }
-    .cal-header button { padding: 5px 12px; }
-    .report-box { padding: 12px; }
-    .report-text { font-size: 0.7em; padding: 8px; }
-  }
-
-  @media (max-width: 380px) {
-    #loginScreen { padding-left: 10px; padding-right: 10px; }
-    .login-brand { padding: 18px 14px 12px; }
-    .login-title { font-size: 1.2em; }
-    .home-title { font-size: 1.2em; }
-    .stats-bar { gap: 2px; padding: 5px; }
-    .stat .num { font-size: 0.85em; }
-    .stat { min-width: 36px; }
-    .status-toggle { padding: 5px 8px; font-size: 0.75em; }
-    .controls button { font-size: 0.76em; }
-  }
-
   /* ─── Login screen ─── */
   #loginScreen {
     display: none; align-items: center; justify-content: center; min-height: 100vh;
@@ -1109,6 +931,10 @@
     letter-spacing: 0;
     margin-top: 5px;
   }
+  .stat-mobile-away,
+  .mobile-more-actions {
+    display: none;
+  }
 
   .search-wrap {
     margin: 16px 0 12px;
@@ -1190,6 +1016,11 @@
   .away-dates,
   .audit-user,
   .audit-action { color: var(--theme_action); }
+  .away-status-action {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
   tr.section-header td,
   tr.section-header-tdy td,
@@ -1416,6 +1247,8 @@
       padding: 8px;
       margin-bottom: 10px;
     }
+    .stat-detail-mobile-hidden { display: none; }
+    .stat-mobile-away { display: block; }
     .stat {
       min-width: 0;
       padding: 10px 8px;
@@ -1429,9 +1262,43 @@
       margin-bottom: 8px;
     }
     .controls .btn-back { grid-column: 1 / -1; }
-    .controls-secondary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .mobile-secondary-action,
+    .controls-secondary {
+      display: none !important;
+    }
+    .mobile-more-actions {
+      display: block;
+      margin: 0 0 10px;
+    }
+    .mobile-more-actions summary {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      list-style: none;
+      cursor: pointer;
+      border: 1px solid var(--theme_border);
+      border-radius: var(--theme_radius);
+      background: var(--theme_surface);
+      color: var(--theme_text);
+      font-weight: 700;
+      user-select: none;
+    }
+    .mobile-more-actions summary::-webkit-details-marker { display: none; }
+    .mobile-more-actions[open] summary {
+      border-color: rgba(27,97,201,0.32);
+      color: var(--theme_action);
+      background: var(--theme_surface-blue);
+    }
+    .mobile-more-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding-top: 8px;
+    }
     .controls button,
     .controls-secondary button,
+    .mobile-more-grid button,
     .btn-small,
     .present-btn,
     .btn-tdy-leave {
@@ -1472,6 +1339,12 @@
       background: transparent;
       box-shadow: none;
     }
+    .table-wrap table,
+    .table-wrap tbody {
+      display: block;
+      width: 100%;
+    }
+    .table-wrap thead { display: none; }
     .table-wrap table tbody tr {
       display: grid !important;
       grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1504,18 +1377,33 @@
     tr.section-header td,
     tr.section-header-tdy td {
       display: block !important;
-      padding: 0 0 0 8px !important;
+      padding: 0 0 0 10px !important;
       font-size: 0.8rem !important;
+      line-height: 1.2;
+      border-left-width: 3px !important;
     }
-    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(1),
-    .table-wrap table tbody tr:not(.section-header):not(.section-header-tdy) td:nth-child(2) {
+    .mobile-select-cell,
+    .mobile-num-cell {
       display: none !important;
     }
-    .table-wrap table tbody tr td:nth-child(3) { grid-area: rank; }
-    .table-wrap table tbody tr td:nth-child(4) { grid-area: name; min-width: 0; }
-    .table-wrap table tbody tr td:nth-child(5) { grid-area: present; justify-self: end; }
-    .table-wrap table tbody tr td:nth-child(6) { grid-area: status; }
-    .table-wrap table tbody tr td:nth-child(7) {
+    .mobile-rank-cell {
+      grid-area: rank;
+      align-self: start;
+    }
+    .mobile-name-cell {
+      grid-area: name;
+      min-width: 0;
+    }
+    .mobile-primary-action-cell {
+      grid-area: present;
+      justify-self: end;
+      align-self: start;
+    }
+    .mobile-secondary-action-cell {
+      grid-area: status;
+      align-self: end;
+    }
+    .mobile-edit-cell {
       grid-area: actions;
       justify-self: end;
       display: flex !important;
@@ -1525,6 +1413,7 @@
     .rank-cell {
       font-size: 0.76rem !important;
       min-width: 38px;
+      padding-top: 3px !important;
     }
     .name-cell {
       display: block;
@@ -1546,6 +1435,19 @@
     .status-badge {
       font-size: 0.72rem;
       padding: 4px 7px;
+    }
+    .present-btn {
+      min-width: 76px;
+      white-space: nowrap;
+    }
+    .btn-tdy-leave {
+      min-width: 88px;
+      color: var(--theme_action);
+    }
+    .mobile-edit-cell .btn-small {
+      min-width: 44px;
+      padding-left: 0;
+      padding-right: 0;
     }
     .modal-overlay,
     .report-overlay {
@@ -1592,7 +1494,7 @@
         "present present"
         "status actions";
     }
-    .table-wrap table tbody tr td:nth-child(5) { justify-self: stretch; }
+    .mobile-primary-action-cell { justify-self: stretch; }
     .present-btn { width: 100%; }
   }
 </style>
@@ -1671,8 +1573,8 @@
 <div class="controls">
   <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
   <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
-  <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
-  <button class="btn-reset" onclick="resetDay()">Reset Day</button>
+  <button class="btn-import mobile-secondary-action" onclick="openImportModal()">&#8595; Import List</button>
+  <button class="btn-reset mobile-secondary-action" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
 </div>
 <div class="controls controls-secondary" style="margin-top:6px;">
@@ -1680,6 +1582,16 @@
   <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
   <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
 </div>
+<details class="mobile-more-actions">
+  <summary>More Actions</summary>
+  <div class="mobile-more-grid">
+    <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
+    <button class="btn-reset" onclick="resetDay()">Reset Day</button>
+    <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
+    <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
+    <button class="btn-reset" id="mobileAuditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
+  </div>
+</details>
 <div class="search-wrap">
   <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
   <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
@@ -2087,14 +1999,15 @@ function render() {
       const i = personnel.indexOf(p);
       const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
       const tr = document.createElement('tr');
+      tr.className = 'roster-row';
       tr.innerHTML = `
-        <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td>${rowNum++}</td>
-        <td class="rank-cell">${p.rank}</td>
-        <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
-        <td><button class="present-btn unaccounted" onclick="markPresentToday(${i})">&#9675; Mark Present</button></td>
-        <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-        <td>
+        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+        <td class="mobile-num-cell">${rowNum++}</td>
+        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
+        <td class="name-cell mobile-name-cell">${p.last}, ${p.first}${returnedBadge}</td>
+        <td class="mobile-primary-action-cell"><button class="present-btn unaccounted" onclick="markPresentToday(${i})">&#9675; Mark Present</button></td>
+        <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
+        <td class="mobile-edit-cell">
           <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
         </td>
       `;
@@ -2113,14 +2026,15 @@ function render() {
     const i = personnel.indexOf(p);
     const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
     const tr = document.createElement('tr');
+    tr.className = 'roster-row';
     tr.innerHTML = `
-      <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-      <td>${rowNum++}</td>
-      <td class="rank-cell">${p.rank}</td>
-      <td class="name-cell">${p.last}, ${p.first}${returnedBadge}</td>
-      <td><button class="present-btn active" onclick="unmarkPresent(${i})">&#10003; Present</button></td>
-      <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-      <td>
+      <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+      <td class="mobile-num-cell">${rowNum++}</td>
+      <td class="rank-cell mobile-rank-cell">${p.rank}</td>
+      <td class="name-cell mobile-name-cell">${p.last}, ${p.first}${returnedBadge}</td>
+      <td class="mobile-primary-action-cell"><button class="present-btn active" onclick="unmarkPresent(${i})">&#10003; Present</button></td>
+      <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
+      <td class="mobile-edit-cell">
         <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
       </td>
     `;
@@ -2166,21 +2080,21 @@ function render() {
       const dateRange = (p.sched_from || p.sched_to)
         ? `${formatDateShort(p.sched_from)} - ${formatDateShort(p.sched_to)}` : '';
       const tr = document.createElement('tr');
-      tr.className = 'away-row';
+      tr.className = 'roster-row away-row';
       tr.innerHTML = `
-        <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td>${rowNum++}</td>
-        <td class="rank-cell">${p.rank}</td>
-        <td class="name-cell">
+        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+        <td class="mobile-num-cell">${rowNum++}</td>
+        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
+        <td class="name-cell mobile-name-cell">
           ${p.last}, ${p.first}
           <div class="away-notes" style="color:#fdcb6e;">
             ${labels[p.sched_status] || p.sched_status}${p.sched_notes ? ': ' + escapeHtml(p.sched_notes) : ''}
           </div>
           ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
         </td>
-        <td><span class="status-badge" style="background:#fdcb6e33;color:#fdcb6e;border:1px solid #fdcb6e;">Scheduled</span></td>
-        <td><span style="font-size:0.75em;color:#b2bec3;font-style:italic;white-space:nowrap;">Now: ${p.status}</span></td>
-        <td><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
+        <td class="mobile-primary-action-cell"><span class="status-badge" style="background:#fdcb6e33;color:#fdcb6e;border:1px solid #fdcb6e;">Scheduled</span></td>
+        <td class="mobile-secondary-action-cell"><span style="font-size:0.75em;color:#b2bec3;font-style:italic;white-space:nowrap;">Now: ${p.status}</span></td>
+        <td class="mobile-edit-cell"><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
       `;
       body.appendChild(tr);
     });
@@ -2195,14 +2109,15 @@ function render() {
     loanList.forEach(p => {
       const i = personnel.indexOf(p);
       const tr = document.createElement('tr');
+      tr.className = 'roster-row away-row';
       tr.innerHTML = `
-        <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td>${rowNum++}</td>
-        <td class="rank-cell">${p.rank}</td>
-        <td class="name-cell">${p.last}, ${p.first}${p.notes ? `<div class="away-notes" style="color:#a29bfe;">${escapeHtml(p.notes)}</div>` : ''}</td>
-        <td></td>
-        <td>${statusBadge('loan')}</td>
-        <td><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
+        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+        <td class="mobile-num-cell">${rowNum++}</td>
+        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
+        <td class="name-cell mobile-name-cell">${p.last}, ${p.first}${p.notes ? `<div class="away-notes" style="color:#a29bfe;">${escapeHtml(p.notes)}</div>` : ''}</td>
+        <td class="mobile-primary-action-cell"></td>
+        <td class="mobile-secondary-action-cell">${statusBadge('loan')}</td>
+        <td class="mobile-edit-cell"><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
       `;
       body.appendChild(tr);
     });
@@ -2210,15 +2125,18 @@ function render() {
 
   const total = personnel.filter(p => p.status !== 'loan').length;
   const leavePass = (counts.leave || 0) + (counts.pass || 0);
+  const awayTotal = leavePass + (counts.tdy || 0) + (counts.other || 0) + (counts.ftr || 0);
   document.getElementById('statsBar').innerHTML = `
     <div class="stat"><div class="num">${total}</div><div class="label">Assigned</div></div>
     <div class="stat"><div class="num" style="color:${counts.unaccounted ? '#e17055' : '#888'}">${counts.unaccounted}</div><div class="label">Unaccounted</div></div>
     <div class="stat"><div class="num" style="color:#00b894">${counts.present}</div><div class="label">Present</div></div>
-    <div class="stat"><div class="num" style="color:#fdcb6e">${leavePass}</div><div class="label">Leave/Pass</div></div>
-    <div class="stat"><div class="num" style="color:#74b9ff">${counts.tdy||0}</div><div class="label">TDY</div></div>
-    <div class="stat"><div class="num" style="color:#e17055">${counts.other||0}</div><div class="label">Other</div></div>
-    <div class="stat"><div class="num" style="color:#d63031">${counts.ftr||0}</div><div class="label">FTR</div></div>
-    ${counts.loan ? `<div class="stat"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
+    <div class="stat stat-mobile-away"><div class="num" style="color:var(--theme_action)">${awayTotal}</div><div class="label">Away</div></div>
+    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#fdcb6e">${leavePass}</div><div class="label">Leave/Pass</div></div>
+    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#74b9ff">${counts.tdy||0}</div><div class="label">TDY</div></div>
+    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#e17055">${counts.other||0}</div><div class="label">Other</div></div>
+    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#d63031">${counts.ftr||0}</div><div class="label">FTR</div></div>
+    ${counts.loan ? `<div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
+    ${counts.loan ? `<div class="stat stat-mobile-away"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
   `;
 
   updateSortHeaders();
@@ -2236,20 +2154,20 @@ function buildAwayRow(p, rowNum, todayStr) {
   const returningToday = p.to && p.to === (todayStr || getTodayStr());
   const returningBadge = returningToday ? `<span class="returning-badge">RETURNING TODAY</span>` : '';
   const tr = document.createElement('tr');
-  tr.className = 'away-row';
+  tr.className = 'roster-row away-row';
   tr.innerHTML = `
-    <td><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-    <td>${rowNum}</td>
-    <td class="rank-cell">${p.rank}</td>
-    <td class="name-cell">
+    <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
+    <td class="mobile-num-cell">${rowNum}</td>
+    <td class="rank-cell mobile-rank-cell">${p.rank}</td>
+    <td class="name-cell mobile-name-cell">
       ${p.last}, ${p.first}
       ${p.notes ? `<div class="away-notes">${escapeHtml(p.notes)}</div>` : ''}
       ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
       ${returningBadge ? `<div style="margin-top:3px;text-align:left;">${returningBadge}</div>` : ''}
     </td>
-    <td style="display:flex;align-items:center;gap:6px;">${statusBadge(p.status)}<button class="present-btn inactive" onclick="markPresent(${i})">&#9675; Mark Present</button></td>
-    <td><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-    <td>
+    <td class="mobile-primary-action-cell away-status-action">${statusBadge(p.status)}<button class="present-btn inactive" onclick="markPresent(${i})">&#9675; Mark Present</button></td>
+    <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
+    <td class="mobile-edit-cell">
       <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
     </td>
   `;
@@ -3325,8 +3243,10 @@ function selectPlatoon(platoon) {
   currentPlatoon = platoon;
   history.pushState({ platoon }, '', `?platoon=${platoon}`);
   showAppScreen('platoon');
-  const auditBtn = document.getElementById('auditLogBtn');
-  if (auditBtn) auditBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
+  ['auditLogBtn', 'mobileAuditLogBtn'].forEach(id => {
+    const auditBtn = document.getElementById(id);
+    if (auditBtn) auditBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
+  });
   load();
 }
 
