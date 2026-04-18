@@ -1054,6 +1054,146 @@
     min-width: 1320px;
     border: 1px solid var(--theme_border);
   }
+  .training-list {
+    display: grid;
+    gap: 18px;
+    margin-top: 8px;
+  }
+  .training-platoon-section {
+    display: grid;
+    gap: 8px;
+  }
+  .training-platoon-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 0 0 6px;
+    border-bottom: 2px solid var(--theme_border);
+    color: var(--theme_text);
+  }
+  .training-platoon-title strong {
+    font-size: 1.02rem;
+  }
+  .training-platoon-title span {
+    color: var(--theme_text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .training-person-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.75fr) minmax(0, 2fr);
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--theme_border);
+  }
+  .training-person-row:last-child {
+    border-bottom: 0;
+  }
+  .training-person-name {
+    min-width: 0;
+  }
+  .training-person-name strong {
+    display: block;
+    color: var(--theme_text);
+    font-size: 0.98rem;
+    line-height: 1.25;
+  }
+  .training-person-name span {
+    display: block;
+    margin-top: 3px;
+    color: var(--theme_text-muted);
+    font-size: 0.78rem;
+  }
+  .training-summary-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  .training-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--theme_border);
+    background: var(--theme_surface-soft);
+    color: var(--theme_text-muted);
+    font-size: 0.74rem;
+    font-weight: 750;
+    line-height: 1.1;
+  }
+  .training-pill.problem {
+    background: #fff5f4;
+    border-color: #f3b7b1;
+    color: var(--theme_danger);
+  }
+  .training-pill.due {
+    background: #fff8df;
+    border-color: #f4d47c;
+    color: #8a5a00;
+  }
+  .training-pill.good {
+    background: #f0fff5;
+    border-color: #a7e1bd;
+    color: #006400;
+  }
+  body.dark-mode .training-pill.problem {
+    background: #3a1d20;
+    border-color: #6f2d2f;
+  }
+  body.dark-mode .training-pill.due {
+    background: #3a300f;
+    border-color: #6b5613;
+    color: #fde68a;
+  }
+  body.dark-mode .training-pill.good {
+    background: #112a1c;
+    border-color: #245c3a;
+    color: #7ddf9b;
+  }
+  .training-item-group {
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+  }
+  .training-item-heading {
+    color: var(--theme_text);
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .training-item {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) auto;
+    gap: 10px;
+    align-items: baseline;
+    color: var(--theme_text);
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+  .training-item small {
+    color: var(--theme_text-muted);
+    font-size: 0.76rem;
+    text-align: right;
+  }
+  .training-muted-note {
+    color: var(--theme_text-muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .training-current-details {
+    margin-top: 8px;
+    color: var(--theme_text-muted);
+    font-size: 0.8rem;
+  }
+  .training-current-details summary {
+    cursor: pointer;
+    font-weight: 750;
+    color: var(--theme_text-weak);
+  }
   .training-table th,
   .training-table td {
     vertical-align: top;
@@ -1237,6 +1377,46 @@
     padding: 4px 5px;
     color: #111827;
     vertical-align: top;
+  }
+  .training-report-platoon {
+    margin-top: 12px;
+  }
+  .training-report-platoon h4 {
+    margin: 0 0 5px;
+    padding: 4px 6px;
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+    color: #111827;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+  }
+  .training-report-person {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 0.76rem;
+  }
+  .training-report-person:last-child {
+    border-bottom: 0;
+  }
+  .training-report-name {
+    color: #111827;
+    font-weight: 800;
+  }
+  .training-report-name span {
+    display: block;
+    color: #4b5563;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  .training-report-list {
+    margin: 0;
+    padding-left: 16px;
+  }
+  .training-report-list li {
+    margin: 0 0 3px;
   }
   .training-report-empty {
     border: 1px solid #d1d5db;
@@ -1738,6 +1918,21 @@
     .training-table-wrap td {
       display: table-cell !important;
     }
+    .training-person-row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .training-item {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+    .training-item small {
+      text-align: left;
+    }
+    .training-report-person {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
     .hamburger-btn {
       background: rgba(255,255,255,0.94);
       backdrop-filter: blur(8px);
@@ -2224,7 +2419,7 @@
 <!-- ─── 350-1 Training Screen ─── -->
 <div id="trainingScreen" style="display:none">
   <div class="screen-title">350-1 Training</div>
-  <p class="screen-subtitle">Upload the standard tracker and review current, due soon, expired, and missing training.</p>
+  <p class="screen-subtitle">Review who needs training, what is overdue, and what is coming due next.</p>
   <div class="controls">
     <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
     <button class="btn-add" id="trainingUploadBtn" onclick="document.getElementById('trainingFile').click()" style="display:none">Upload Tracker</button>
@@ -2236,7 +2431,7 @@
   <div id="trainingImportMeta" class="training-meta">No tracker uploaded yet.</div>
   <div class="accountability-insights" id="trainingInsights"></div>
   <div class="training-filters">
-    <input type="text" id="trainingSearch" placeholder="Search by name, rank, platoon, or training..." oninput="renderTraining()">
+    <input type="text" id="trainingSearch" placeholder="Search a Soldier, platoon, or course..." oninput="renderTraining()">
     <select id="trainingPlatoonFilter" onchange="renderTraining()">
       <option value="all">All platoons</option>
       <option value="1st">1st Platoon</option>
@@ -2244,20 +2439,17 @@
       <option value="hq">HQ</option>
     </select>
     <select id="trainingStatusFilter" onchange="renderTraining()">
-      <option value="problem">Needs attention</option>
+      <option value="problem">Action list</option>
       <option value="all">All statuses</option>
-      <option value="expired">Expired</option>
-      <option value="missing">Missing</option>
+      <option value="expired">Overdue</option>
+      <option value="missing">No date</option>
       <option value="due_soon">Due soon</option>
       <option value="current">Current</option>
       <option value="exempt">N/A</option>
     </select>
   </div>
   <div class="table-wrap training-table-wrap">
-    <table class="training-table">
-      <thead id="trainingTableHead"></thead>
-      <tbody id="trainingTableBody"></tbody>
-    </table>
+    <div class="training-list" id="trainingList"></div>
   </div>
   <div id="trainingReportPanel" class="training-report-panel">
     <h2>350-1 Training Report</h2>
@@ -2897,10 +3089,10 @@ function renderTrainingInsights() {
     return;
   }
   el.innerHTML = [
-    { cls: 'insight-good', value: `${summary.completion_percent || 0}%`, label: 'Current', detail: `${summary.current || 0} current, ${summary.due_soon || 0} due soon` },
-    { cls: 'insight-danger', value: summary.expired || 0, label: 'Expired', detail: 'Past the calculated due date' },
-    { cls: 'insight-warn', value: summary.missing || 0, label: 'Missing', detail: 'Blank tracker cells' },
-    { cls: 'insight-action', value: summary.personnel_count || 0, label: 'Personnel', detail: `${summary.requirement_count || 0} requirements tracked` }
+    { cls: 'insight-good', value: `${summary.completion_percent || 0}%`, label: 'Good', detail: `${summary.current || 0} current records` },
+    { cls: 'insight-danger', value: summary.expired || 0, label: 'Overdue', detail: 'Past the due date' },
+    { cls: 'insight-warn', value: summary.missing || 0, label: 'No date', detail: 'Blank cells in the tracker' },
+    { cls: 'insight-action', value: summary.due_soon || 0, label: 'Due soon', detail: 'Expires within 30 days' }
   ].map(card => `
     <div class="insight-card ${card.cls}">
       <strong>${card.value}</strong>
@@ -2910,16 +3102,136 @@ function renderTrainingInsights() {
   `).join('');
 }
 
+function trainingRecordText(record) {
+  if (!record) return '';
+  if (record.status === 'missing') return 'No completion date in tracker';
+  if (record.status === 'unknown') return record.raw_value ? `Check tracker value: ${record.raw_value}` : 'Check tracker value';
+  if (record.status === 'expired') return record.due_on ? `Expired ${trainingDate(record.due_on)}` : 'Expired';
+  if (record.status === 'due_soon') return record.due_on ? `Due ${trainingDate(record.due_on)}` : 'Due soon';
+  if (record.status === 'current') return record.due_on ? `Due ${trainingDate(record.due_on)}` : 'Current';
+  if (record.status === 'exempt') return 'Not required';
+  return trainingStatusLabel(record.status);
+}
+
+function trainingItemList(records) {
+  return records.map(record => `
+    <div class="training-item">
+      <span>${escapeHtml(record.requirement_name)}</span>
+      <small>${escapeHtml(trainingRecordText(record))}</small>
+    </div>
+  `).join('');
+}
+
+function trainingProblemRecords(person) {
+  return Object.values(person.records).filter(record => ['missing', 'expired', 'unknown'].includes(record.status));
+}
+
+function trainingDueRecords(person) {
+  return Object.values(person.records).filter(record => record.status === 'due_soon');
+}
+
+function trainingCurrentRecords(person) {
+  return Object.values(person.records).filter(record => record.status === 'current');
+}
+
+function trainingExemptRecords(person) {
+  return Object.values(person.records).filter(record => record.status === 'exempt');
+}
+
+function trainingPersonMatchesStatus(person, status) {
+  const records = Object.values(person.records);
+  if (status === 'all') return true;
+  if (status === 'problem') return records.some(record => ['missing', 'expired', 'unknown', 'due_soon'].includes(record.status));
+  return records.some(record => record.status === status);
+}
+
+function trainingVisibleRecords(person, status) {
+  const records = Object.values(person.records);
+  if (status === 'all') return records;
+  if (status === 'problem') return records.filter(record => ['missing', 'expired', 'unknown', 'due_soon'].includes(record.status));
+  return records.filter(record => record.status === status);
+}
+
+function renderTrainingPerson(person, status) {
+  const problems = trainingProblemRecords(person);
+  const due = trainingDueRecords(person);
+  const current = trainingCurrentRecords(person);
+  const exempt = trainingExemptRecords(person);
+  const visible = trainingVisibleRecords(person, status);
+  const visibleCurrent = visible.filter(record => record.status === 'current');
+  const visibleExempt = visible.filter(record => record.status === 'exempt');
+  const visibleOther = visible.filter(record => ['missing', 'expired', 'unknown', 'due_soon'].includes(record.status));
+
+  const actionGroups = [];
+  if (problems.length && (status === 'all' || status === 'problem' || ['missing', 'expired', 'unknown'].includes(status))) {
+    actionGroups.push(`
+      <div class="training-item-group">
+        <div class="training-item-heading">Fix now</div>
+        ${trainingItemList(problems.filter(record => status === 'all' || status === 'problem' || record.status === status))}
+      </div>
+    `);
+  }
+  if (due.length && (status === 'all' || status === 'problem' || status === 'due_soon')) {
+    actionGroups.push(`
+      <div class="training-item-group">
+        <div class="training-item-heading">Due within 30 days</div>
+        ${trainingItemList(due)}
+      </div>
+    `);
+  }
+
+  let detail = actionGroups.join('');
+  if (!detail && visibleOther.length) {
+    detail = `<div class="training-item-group">${trainingItemList(visibleOther)}</div>`;
+  }
+  if (status === 'current' && visibleCurrent.length) {
+    detail = `<div class="training-item-group">${trainingItemList(visibleCurrent)}</div>`;
+  }
+  if (status === 'exempt' && visibleExempt.length) {
+    detail = `<div class="training-item-group">${trainingItemList(visibleExempt)}</div>`;
+  }
+  if (status === 'all' && current.length) {
+    detail += `
+      <details class="training-current-details">
+        <summary>${current.length} current items</summary>
+        <div class="training-item-group">${trainingItemList(current)}</div>
+      </details>
+    `;
+  }
+  if (status === 'all' && exempt.length) {
+    detail += `<div class="training-muted-note">${exempt.length} items marked N/A.</div>`;
+  }
+  if (!detail) {
+    detail = '<div class="training-muted-note">No items for the selected filter.</div>';
+  }
+
+  return `
+    <div class="training-person-row">
+      <div class="training-person-name">
+        <strong>${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong>
+        <span>${escapeHtml(trainingPlatoonLabel(person.platoon))}</span>
+      </div>
+      <div>
+        <div class="training-summary-line">
+          ${problems.length ? `<span class="training-pill problem">${problems.length} fix now</span>` : '<span class="training-pill good">No missing or expired</span>'}
+          ${due.length ? `<span class="training-pill due">${due.length} due soon</span>` : ''}
+          <span class="training-pill good">${current.length} current</span>
+          ${exempt.length ? `<span class="training-pill">${exempt.length} N/A</span>` : ''}
+        </div>
+        ${detail}
+      </div>
+    </div>
+  `;
+}
+
 function renderTraining() {
-  const head = document.getElementById('trainingTableHead');
-  const body = document.getElementById('trainingTableBody');
+  const list = document.getElementById('trainingList');
   const meta = document.getElementById('trainingImportMeta');
-  if (!head || !body || !meta) return;
+  if (!list || !meta) return;
   renderTrainingInsights();
 
   if (!trainingData || !trainingData.import) {
-    head.innerHTML = '';
-    body.innerHTML = '<tr><td class="training-empty">No 350-1 tracker has been uploaded yet.</td></tr>';
+    list.innerHTML = '<div class="training-empty">No 350-1 tracker has been uploaded yet.</div>';
     meta.textContent = 'No tracker uploaded yet.';
     return;
   }
@@ -2927,24 +3239,13 @@ function renderTraining() {
   const uploadedAt = trainingData.import.uploaded_at ? `${trainingData.import.uploaded_at} UTC` : '';
   meta.textContent = `Latest upload: ${trainingData.import.filename || 'tracker.xlsx'} by ${trainingData.import.uploaded_by || 'unknown'}${uploadedAt ? ` on ${uploadedAt}` : ''}`;
 
-  const requirements = trainingData.requirements || [];
-  head.innerHTML = `<tr>
-    <th class="training-person-col">Soldier</th>
-    ${requirements.map(req => {
-      const title = [req.required_by, req.interval_months ? `${req.interval_months} months` : '', req.delivery_method].filter(Boolean).join(' | ');
-      return `<th title="${escapeHtml(String(title))}">${escapeHtml(String(req.display_name))}</th>`;
-    }).join('')}
-  </tr>`;
-
   const search = document.getElementById('trainingSearch').value.trim().toLowerCase();
   const platoon = document.getElementById('trainingPlatoonFilter').value;
   const status = document.getElementById('trainingStatusFilter').value;
-  const attention = trainingAttentionStatuses();
   const people = trainingPeople().filter(person => {
     if (platoon !== 'all' && person.platoon !== platoon) return false;
     const records = Object.values(person.records);
-    if (status === 'problem' && !records.some(record => attention.has(record.status))) return false;
-    if (status !== 'all' && status !== 'problem' && !records.some(record => record.status === status)) return false;
+    if (!trainingPersonMatchesStatus(person, status)) return false;
     if (!search) return true;
     const haystack = [
       person.platoon, person.rank, person.last, person.first,
@@ -2954,28 +3255,37 @@ function renderTraining() {
   });
 
   if (!people.length) {
-    body.innerHTML = '<tr><td class="training-empty">No records match the current filters.</td></tr>';
+    list.innerHTML = '<div class="training-empty">No records match the current filters.</div>';
     return;
   }
 
-  const rows = [];
+  const sections = [];
   let currentGroup = '';
+  let groupPeople = [];
+  function flushGroup() {
+    if (!groupPeople.length) return;
+    const groupProblems = groupPeople.reduce((sum, person) => sum + trainingProblemRecords(person).length, 0);
+    const groupDue = groupPeople.reduce((sum, person) => sum + trainingDueRecords(person).length, 0);
+    sections.push(`
+      <section class="training-platoon-section">
+        <div class="training-platoon-title">
+          <strong>${escapeHtml(trainingPlatoonLabel(currentGroup))}</strong>
+          <span>${groupPeople.length} personnel | ${groupProblems} fix now | ${groupDue} due soon</span>
+        </div>
+        ${groupPeople.map(person => renderTrainingPerson(person, status)).join('')}
+      </section>
+    `);
+  }
   people.forEach(person => {
     if (person.platoon !== currentGroup) {
+      flushGroup();
       currentGroup = person.platoon;
-      rows.push(`<tr class="training-platoon-row"><td colspan="${requirements.length + 1}">${escapeHtml(trainingPlatoonLabel(currentGroup))}</td></tr>`);
+      groupPeople = [];
     }
-    rows.push(`
-      <tr>
-        <td class="training-person-col">
-          <strong>${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong>
-          <span>${escapeHtml(trainingPlatoonLabel(person.platoon))}</span>
-        </td>
-        ${requirements.map(req => `<td>${trainingCellHtml(person.records[req.key])}</td>`).join('')}
-      </tr>
-    `);
+    groupPeople.push(person);
   });
-  body.innerHTML = rows.join('');
+  flushGroup();
+  list.innerHTML = sections.join('');
 }
 
 function trainingReportItems(statuses) {
@@ -2986,7 +3296,15 @@ function trainingReportItems(statuses) {
     .sort((a, b) => trainingPersonSort(a, b) || String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')));
 }
 
-function groupedTrainingReportRows(records, mode) {
+function trainingReportProblemText(record) {
+  if (record.status === 'missing') return `${record.requirement_name}: no completion date`;
+  if (record.status === 'expired') return `${record.requirement_name}: expired ${record.due_on ? trainingDate(record.due_on) : ''}`.trim();
+  if (record.status === 'unknown') return `${record.requirement_name}: check tracker value${record.raw_value ? ` (${record.raw_value})` : ''}`;
+  if (record.status === 'due_soon') return `${record.requirement_name}: due ${record.due_on ? trainingDate(record.due_on) : 'within 30 days'}`;
+  return `${record.requirement_name}: ${trainingStatusLabel(record.status)}`;
+}
+
+function groupedTrainingReportPeople(records) {
   const people = new Map();
   records.forEach(record => {
     const key = `${record.platoon}|${record.rank}|${record.last}|${record.first}`;
@@ -3001,23 +3319,49 @@ function groupedTrainingReportRows(records, mode) {
     }
     people.get(key).items.push(record);
   });
-  return Array.from(people.values()).sort(trainingPersonSort).map(person => {
-    const tags = person.items.map(item => {
-      const label = mode === 'due'
-        ? `${item.requirement_name} (${formatDateShort(item.due_on)})`
-        : `${item.requirement_name}${item.status === 'expired' && item.due_on ? ` (${formatDateShort(item.due_on)})` : ''}`;
-      const cls = mode === 'due' ? 'training-report-tag due' : 'training-report-tag';
-      return `<span class="${cls}">${escapeHtml(label)}</span>`;
-    }).join(' ');
-    return `<tr>
-      <td>${escapeHtml(trainingPlatoonLabel(person.platoon))}</td>
-      <td><strong>${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong></td>
-      <td>${tags}</td>
-    </tr>`;
-  }).join('');
+  return Array.from(people.values()).sort(trainingPersonSort);
 }
 
-function trainingReportSection(title, records, mode) {
+function trainingReportPlatoonBlocks(records) {
+  const people = groupedTrainingReportPeople(records);
+  const sections = [];
+  let currentPlatoon = '';
+  let group = [];
+  function flush() {
+    if (!group.length) return;
+    sections.push(`
+      <div class="training-report-platoon">
+        <h4>${escapeHtml(trainingPlatoonLabel(currentPlatoon))}</h4>
+        ${group.map(person => `
+          <div class="training-report-person">
+            <div class="training-report-name">
+              ${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}
+              <span>${person.items.length} item${person.items.length === 1 ? '' : 's'}</span>
+            </div>
+            <ul class="training-report-list">
+              ${person.items
+                .sort((a, b) => String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')))
+                .map(item => `<li>${escapeHtml(trainingReportProblemText(item))}</li>`)
+                .join('')}
+            </ul>
+          </div>
+        `).join('')}
+      </div>
+    `);
+  }
+  people.forEach(person => {
+    if (person.platoon !== currentPlatoon) {
+      flush();
+      currentPlatoon = person.platoon;
+      group = [];
+    }
+    group.push(person);
+  });
+  flush();
+  return sections.join('');
+}
+
+function trainingReportSection(title, records) {
   if (!records.length) {
     return `<div class="training-report-section">
       <h3>${escapeHtml(title)}</h3>
@@ -3026,10 +3370,7 @@ function trainingReportSection(title, records, mode) {
   }
   return `<div class="training-report-section">
     <h3>${escapeHtml(title)} (${records.length})</h3>
-    <table class="training-report-table">
-      <thead><tr><th style="width:86px;">Platoon</th><th style="width:170px;">Soldier</th><th>Training</th></tr></thead>
-      <tbody>${groupedTrainingReportRows(records, mode)}</tbody>
-    </table>
+    ${trainingReportPlatoonBlocks(records)}
   </div>`;
 }
 
@@ -3059,11 +3400,11 @@ function generateTrainingReport() {
   content.innerHTML = `
     <section class="training-report-page">
       ${trainingReportHeader('350-1 Training Report', 'Missing and expired requirements')}
-      ${trainingReportSection('Missing / Expired', missingExpired, 'problem')}
+      ${trainingReportSection('Missing / Expired', missingExpired)}
     </section>
     <section class="training-report-page">
       ${trainingReportHeader('350-1 Training Report', 'Expiring in the next 30 days')}
-      ${trainingReportSection('Due within 30 days', dueSoon, 'due')}
+      ${trainingReportSection('Due within 30 days', dueSoon)}
     </section>
   `;
   const panel = document.getElementById('trainingReportPanel');
