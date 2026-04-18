@@ -2449,7 +2449,7 @@
     <select id="trainingStatusFilter" onchange="renderTraining()">
       <option value="problem">Action list</option>
       <option value="all">All statuses</option>
-      <option value="expired">Overdue</option>
+      <option value="expired">Expired</option>
       <option value="missing">No date</option>
       <option value="due_soon">Due soon</option>
       <option value="current">Current</option>
@@ -3157,7 +3157,7 @@ function renderTrainingInsights() {
   const completion = summary.total ? Math.round((summary.good / summary.total) * 100) : 0;
   el.innerHTML = [
     { cls: 'insight-good', value: `${completion}%`, label: 'Good', detail: `${summary.current || 0} current records in ${trainingScopeLabel()}` },
-    { cls: 'insight-danger', value: summary.expired || 0, label: 'Overdue', detail: 'Past the due date' },
+    { cls: 'insight-danger', value: summary.expired || 0, label: 'Expired', detail: 'Past the due date' },
     { cls: 'insight-warn', value: summary.missing || 0, label: 'No date', detail: 'Blank cells in the tracker' },
     { cls: 'insight-action', value: summary.due_soon || 0, label: 'Due soon', detail: 'Expires within 30 days' }
   ].map(card => `
@@ -3233,7 +3233,7 @@ function renderTrainingPerson(person, status) {
   if (problems.length && (status === 'all' || status === 'problem' || ['missing', 'expired', 'unknown'].includes(status))) {
     actionGroups.push(`
       <div class="training-item-group">
-        <div class="training-item-heading">Fix now</div>
+        <div class="training-item-heading">Expired</div>
         ${trainingItemList(problems.filter(record => status === 'all' || status === 'problem' || record.status === status))}
       </div>
     `);
@@ -3280,7 +3280,7 @@ function renderTrainingPerson(person, status) {
       </div>
       <div>
         <div class="training-summary-line">
-          ${problems.length ? `<span class="training-pill problem">${problems.length} fix now</span>` : '<span class="training-pill good">No missing or expired</span>'}
+          ${problems.length ? `<span class="training-pill problem">${problems.length} expired</span>` : '<span class="training-pill good">No missing or expired</span>'}
           ${due.length ? `<span class="training-pill due">${due.length} due soon</span>` : ''}
           <span class="training-pill good">${current.length} current</span>
           ${exempt.length ? `<span class="training-pill">${exempt.length} N/A</span>` : ''}
@@ -3337,7 +3337,7 @@ function renderTraining() {
       <section class="training-platoon-section">
         <div class="training-platoon-title">
           <strong>${escapeHtml(trainingPlatoonLabel(currentGroup))}</strong>
-          <span>${groupPeople.length} personnel | ${groupProblems} fix now | ${groupDue} due soon</span>
+          <span>${groupPeople.length} personnel | ${groupProblems} expired | ${groupDue} due soon</span>
         </div>
         ${groupPeople.map(person => renderTrainingPerson(person, status)).join('')}
       </section>
@@ -3517,10 +3517,237 @@ function printTrainingReport() {
   setTimeout(() => document.body.classList.remove('training-report-printing'), 300);
 }
 
+function standaloneTrainingReportStyles() {
+  return `
+    :root {
+      color-scheme: light;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #eef1f5;
+      color: #111827;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #eef1f5;
+      color: #111827;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.35;
+    }
+    .report-shell {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 26px 18px 40px;
+    }
+    .report-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-end;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid #111827;
+    }
+    .report-kicker {
+      margin: 0 0 4px;
+      color: #b91c1c;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .report-top h1 {
+      margin: 0;
+      color: #111827;
+      font-size: 1.65rem;
+      line-height: 1.1;
+    }
+    .report-top p {
+      margin: 6px 0 0;
+      color: #4b5563;
+      font-size: 0.9rem;
+    }
+    .report-generated {
+      min-width: 190px;
+      color: #4b5563;
+      font-size: 0.8rem;
+      text-align: right;
+    }
+    .training-report {
+      display: grid;
+      gap: 18px;
+    }
+    .training-report-page {
+      background: #fff;
+      border: 1px solid #cfd6df;
+      border-radius: 8px;
+      box-shadow: 0 10px 28px rgba(17, 24, 39, 0.1);
+      padding: 20px;
+    }
+    .training-report-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .training-report-title {
+      font-size: 1.14rem;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .training-report-meta {
+      color: #4b5563;
+      font-size: 0.76rem;
+      line-height: 1.35;
+      text-align: right;
+    }
+    .training-report-section {
+      margin-top: 10px;
+    }
+    .training-report-section h3 {
+      margin: 0 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #cfd6df;
+      color: #111827;
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .training-report-person {
+      padding: 10px 0 12px;
+      border-bottom: 1px solid #e5e7eb;
+      break-inside: avoid;
+    }
+    .training-report-person:last-child {
+      border-bottom: 0;
+    }
+    .training-report-name {
+      margin-bottom: 6px;
+      color: #111827;
+      font-size: 0.9rem;
+      font-weight: 800;
+    }
+    .training-report-name span {
+      display: block;
+      margin-top: 2px;
+      color: #4b5563;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .training-report-items {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 0.78rem;
+    }
+    .training-report-items th,
+    .training-report-items td {
+      border: 1px solid #cfd6df;
+      padding: 6px 7px;
+      color: #111827;
+      overflow-wrap: anywhere;
+      vertical-align: top;
+    }
+    .training-report-items th {
+      background: #f2f4f7;
+      font-size: 0.7rem;
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .training-report-training-col { width: 58%; }
+    .training-report-date-col { width: 22%; }
+    .training-report-days-col {
+      width: 20%;
+      text-align: right;
+    }
+    .training-report-empty {
+      border: 1px solid #cfd6df;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #4b5563;
+      padding: 12px;
+      font-size: 0.85rem;
+    }
+    @media (max-width: 720px) {
+      .report-shell { padding: 16px 10px 28px; }
+      .report-top,
+      .training-report-header {
+        display: block;
+      }
+      .report-generated,
+      .training-report-meta {
+        margin-top: 8px;
+        text-align: left;
+      }
+      .training-report-page {
+        padding: 14px;
+      }
+      .training-report-items {
+        font-size: 0.72rem;
+      }
+      .training-report-items th,
+      .training-report-items td {
+        padding: 5px;
+      }
+    }
+    @media print {
+      body { background: #fff; }
+      .report-shell {
+        max-width: none;
+        padding: 0;
+      }
+      .report-top {
+        margin-bottom: 10px;
+      }
+      .training-report {
+        display: block;
+      }
+      .training-report-page {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+        page-break-after: always;
+      }
+      .training-report-page:last-child {
+        page-break-after: auto;
+      }
+    }
+  `;
+}
+
+function buildTrainingReportDocument(content) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>350-1 Training Report</title>
+  <style>${standaloneTrainingReportStyles()}</style>
+</head>
+<body>
+  <main class="report-shell">
+    <header class="report-top">
+      <div>
+        <p class="report-kicker">350-1 Training</p>
+        <h1>${escapeHtml(trainingScopeLabel())} Report</h1>
+        <p>Missing, expired, and upcoming training requirements.</p>
+      </div>
+      <div class="report-generated">Generated ${escapeHtml(formatDate(new Date()))}</div>
+    </header>
+    <div class="training-report">${content}</div>
+  </main>
+</body>
+</html>`;
+}
+
 function downloadTrainingReport() {
   const content = document.getElementById('trainingReportContent').innerHTML;
   if (!content.trim()) return;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>350-1 Training Report</title></head><body>${content}</body></html>`;
+  const html = buildTrainingReportDocument(content);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
