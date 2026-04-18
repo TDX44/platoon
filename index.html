@@ -1138,6 +1138,155 @@
     text-align: center;
     color: var(--theme_text-muted);
   }
+  .training-platoon-row td {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--theme_surface-soft) !important;
+    color: var(--theme_action);
+    font-weight: 750;
+    text-transform: uppercase;
+    letter-spacing: 0;
+    border-top: 1px solid var(--theme_border-strong);
+    border-bottom: 1px solid var(--theme_border);
+  }
+  .training-report-box {
+    width: min(980px, 96vw);
+  }
+  .training-report {
+    display: grid;
+    gap: 16px;
+    color: var(--theme_text);
+  }
+  .training-report-page {
+    background: #fff;
+    color: #111827;
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    padding: 18px;
+  }
+  .training-report-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .training-report-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .training-report-meta {
+    font-size: 0.74rem;
+    color: #4b5563;
+    text-align: right;
+    line-height: 1.35;
+  }
+  .training-report-section {
+    margin-top: 10px;
+  }
+  .training-report-section h3 {
+    margin: 0 0 5px;
+    font-size: 0.86rem;
+    color: #111827;
+    text-transform: uppercase;
+    border-bottom: 1px solid #d1d5db;
+    padding-bottom: 3px;
+  }
+  .training-report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+  }
+  .training-report-table th {
+    background: #f3f4f6;
+    color: #111827;
+    border: 1px solid #d1d5db;
+    padding: 4px 5px;
+    text-align: left;
+  }
+  .training-report-table td {
+    border: 1px solid #d1d5db;
+    padding: 4px 5px;
+    color: #111827;
+    vertical-align: top;
+  }
+  .training-report-empty {
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    color: #4b5563;
+    padding: 10px;
+    font-size: 0.78rem;
+  }
+  .training-report-tag {
+    display: inline-block;
+    margin: 0 3px 3px 0;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .training-report-tag.due {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  body.dark-mode .training-report-page {
+    color: #111827;
+  }
+
+  @media print {
+    body.training-report-printing {
+      background: #fff !important;
+      color: #000 !important;
+      padding: 0 !important;
+    }
+    body.training-report-printing > *:not(#trainingReportModal) {
+      display: none !important;
+    }
+    body.training-report-printing #trainingReportModal {
+      display: block !important;
+      position: static !important;
+      width: auto !important;
+      height: auto !important;
+      background: #fff !important;
+      padding: 0 !important;
+      overflow: visible !important;
+    }
+    body.training-report-printing .training-report-box {
+      width: auto !important;
+      max-width: none !important;
+      max-height: none !important;
+      overflow: visible !important;
+      box-shadow: none !important;
+      border: 0 !important;
+      padding: 0 !important;
+      background: #fff !important;
+    }
+    body.training-report-printing .training-report-box > h2,
+    body.training-report-printing .training-report-box > .report-buttons {
+      display: none !important;
+    }
+    body.training-report-printing .training-report {
+      display: block !important;
+    }
+    body.training-report-printing .training-report-page {
+      page-break-after: always;
+      break-after: page;
+      border: 0 !important;
+      border-radius: 0 !important;
+      padding: 0.35in !important;
+      min-height: auto !important;
+    }
+    body.training-report-printing .training-report-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+  }
 
   .search-wrap {
     margin: 16px 0 12px;
@@ -2057,6 +2206,7 @@
   <div class="controls">
     <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
     <button class="btn-add" id="trainingUploadBtn" onclick="document.getElementById('trainingFile').click()" style="display:none">Upload Tracker</button>
+    <button class="btn-generate" onclick="generateTrainingReport()">Generate Report</button>
     <button class="btn-reset" onclick="loadTraining()">Refresh</button>
     <input type="file" id="trainingFile" accept=".xlsx" style="display:none" onchange="uploadTrainingTracker()">
   </div>
@@ -2086,6 +2236,19 @@
       <thead id="trainingTableHead"></thead>
       <tbody id="trainingTableBody"></tbody>
     </table>
+  </div>
+</div>
+
+<!-- 350-1 Training Report Modal -->
+<div class="report-overlay" id="trainingReportModal">
+  <div class="report-box training-report-box">
+    <h2>350-1 Training Report</h2>
+    <div class="training-report" id="trainingReportContent"></div>
+    <div class="report-buttons">
+      <button class="btn-small btn-generate" onclick="printTrainingReport()">Print</button>
+      <button class="btn-small btn-import" onclick="downloadTrainingReport()">&#8595; Download .html</button>
+      <button class="btn-small btn-danger" onclick="closeTrainingReport()">Close</button>
+    </div>
   </div>
 </div>
 
@@ -2639,6 +2802,34 @@ function trainingAttentionStatuses() {
   return new Set(['expired', 'missing', 'unknown']);
 }
 
+function trainingPlatoonLabel(platoon) {
+  return {
+    '1st': '1st Platoon',
+    '2nd': '2nd Platoon',
+    hq: 'HQ'
+  }[platoon] || String(platoon || 'Unassigned').toUpperCase();
+}
+
+function trainingPlatoonOrder(platoon) {
+  const order = { '1st': 1, '2nd': 2, hq: 3 };
+  return order[platoon] || 99;
+}
+
+function trainingRankOrder(rank) {
+  const idx = RANK_ORDER.indexOf(String(rank || '').trim());
+  return idx === -1 ? 999 : idx;
+}
+
+function trainingPersonSort(a, b) {
+  const platoonDiff = trainingPlatoonOrder(a.platoon) - trainingPlatoonOrder(b.platoon);
+  if (platoonDiff) return platoonDiff;
+  const rankDiff = trainingRankOrder(a.rank) - trainingRankOrder(b.rank);
+  if (rankDiff) return rankDiff;
+  const lastDiff = String(a.last || '').localeCompare(String(b.last || ''));
+  if (lastDiff) return lastDiff;
+  return String(a.first || '').localeCompare(String(b.first || ''));
+}
+
 function trainingDate(value) {
   return value ? formatDateDisplay(value) : '';
 }
@@ -2674,7 +2865,7 @@ function trainingPeople() {
     }
     map.get(key).records[record.requirement_key] = record;
   });
-  return Array.from(map.values());
+  return Array.from(map.values()).sort(trainingPersonSort);
 }
 
 function renderTrainingInsights() {
@@ -2744,15 +2935,143 @@ function renderTraining() {
     return haystack.includes(search);
   });
 
-  body.innerHTML = people.length ? people.map(person => `
-    <tr>
-      <td class="training-person-col">
-        <strong>${escapeHtml(String(person.rank))} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong>
-        <span>${escapeHtml(String(person.platoon).toUpperCase())}</span>
-      </td>
-      ${requirements.map(req => `<td>${trainingCellHtml(person.records[req.key])}</td>`).join('')}
-    </tr>
-  `).join('') : '<tr><td class="training-empty">No records match the current filters.</td></tr>';
+  if (!people.length) {
+    body.innerHTML = '<tr><td class="training-empty">No records match the current filters.</td></tr>';
+    return;
+  }
+
+  const rows = [];
+  let currentGroup = '';
+  people.forEach(person => {
+    if (person.platoon !== currentGroup) {
+      currentGroup = person.platoon;
+      rows.push(`<tr class="training-platoon-row"><td colspan="${requirements.length + 1}">${escapeHtml(trainingPlatoonLabel(currentGroup))}</td></tr>`);
+    }
+    rows.push(`
+      <tr>
+        <td class="training-person-col">
+          <strong>${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong>
+          <span>${escapeHtml(trainingPlatoonLabel(person.platoon))}</span>
+        </td>
+        ${requirements.map(req => `<td>${trainingCellHtml(person.records[req.key])}</td>`).join('')}
+      </tr>
+    `);
+  });
+  body.innerHTML = rows.join('');
+}
+
+function trainingReportItems(statuses) {
+  if (!trainingData || !trainingData.records) return [];
+  const wanted = new Set(statuses);
+  return trainingData.records
+    .filter(record => wanted.has(record.status))
+    .sort((a, b) => trainingPersonSort(a, b) || String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')));
+}
+
+function groupedTrainingReportRows(records, mode) {
+  const people = new Map();
+  records.forEach(record => {
+    const key = `${record.platoon}|${record.rank}|${record.last}|${record.first}`;
+    if (!people.has(key)) {
+      people.set(key, {
+        platoon: record.platoon,
+        rank: record.rank,
+        last: record.last,
+        first: record.first,
+        items: []
+      });
+    }
+    people.get(key).items.push(record);
+  });
+  return Array.from(people.values()).sort(trainingPersonSort).map(person => {
+    const tags = person.items.map(item => {
+      const label = mode === 'due'
+        ? `${item.requirement_name} (${formatDateShort(item.due_on)})`
+        : `${item.requirement_name}${item.status === 'expired' && item.due_on ? ` (${formatDateShort(item.due_on)})` : ''}`;
+      const cls = mode === 'due' ? 'training-report-tag due' : 'training-report-tag';
+      return `<span class="${cls}">${escapeHtml(label)}</span>`;
+    }).join(' ');
+    return `<tr>
+      <td>${escapeHtml(trainingPlatoonLabel(person.platoon))}</td>
+      <td><strong>${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong></td>
+      <td>${tags}</td>
+    </tr>`;
+  }).join('');
+}
+
+function trainingReportSection(title, records, mode) {
+  if (!records.length) {
+    return `<div class="training-report-section">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="training-report-empty">No items.</div>
+    </div>`;
+  }
+  return `<div class="training-report-section">
+    <h3>${escapeHtml(title)} (${records.length})</h3>
+    <table class="training-report-table">
+      <thead><tr><th style="width:86px;">Platoon</th><th style="width:170px;">Soldier</th><th>Training</th></tr></thead>
+      <tbody>${groupedTrainingReportRows(records, mode)}</tbody>
+    </table>
+  </div>`;
+}
+
+function trainingReportHeader(title, subtitle) {
+  const imported = trainingData && trainingData.import ? trainingData.import : {};
+  return `<div class="training-report-header">
+    <div>
+      <div class="training-report-title">${escapeHtml(title)}</div>
+      <div style="font-size:0.78rem;color:#4b5563;margin-top:2px;">${escapeHtml(subtitle)}</div>
+    </div>
+    <div class="training-report-meta">
+      ${escapeHtml(formatDate(new Date()))}<br>
+      ${escapeHtml(imported.filename || 'No tracker uploaded')}<br>
+      ${escapeHtml(imported.uploaded_at ? `${imported.uploaded_at} UTC` : '')}
+    </div>
+  </div>`;
+}
+
+function generateTrainingReport() {
+  if (!trainingData || !trainingData.import) {
+    alert('Upload a 350-1 tracker before generating a report.');
+    return;
+  }
+  const missingExpired = trainingReportItems(['missing', 'expired', 'unknown']);
+  const dueSoon = trainingReportItems(['due_soon']);
+  const content = document.getElementById('trainingReportContent');
+  content.innerHTML = `
+    <section class="training-report-page">
+      ${trainingReportHeader('350-1 Training Report', 'Missing and expired requirements')}
+      ${trainingReportSection('Missing / Expired', missingExpired, 'problem')}
+    </section>
+    <section class="training-report-page">
+      ${trainingReportHeader('350-1 Training Report', 'Expiring in the next 30 days')}
+      ${trainingReportSection('Due within 30 days', dueSoon, 'due')}
+    </section>
+  `;
+  document.getElementById('trainingReportModal').classList.add('active');
+}
+
+function closeTrainingReport() {
+  document.getElementById('trainingReportModal').classList.remove('active');
+}
+
+function printTrainingReport() {
+  document.body.classList.add('training-report-printing');
+  window.print();
+  setTimeout(() => document.body.classList.remove('training-report-printing'), 300);
+}
+
+function downloadTrainingReport() {
+  const content = document.getElementById('trainingReportContent').innerHTML;
+  if (!content.trim()) return;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>350-1 Training Report</title></head><body>${content}</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `350-1-training-report-${getTodayStr()}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function loadTraining() {
@@ -4060,6 +4379,7 @@ document.getElementById('addModal').addEventListener('click', function(e) { if (
 document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+document.getElementById('trainingReportModal').addEventListener('click', function(e) { if (e.target === this) closeTrainingReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
 
 // ─── Auth ───

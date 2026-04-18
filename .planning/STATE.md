@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Project initialized and ready for `$gsd-plan-phase 1`.
-last_updated: "2026-04-18T07:08:06Z"
-last_activity: 2026-04-18 -- Quick task complete: 350-1 training tracker upload/dashboard
+last_updated: "2026-04-18T15:43:41Z"
+last_activity: 2026-04-18 -- Quick task complete: 350-1 training report and platoon grouping
 progress:
   total_phases: 4
   completed_phases: 0
@@ -57,6 +57,7 @@ Progress: [----------] 0%
 
 | Date | Task | Status |
 |------|------|--------|
+| 2026-04-18 | Improve 350-1 training dashboard platoon sorting and add two-page printable report | complete |
 | 2026-04-18 | Add 350-1 training tracker XLSX upload, parsing, storage, and HTML dashboard | complete |
 
 ## Accumulated Context
