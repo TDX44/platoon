@@ -1378,23 +1378,8 @@
     color: #111827;
     vertical-align: top;
   }
-  .training-report-platoon {
-    margin-top: 12px;
-  }
-  .training-report-platoon h4 {
-    margin: 0 0 5px;
-    padding: 4px 6px;
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
-    color: #111827;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-  }
   .training-report-person {
-    display: grid;
-    grid-template-columns: 160px minmax(0, 1fr);
-    gap: 10px;
-    padding: 6px 0;
+    padding: 8px 0 10px;
     border-bottom: 1px solid #e5e7eb;
     font-size: 0.76rem;
   }
@@ -1404,6 +1389,7 @@
   .training-report-name {
     color: #111827;
     font-weight: 800;
+    margin-bottom: 5px;
   }
   .training-report-name span {
     display: block;
@@ -1411,12 +1397,38 @@
     font-weight: 500;
     margin-top: 2px;
   }
-  .training-report-list {
-    margin: 0;
-    padding-left: 16px;
+  .training-report-items {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
   }
-  .training-report-list li {
-    margin: 0 0 3px;
+  .training-report-items th,
+  .training-report-items td {
+    border: 1px solid #d1d5db;
+    padding: 4px 5px;
+    color: #111827;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .training-report-items th {
+    background: #f3f4f6;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0;
+    text-align: left;
+  }
+  .training-report-items td {
+    font-size: 0.74rem;
+  }
+  .training-report-training-col {
+    width: 58%;
+  }
+  .training-report-date-col {
+    width: 22%;
+  }
+  .training-report-days-col {
+    width: 20%;
+    text-align: right;
   }
   .training-report-empty {
     border: 1px solid #d1d5db;
@@ -1928,10 +1940,6 @@
     }
     .training-item small {
       text-align: left;
-    }
-    .training-report-person {
-      grid-template-columns: 1fr;
-      gap: 4px;
     }
     .hamburger-btn {
       background: rgba(255,255,255,0.94);
@@ -3367,12 +3375,44 @@ function trainingReportItems(statuses) {
     .sort((a, b) => trainingPersonSort(a, b) || String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')));
 }
 
-function trainingReportProblemText(record) {
-  if (record.status === 'missing') return `${record.requirement_name}: no completion date`;
-  if (record.status === 'expired') return `${record.requirement_name}: expired ${record.due_on ? trainingDate(record.due_on) : ''}`.trim();
-  if (record.status === 'unknown') return `${record.requirement_name}: check tracker value${record.raw_value ? ` (${record.raw_value})` : ''}`;
-  if (record.status === 'due_soon') return `${record.requirement_name}: due ${record.due_on ? trainingDate(record.due_on) : 'within 30 days'}`;
-  return `${record.requirement_name}: ${trainingStatusLabel(record.status)}`;
+function trainingDayDelta(dateStr) {
+  if (!dateStr) return null;
+  const today = new Date(getTodayStr() + 'T00:00:00');
+  const target = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(target.getTime())) return null;
+  return Math.floor((today - target) / 86400000);
+}
+
+function trainingDaysText(record) {
+  const delta = trainingDayDelta(record.due_on);
+  if (record.status === 'missing') return 'No date';
+  if (delta === null) return '';
+  const days = Math.abs(delta);
+  const label = `${days} day${days === 1 ? '' : 's'}`;
+  if (record.status === 'due_soon') {
+    if (delta < 0) return `Due in ${label}`;
+    if (delta === 0) return 'Due today';
+  }
+  return label;
+}
+
+function trainingReportDateText(record) {
+  if (record.due_on) return trainingDate(record.due_on);
+  if (record.status === 'missing') return 'No date in tracker';
+  return '';
+}
+
+function trainingReportRows(records) {
+  return records
+    .sort((a, b) => String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')))
+    .map(item => `
+      <tr>
+        <td>${escapeHtml(item.requirement_name)}</td>
+        <td>${escapeHtml(trainingReportDateText(item))}</td>
+        <td class="training-report-days-col">${escapeHtml(trainingDaysText(item))}</td>
+      </tr>
+    `)
+    .join('');
 }
 
 function groupedTrainingReportPeople(records) {
@@ -3393,43 +3433,26 @@ function groupedTrainingReportPeople(records) {
   return Array.from(people.values()).sort(trainingPersonSort);
 }
 
-function trainingReportPlatoonBlocks(records) {
+function trainingReportPersonBlocks(records) {
   const people = groupedTrainingReportPeople(records);
-  const sections = [];
-  let currentPlatoon = '';
-  let group = [];
-  function flush() {
-    if (!group.length) return;
-    sections.push(`
-      <div class="training-report-platoon">
-        <h4>${escapeHtml(trainingPlatoonLabel(currentPlatoon))}</h4>
-        ${group.map(person => `
-          <div class="training-report-person">
-            <div class="training-report-name">
-              ${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}
-              <span>${person.items.length} item${person.items.length === 1 ? '' : 's'}</span>
-            </div>
-            <ul class="training-report-list">
-              ${person.items
-                .sort((a, b) => String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')))
-                .map(item => `<li>${escapeHtml(trainingReportProblemText(item))}</li>`)
-                .join('')}
-            </ul>
-          </div>
-        `).join('')}
+  return people.map(person => `
+    <div class="training-report-person">
+      <div class="training-report-name">
+        ${escapeHtml(String(person.rank).trim())} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}
+        <span>(${escapeHtml(trainingPlatoonLabel(person.platoon))})</span>
       </div>
-    `);
-  }
-  people.forEach(person => {
-    if (person.platoon !== currentPlatoon) {
-      flush();
-      currentPlatoon = person.platoon;
-      group = [];
-    }
-    group.push(person);
-  });
-  flush();
-  return sections.join('');
+      <table class="training-report-items">
+        <thead>
+          <tr>
+            <th class="training-report-training-col">Training</th>
+            <th class="training-report-date-col">Expired date</th>
+            <th class="training-report-days-col">Days delinquent</th>
+          </tr>
+        </thead>
+        <tbody>${trainingReportRows(person.items)}</tbody>
+      </table>
+    </div>
+  `).join('');
 }
 
 function trainingReportSection(title, records) {
@@ -3441,7 +3464,7 @@ function trainingReportSection(title, records) {
   }
   return `<div class="training-report-section">
     <h3>${escapeHtml(title)} (${records.length})</h3>
-    ${trainingReportPlatoonBlocks(records)}
+    ${trainingReportPersonBlocks(records)}
   </div>`;
 }
 
