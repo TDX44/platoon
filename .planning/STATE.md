@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Project initialized and ready for `$gsd-plan-phase 1`.
-last_updated: "2026-04-18T16:41:28Z"
-last_activity: 2026-04-18 -- Quick task complete: make 350-1 training human-readable
+last_updated: "2026-04-18T17:04:55Z"
+last_activity: 2026-04-18 -- Quick task complete: add platoon-scoped accountability and training routes
 progress:
   total_phases: 4
   completed_phases: 0
@@ -57,6 +57,7 @@ Progress: [----------] 0%
 
 | Date | Task | Status |
 |------|------|--------|
+| 2026-04-18 | Add platoon-scoped accountability and 350-1 training routes | complete |
 | 2026-04-18 | Make 350-1 training dashboard and report human readable | complete |
 | 2026-04-18 | Remove secondary frame and modal scrollers from 350-1 training dashboard and report | complete |
 | 2026-04-18 | Improve 350-1 training dashboard platoon sorting and add two-page printable report | complete |

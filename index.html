@@ -2421,7 +2421,7 @@
   <div class="screen-title">350-1 Training</div>
   <p class="screen-subtitle">Review who needs training, what is overdue, and what is coming due next.</p>
   <div class="controls">
-    <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
+    <button class="btn-back" onclick="returnFromTraining()">&#8592; Accountability</button>
     <button class="btn-add" id="trainingUploadBtn" onclick="document.getElementById('trainingFile').click()" style="display:none">Upload Tracker</button>
     <button class="btn-generate" onclick="generateTrainingReport()">Generate Report</button>
     <button class="btn-reset" onclick="loadTraining()">Refresh</button>
@@ -2432,7 +2432,7 @@
   <div class="accountability-insights" id="trainingInsights"></div>
   <div class="training-filters">
     <input type="text" id="trainingSearch" placeholder="Search a Soldier, platoon, or course..." oninput="renderTraining()">
-    <select id="trainingPlatoonFilter" onchange="renderTraining()">
+    <select id="trainingPlatoonFilter" onchange="onTrainingPlatoonFilterChange()">
       <option value="all">All platoons</option>
       <option value="1st">1st Platoon</option>
       <option value="2nd">2nd Platoon</option>
@@ -2473,6 +2473,7 @@
   <button class="btn-import mobile-secondary-action" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-reset mobile-secondary-action" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
+  <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
 </div>
 <div class="controls controls-secondary" style="margin-top:6px;">
   <button class="btn-reset" onclick="openDutyRoster()">Duty</button>
@@ -2488,6 +2489,7 @@
     <button class="btn-reset" onclick="openDutyRoster()">Duty</button>
     <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
     <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
+    <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
     <button class="btn-reset" id="mobileAuditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
   </div>
 </details>
@@ -2760,6 +2762,10 @@ let historyViewData = null;
 let activeQuickFilter = 'all';
 let currentDutyEntries = [];
 let trainingData = null;
+
+const PLATOONS = ['1st', '2nd', 'hq'];
+const PLATOON_PATHS = { '1st': '1stplatoon', '2nd': '2ndplatoon', hq: 'hq' };
+const PATH_TO_PLATOON = Object.fromEntries(Object.entries(PLATOON_PATHS).map(([key, value]) => [value, key]));
 
 // ─── API helpers ───
 const API = '/api';
@@ -3078,18 +3084,71 @@ function trainingPeople() {
   return Array.from(map.values()).sort(trainingPersonSort);
 }
 
+function activeTrainingPlatoon() {
+  const filter = document.getElementById('trainingPlatoonFilter');
+  return filter ? filter.value : (currentPlatoon || 'all');
+}
+
+function syncTrainingPlatoonOptions() {
+  const filter = document.getElementById('trainingPlatoonFilter');
+  if (!filter) return;
+  Array.from(filter.options).forEach(option => {
+    const isAllowed = option.value === 'all' || userHasAccess(option.value);
+    option.hidden = !isAllowed;
+    option.disabled = !isAllowed;
+  });
+}
+
+function activeTrainingSearch() {
+  const search = document.getElementById('trainingSearch');
+  return search ? search.value.trim().toLowerCase() : '';
+}
+
+function trainingRecordMatchesActiveScope(record) {
+  const platoon = activeTrainingPlatoon();
+  if (platoon !== 'all' && record.platoon !== platoon) return false;
+  const search = activeTrainingSearch();
+  if (!search) return true;
+  const haystack = [
+    record.platoon,
+    record.rank,
+    record.last,
+    record.first,
+    record.requirement_name,
+    record.status,
+    record.completed_on,
+    record.due_on,
+    record.raw_value
+  ].join(' ').toLowerCase();
+  return haystack.includes(search);
+}
+
+function trainingScopeLabel() {
+  const platoon = activeTrainingPlatoon();
+  const scope = platoon === 'all' ? 'All platoons' : trainingPlatoonLabel(platoon);
+  const search = activeTrainingSearch();
+  return search ? `${scope}, matching "${search}"` : scope;
+}
+
 function renderTrainingInsights() {
   const el = document.getElementById('trainingInsights');
   if (!el) return;
-  const summary = trainingData && trainingData.summary ? trainingData.summary : {};
   if (!trainingData || !trainingData.import) {
     el.innerHTML = `
       <div class="insight-card insight-action"><strong>0</strong><span>Uploads</span><small>Upload the tracker to begin.</small></div>
     `;
     return;
   }
+  const scopedRecords = (trainingData.records || []).filter(trainingRecordMatchesActiveScope);
+  const summary = scopedRecords.reduce((acc, record) => {
+    acc.total += 1;
+    acc[record.status] = (acc[record.status] || 0) + 1;
+    if (record.status === 'current' || record.status === 'exempt') acc.good += 1;
+    return acc;
+  }, { total: 0, good: 0, expired: 0, missing: 0, due_soon: 0 });
+  const completion = summary.total ? Math.round((summary.good / summary.total) * 100) : 0;
   el.innerHTML = [
-    { cls: 'insight-good', value: `${summary.completion_percent || 0}%`, label: 'Good', detail: `${summary.current || 0} current records` },
+    { cls: 'insight-good', value: `${completion}%`, label: 'Good', detail: `${summary.current || 0} current records in ${trainingScopeLabel()}` },
     { cls: 'insight-danger', value: summary.expired || 0, label: 'Overdue', detail: 'Past the due date' },
     { cls: 'insight-warn', value: summary.missing || 0, label: 'No date', detail: 'Blank cells in the tracker' },
     { cls: 'insight-action', value: summary.due_soon || 0, label: 'Due soon', detail: 'Expires within 30 days' }
@@ -3239,8 +3298,8 @@ function renderTraining() {
   const uploadedAt = trainingData.import.uploaded_at ? `${trainingData.import.uploaded_at} UTC` : '';
   meta.textContent = `Latest upload: ${trainingData.import.filename || 'tracker.xlsx'} by ${trainingData.import.uploaded_by || 'unknown'}${uploadedAt ? ` on ${uploadedAt}` : ''}`;
 
-  const search = document.getElementById('trainingSearch').value.trim().toLowerCase();
-  const platoon = document.getElementById('trainingPlatoonFilter').value;
+  const search = activeTrainingSearch();
+  const platoon = activeTrainingPlatoon();
   const status = document.getElementById('trainingStatusFilter').value;
   const people = trainingPeople().filter(person => {
     if (platoon !== 'all' && person.platoon !== platoon) return false;
@@ -3288,11 +3347,23 @@ function renderTraining() {
   list.innerHTML = sections.join('');
 }
 
+function onTrainingPlatoonFilterChange() {
+  const platoon = activeTrainingPlatoon();
+  if (platoon !== 'all' && userHasAccess(platoon)) {
+    currentPlatoon = platoon;
+    pushAppRoute(platoon, 'training');
+  } else {
+    currentPlatoon = '';
+    pushAppRoute('', 'training');
+  }
+  renderTraining();
+}
+
 function trainingReportItems(statuses) {
   if (!trainingData || !trainingData.records) return [];
   const wanted = new Set(statuses);
   return trainingData.records
-    .filter(record => wanted.has(record.status))
+    .filter(record => wanted.has(record.status) && trainingRecordMatchesActiveScope(record))
     .sort((a, b) => trainingPersonSort(a, b) || String(a.requirement_name || '').localeCompare(String(b.requirement_name || '')));
 }
 
@@ -3394,16 +3465,17 @@ function generateTrainingReport() {
     alert('Upload a 350-1 tracker before generating a report.');
     return;
   }
-  const missingExpired = trainingReportItems(['missing', 'expired', 'unknown']);
+  const missingExpired = trainingReportItems(['missing', 'expired']);
   const dueSoon = trainingReportItems(['due_soon']);
+  const scope = trainingScopeLabel();
   const content = document.getElementById('trainingReportContent');
   content.innerHTML = `
     <section class="training-report-page">
-      ${trainingReportHeader('350-1 Training Report', 'Missing and expired requirements')}
+      ${trainingReportHeader(`${scope} 350-1 Training Report`, 'Missing and expired requirements')}
       ${trainingReportSection('Missing / Expired', missingExpired)}
     </section>
     <section class="training-report-page">
-      ${trainingReportHeader('350-1 Training Report', 'Expiring in the next 30 days')}
+      ${trainingReportHeader(`${scope} 350-1 Training Report`, 'Expiring in the next 30 days')}
       ${trainingReportSection('Due within 30 days', dueSoon)}
     </section>
   `;
@@ -3430,7 +3502,8 @@ function downloadTrainingReport() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `350-1-training-report-${getTodayStr()}.html`;
+  const platoon = activeTrainingPlatoon();
+  a.download = `350-1-training-report-${platoon === 'all' ? 'all' : platoon}-${getTodayStr()}.html`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -4908,18 +4981,56 @@ function userHasAccess(platoon) {
   return currentUser.platoons.split(',').map(p => p.trim()).includes(platoon);
 }
 
+function defaultAccessiblePlatoon() {
+  if (currentPlatoon && userHasAccess(currentPlatoon)) return currentPlatoon;
+  return PLATOONS.find(platoon => userHasAccess(platoon)) || '';
+}
+
+function appRoutePath(platoon, section) {
+  if (platoon && PLATOON_PATHS[platoon]) return `/${PLATOON_PATHS[platoon]}/${section || 'accountability'}`;
+  return section === 'training' ? '/training' : '/';
+}
+
+function pushAppRoute(platoon, section, replace = false) {
+  const state = { platoon: platoon || '', section: section || 'home' };
+  const path = appRoutePath(platoon, section);
+  if (replace) history.replaceState(state, '', path);
+  else history.pushState(state, '', path);
+}
+
+function parseAppRoute() {
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  const parts = path ? path.split('/') : [];
+  if (parts.length && PATH_TO_PLATOON[parts[0]]) {
+    return {
+      platoon: PATH_TO_PLATOON[parts[0]],
+      section: parts[1] || 'accountability'
+    };
+  }
+  if (parts[0] === 'training') return { platoon: '', section: 'training' };
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('training') === '1') return { platoon: '', section: 'training' };
+  const p = params.get('platoon');
+  if (PLATOONS.includes(p)) return { platoon: p, section: 'accountability' };
+  return { platoon: '', section: 'home' };
+}
+
 function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('training') === '1') {
-    openTraining(false);
+  const route = parseAppRoute();
+  if (route.platoon && !userHasAccess(route.platoon)) {
+    loadHome();
     return;
   }
-  const p = params.get('platoon');
-  if (p && ['1st', '2nd', 'hq'].includes(p) && userHasAccess(p)) {
-    selectPlatoon(p);
+  if (route.section === 'training') {
+    openTraining(false, route.platoon || defaultAccessiblePlatoon());
+    return;
+  }
+  if (route.platoon) {
+    selectPlatoon(route.platoon, false);
   } else {
     loadHome();
   }
@@ -4958,7 +5069,7 @@ async function loadHome() {
   document.getElementById('backupGroupHeader').style.display = 'flex';
 
   // Filter platoon cards by access
-  ['1st', '2nd', 'hq'].forEach(p => {
+  PLATOONS.forEach(p => {
     const card = document.getElementById(`card-${p}`);
     if (card) card.style.display = userHasAccess(p) ? '' : 'none';
   });
@@ -4981,19 +5092,27 @@ async function loadHome() {
   } catch(e) { /* training count is decorative */ }
 }
 
-function openTraining(push = true) {
+function openTraining(push = true, platoon = '') {
   if (!currentUser) { showLoginScreen(); return; }
-  currentPlatoon = '';
-  if (push) history.pushState({ training: true }, '', '?training=1');
+  const scope = platoon && userHasAccess(platoon) ? platoon : defaultAccessiblePlatoon();
+  currentPlatoon = scope || '';
+  syncTrainingPlatoonOptions();
+  const platoonFilter = document.getElementById('trainingPlatoonFilter');
+  if (platoonFilter) platoonFilter.value = scope || 'all';
+  if (push) pushAppRoute(scope, 'training');
   showAppScreen('training');
   const trainingUploadBtn = document.getElementById('trainingUploadBtn');
   if (trainingUploadBtn) trainingUploadBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
   loadTraining();
 }
 
-function selectPlatoon(platoon) {
+function selectPlatoon(platoon, push = true) {
+  if (!userHasAccess(platoon)) {
+    loadHome();
+    return;
+  }
   currentPlatoon = platoon;
-  history.pushState({ platoon }, '', `?platoon=${platoon}`);
+  if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
   ['auditLogBtn', 'mobileAuditLogBtn'].forEach(id => {
     const auditBtn = document.getElementById(id);
@@ -5004,9 +5123,17 @@ function selectPlatoon(platoon) {
 
 function goHome() {
   currentPlatoon = '';
-  history.pushState({}, '', '/');
+  pushAppRoute('', 'home');
   personnel = [];
   loadHome();
+}
+
+function returnFromTraining() {
+  const filter = document.getElementById('trainingPlatoonFilter');
+  const selected = filter && filter.value !== 'all' ? filter.value : '';
+  const platoon = currentPlatoon || selected || defaultAccessiblePlatoon();
+  if (platoon && userHasAccess(platoon)) selectPlatoon(platoon);
+  else goHome();
 }
 
 // ─── User Management ───
@@ -5118,18 +5245,17 @@ document.getElementById('userMgmtModal').addEventListener('click', function(e) {
 document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
 
 window.addEventListener('popstate', () => {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('training') === '1') {
-    openTraining(false);
+  const route = parseAppRoute();
+  if (route.platoon && !userHasAccess(route.platoon)) {
+    loadHome();
     return;
   }
-  const p = params.get('platoon');
-  if (p && ['1st','2nd','hq'].includes(p) && userHasAccess(p)) {
-    currentPlatoon = p;
-    document.getElementById('homeScreen').style.display = 'none';
-    document.getElementById('trainingScreen').style.display = 'none';
-    document.getElementById('platoonScreen').style.display = 'block';
-    load();
+  if (route.section === 'training') {
+    openTraining(false, route.platoon || defaultAccessiblePlatoon());
+    return;
+  }
+  if (route.platoon) {
+    selectPlatoon(route.platoon, false);
   } else { loadHome(); }
 });
 

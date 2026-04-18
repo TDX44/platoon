@@ -820,6 +820,16 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
+@app.route('/<path:path>')
+def spa_fallback(path):
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
+    static_path = os.path.join(app.static_folder or '.', path)
+    if os.path.isfile(static_path):
+        return send_from_directory(app.static_folder or '.', path)
+    return send_from_directory('.', 'index.html')
+
+
 @app.route('/api/auth/config', methods=['GET'])
 def auth_config():
     return jsonify({
