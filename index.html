@@ -856,8 +856,8 @@
 
   .platoon-cards {
     display: grid;
-    grid-template-columns: repeat(3, minmax(170px, 1fr));
-    width: min(760px, 100%);
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    width: min(920px, 100%);
     gap: 14px;
   }
   .platoon-card,
@@ -975,6 +975,169 @@
   .insight-warn strong { color: #b7791f; }
   .insight-action strong { color: var(--theme_action); }
   .insight-danger strong { color: var(--theme_danger); }
+
+  #trainingScreen {
+    max-width: 1480px;
+    margin: 0 auto;
+  }
+  .screen-title {
+    color: var(--theme_text);
+    font-size: 2rem;
+    font-weight: 650;
+    margin: 0 0 8px;
+  }
+  .screen-subtitle {
+    color: var(--theme_text-weak);
+    margin: 0 0 16px;
+    line-height: 1.45;
+  }
+  .training-meta {
+    color: var(--theme_text-muted);
+    font-size: 0.86rem;
+    margin: -4px 0 14px;
+  }
+  .training-upload-msg {
+    display: none;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    background: var(--theme_surface-soft);
+    color: var(--theme_text);
+    font-size: 0.88rem;
+  }
+  .training-upload-msg.error {
+    display: block;
+    border-color: #f3b7b1;
+    background: #fff5f4;
+    color: var(--theme_danger);
+  }
+  .training-upload-msg.success {
+    display: block;
+    border-color: #a7e1bd;
+    background: #f0fff5;
+    color: var(--theme_success);
+  }
+  body.dark-mode .training-upload-msg.error {
+    background: #3a1d20;
+    border-color: #6f2d2f;
+  }
+  body.dark-mode .training-upload-msg.success {
+    background: #112a1c;
+    border-color: #245c3a;
+  }
+  .training-filters {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 150px 190px;
+    gap: 8px;
+    margin: 0 0 12px;
+  }
+  .training-filters input,
+  .training-filters select {
+    min-height: 42px;
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    background: var(--theme_surface);
+    color: var(--theme_text);
+    padding: 8px 10px;
+  }
+  .training-table-wrap {
+    max-height: calc(100vh - 330px);
+    min-height: 320px;
+  }
+  .training-table {
+    min-width: 1320px;
+  }
+  .training-table th,
+  .training-table td {
+    vertical-align: top;
+  }
+  .training-table th {
+    white-space: normal;
+    min-width: 118px;
+  }
+  .training-table th.training-person-col,
+  .training-table td.training-person-col {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: 210px;
+    background: var(--theme_surface);
+  }
+  .training-table th.training-person-col {
+    background: var(--theme_surface-soft);
+    z-index: 3;
+  }
+  .training-table td.training-person-col strong {
+    display: block;
+    color: var(--theme_text);
+  }
+  .training-table td.training-person-col span {
+    color: var(--theme_text-muted);
+    font-size: 0.78rem;
+  }
+  .training-cell {
+    min-height: 58px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  .training-cell strong {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .training-cell small {
+    display: block;
+    color: inherit;
+    opacity: 0.82;
+  }
+  .training-current {
+    background: #f0fff5;
+    border-color: #a7e1bd;
+    color: #006400;
+  }
+  .training-due_soon {
+    background: #fff8df;
+    border-color: #f4d47c;
+    color: #8a5a00;
+  }
+  .training-expired,
+  .training-missing,
+  .training-unknown {
+    background: #fff5f4;
+    border-color: #f3b7b1;
+    color: var(--theme_danger);
+  }
+  .training-exempt {
+    background: var(--theme_surface-soft);
+    border-color: var(--theme_border);
+    color: var(--theme_text-muted);
+  }
+  body.dark-mode .training-current {
+    background: #112a1c;
+    border-color: #245c3a;
+    color: #7ddf9b;
+  }
+  body.dark-mode .training-due_soon {
+    background: #3a300f;
+    border-color: #6b5613;
+    color: #fde68a;
+  }
+  body.dark-mode .training-expired,
+  body.dark-mode .training-missing,
+  body.dark-mode .training-unknown {
+    background: #3a1d20;
+    border-color: #6f2d2f;
+  }
+  .training-empty {
+    padding: 34px 18px;
+    text-align: center;
+    color: var(--theme_text-muted);
+  }
 
   .search-wrap {
     margin: 16px 0 12px;
@@ -1375,6 +1538,35 @@
       gap: 10px;
       width: 100%;
     }
+    #trainingScreen { max-width: none; }
+    .screen-title { font-size: 1.42rem; }
+    .training-filters {
+      grid-template-columns: 1fr;
+    }
+    .training-table-wrap {
+      border: 1px solid var(--theme_border);
+      background: var(--theme_surface);
+      box-shadow: var(--theme_shadow-soft);
+      max-height: calc(100svh - 330px);
+      overflow: auto;
+    }
+    .training-table-wrap table {
+      display: table;
+      width: auto;
+    }
+    .training-table-wrap thead { display: table-header-group; }
+    .training-table-wrap tbody { display: table-row-group; }
+    .training-table-wrap tr {
+      display: table-row !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+    .training-table-wrap th,
+    .training-table-wrap td {
+      display: table-cell !important;
+    }
     .hamburger-btn {
       background: rgba(255,255,255,0.94);
       backdrop-filter: blur(8px);
@@ -1556,6 +1748,9 @@
       width: 100%;
     }
     .table-wrap thead { display: none; }
+    .training-table-wrap table { display: table; width: auto; }
+    .training-table-wrap thead { display: table-header-group; }
+    .training-table-wrap tbody { display: table-row-group; width: auto; }
     .table-wrap table tbody tr {
       display: grid !important;
       grid-template-columns: auto minmax(0, 1fr) max-content max-content;
@@ -1574,6 +1769,18 @@
     }
     .table-wrap table tbody tr:hover {
       background: var(--theme_surface-blue) !important;
+    }
+    .training-table-wrap table tbody tr {
+      display: table-row !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+    .training-table-wrap th,
+    .training-table-wrap td {
+      display: table-cell !important;
     }
     tr.section-header,
     tr.section-header-tdy {
@@ -1802,6 +2009,8 @@
         <button onclick="openRestoreModal();closeHamburger()">&#8593; Import Backup</button>
       </div>
 
+      <button onclick="openTraining();closeHamburger()">350-1 Training</button>
+
       <!-- Users group -->
       <button class="menu-group-header" onclick="toggleMenuGroup('usersGroup')">
         &#128100; Account <span class="menu-arrow">&#9658;</span>
@@ -1833,6 +2042,50 @@
       <div class="platoon-card-name">HQ</div>
       <div class="platoon-card-count" id="count-hq">— personnel</div>
     </button>
+    <button class="platoon-card" onclick="openTraining()">
+      <div class="platoon-card-label">Tracker</div>
+      <div class="platoon-card-name">350-1</div>
+      <div class="platoon-card-count" id="trainingHomeCount">Training status</div>
+    </button>
+  </div>
+</div>
+
+<!-- ─── 350-1 Training Screen ─── -->
+<div id="trainingScreen" style="display:none">
+  <div class="screen-title">350-1 Training</div>
+  <p class="screen-subtitle">Upload the standard tracker and review current, due soon, expired, and missing training.</p>
+  <div class="controls">
+    <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
+    <button class="btn-add" id="trainingUploadBtn" onclick="document.getElementById('trainingFile').click()" style="display:none">Upload Tracker</button>
+    <button class="btn-reset" onclick="loadTraining()">Refresh</button>
+    <input type="file" id="trainingFile" accept=".xlsx" style="display:none" onchange="uploadTrainingTracker()">
+  </div>
+  <div id="trainingUploadMsg" class="training-upload-msg"></div>
+  <div id="trainingImportMeta" class="training-meta">No tracker uploaded yet.</div>
+  <div class="accountability-insights" id="trainingInsights"></div>
+  <div class="training-filters">
+    <input type="text" id="trainingSearch" placeholder="Search by name, rank, platoon, or training..." oninput="renderTraining()">
+    <select id="trainingPlatoonFilter" onchange="renderTraining()">
+      <option value="all">All platoons</option>
+      <option value="1st">1st Platoon</option>
+      <option value="2nd">2nd Platoon</option>
+      <option value="hq">HQ</option>
+    </select>
+    <select id="trainingStatusFilter" onchange="renderTraining()">
+      <option value="problem">Needs attention</option>
+      <option value="all">All statuses</option>
+      <option value="expired">Expired</option>
+      <option value="missing">Missing</option>
+      <option value="due_soon">Due soon</option>
+      <option value="current">Current</option>
+      <option value="exempt">N/A</option>
+    </select>
+  </div>
+  <div class="table-wrap training-table-wrap">
+    <table class="training-table">
+      <thead id="trainingTableHead"></thead>
+      <tbody id="trainingTableBody"></tbody>
+    </table>
   </div>
 </div>
 
@@ -2133,6 +2386,7 @@ let bulkSelected = new Set();
 let historyViewData = null;
 let activeQuickFilter = 'all';
 let currentDutyEntries = [];
+let trainingData = null;
 
 // ─── API helpers ───
 const API = '/api';
@@ -2368,6 +2622,184 @@ function scheduledEventsFor(p) {
 
 function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function trainingStatusLabel(status) {
+  return {
+    current: 'Current',
+    due_soon: 'Due soon',
+    expired: 'Expired',
+    missing: 'Missing',
+    exempt: 'N/A',
+    unknown: 'Check'
+  }[status] || status || 'Check';
+}
+
+function trainingAttentionStatuses() {
+  return new Set(['expired', 'missing', 'unknown']);
+}
+
+function trainingDate(value) {
+  return value ? formatDateDisplay(value) : '';
+}
+
+function trainingCellHtml(record) {
+  if (!record) return '<div class="training-cell training-missing"><strong>Missing</strong></div>';
+  const status = record.status || 'unknown';
+  const completed = trainingDate(record.completed_on);
+  const due = trainingDate(record.due_on);
+  const detail = completed
+    ? `${completed}${due ? `<small>Due ${due}</small>` : ''}`
+    : (record.raw_value ? escapeHtml(String(record.raw_value)) : '');
+  return `<div class="training-cell training-${status}">
+    <strong>${trainingStatusLabel(status)}</strong>
+    ${detail}
+  </div>`;
+}
+
+function trainingPeople() {
+  if (!trainingData || !Array.isArray(trainingData.records)) return [];
+  const map = new Map();
+  trainingData.records.forEach(record => {
+    const key = `${record.platoon}|${record.rank}|${record.last}|${record.first}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        platoon: record.platoon,
+        rank: record.rank,
+        last: record.last,
+        first: record.first,
+        records: {}
+      });
+    }
+    map.get(key).records[record.requirement_key] = record;
+  });
+  return Array.from(map.values());
+}
+
+function renderTrainingInsights() {
+  const el = document.getElementById('trainingInsights');
+  if (!el) return;
+  const summary = trainingData && trainingData.summary ? trainingData.summary : {};
+  if (!trainingData || !trainingData.import) {
+    el.innerHTML = `
+      <div class="insight-card insight-action"><strong>0</strong><span>Uploads</span><small>Upload the tracker to begin.</small></div>
+    `;
+    return;
+  }
+  el.innerHTML = [
+    { cls: 'insight-good', value: `${summary.completion_percent || 0}%`, label: 'Current', detail: `${summary.current || 0} current, ${summary.due_soon || 0} due soon` },
+    { cls: 'insight-danger', value: summary.expired || 0, label: 'Expired', detail: 'Past the calculated due date' },
+    { cls: 'insight-warn', value: summary.missing || 0, label: 'Missing', detail: 'Blank tracker cells' },
+    { cls: 'insight-action', value: summary.personnel_count || 0, label: 'Personnel', detail: `${summary.requirement_count || 0} requirements tracked` }
+  ].map(card => `
+    <div class="insight-card ${card.cls}">
+      <strong>${card.value}</strong>
+      <span>${card.label}</span>
+      <small>${escapeHtml(String(card.detail))}</small>
+    </div>
+  `).join('');
+}
+
+function renderTraining() {
+  const head = document.getElementById('trainingTableHead');
+  const body = document.getElementById('trainingTableBody');
+  const meta = document.getElementById('trainingImportMeta');
+  if (!head || !body || !meta) return;
+  renderTrainingInsights();
+
+  if (!trainingData || !trainingData.import) {
+    head.innerHTML = '';
+    body.innerHTML = '<tr><td class="training-empty">No 350-1 tracker has been uploaded yet.</td></tr>';
+    meta.textContent = 'No tracker uploaded yet.';
+    return;
+  }
+
+  const uploadedAt = trainingData.import.uploaded_at ? `${trainingData.import.uploaded_at} UTC` : '';
+  meta.textContent = `Latest upload: ${trainingData.import.filename || 'tracker.xlsx'} by ${trainingData.import.uploaded_by || 'unknown'}${uploadedAt ? ` on ${uploadedAt}` : ''}`;
+
+  const requirements = trainingData.requirements || [];
+  head.innerHTML = `<tr>
+    <th class="training-person-col">Soldier</th>
+    ${requirements.map(req => {
+      const title = [req.required_by, req.interval_months ? `${req.interval_months} months` : '', req.delivery_method].filter(Boolean).join(' | ');
+      return `<th title="${escapeHtml(String(title))}">${escapeHtml(String(req.display_name))}</th>`;
+    }).join('')}
+  </tr>`;
+
+  const search = document.getElementById('trainingSearch').value.trim().toLowerCase();
+  const platoon = document.getElementById('trainingPlatoonFilter').value;
+  const status = document.getElementById('trainingStatusFilter').value;
+  const attention = trainingAttentionStatuses();
+  const people = trainingPeople().filter(person => {
+    if (platoon !== 'all' && person.platoon !== platoon) return false;
+    const records = Object.values(person.records);
+    if (status === 'problem' && !records.some(record => attention.has(record.status))) return false;
+    if (status !== 'all' && status !== 'problem' && !records.some(record => record.status === status)) return false;
+    if (!search) return true;
+    const haystack = [
+      person.platoon, person.rank, person.last, person.first,
+      ...records.map(record => `${record.requirement_name} ${record.status} ${record.completed_on} ${record.due_on}`)
+    ].join(' ').toLowerCase();
+    return haystack.includes(search);
+  });
+
+  body.innerHTML = people.length ? people.map(person => `
+    <tr>
+      <td class="training-person-col">
+        <strong>${escapeHtml(String(person.rank))} ${escapeHtml(String(person.last))}, ${escapeHtml(String(person.first))}</strong>
+        <span>${escapeHtml(String(person.platoon).toUpperCase())}</span>
+      </td>
+      ${requirements.map(req => `<td>${trainingCellHtml(person.records[req.key])}</td>`).join('')}
+    </tr>
+  `).join('') : '<tr><td class="training-empty">No records match the current filters.</td></tr>';
+}
+
+async function loadTraining() {
+  try {
+    const data = await api('GET', '/training/latest');
+    if (!data) return;
+    trainingData = data;
+    renderTraining();
+  } catch (e) {
+    console.error('Failed to load training tracker:', e);
+  }
+}
+
+function showTrainingMessage(message, type) {
+  const el = document.getElementById('trainingUploadMsg');
+  if (!el) return;
+  el.textContent = message;
+  el.className = `training-upload-msg ${type || ''}`;
+  el.style.display = message ? 'block' : 'none';
+}
+
+async function uploadTrainingTracker() {
+  const input = document.getElementById('trainingFile');
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('tracker', file);
+  showTrainingMessage('Uploading and parsing tracker...', '');
+  try {
+    const res = await fetch('/api/training/upload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showTrainingMessage(data.error || 'Training tracker upload failed.', 'error');
+      return;
+    }
+    trainingData = data;
+    showTrainingMessage(`Imported ${data.summary.personnel_count} personnel across ${data.summary.requirement_count} requirements.`, 'success');
+    renderTraining();
+  } catch (e) {
+    showTrainingMessage(e.message || 'Training tracker upload failed.', 'error');
+  } finally {
+    input.value = '';
+  }
 }
 
 // ─── Render ───
@@ -3635,6 +4067,7 @@ function showAppScreen(screen) {
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
+  document.getElementById('trainingScreen').style.display = screen === 'training' ? 'block' : 'none';
   document.getElementById('platoonScreen').style.display = screen === 'platoon' ? 'block' : 'none';
 }
 
@@ -3643,6 +4076,7 @@ function showLoginScreen() {
   document.body.classList.remove('app-authenticated');
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('homeScreen').style.display = 'none';
+  document.getElementById('trainingScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
@@ -3798,7 +4232,12 @@ function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
-  const p = new URLSearchParams(window.location.search).get('platoon');
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('training') === '1') {
+    openTraining(false);
+    return;
+  }
+  const p = params.get('platoon');
   if (p && ['1st', '2nd', 'hq'].includes(p) && userHasAccess(p)) {
     selectPlatoon(p);
   } else {
@@ -3834,6 +4273,8 @@ async function loadHome() {
   // Show admin items only for admins
   const isAdmin = currentUser && currentUser.is_admin;
   document.getElementById('manageUsersMenuItem').style.display = isAdmin ? 'block' : 'none';
+  const trainingUploadBtn = document.getElementById('trainingUploadBtn');
+  if (trainingUploadBtn) trainingUploadBtn.style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('backupGroupHeader').style.display = 'flex';
 
   // Filter platoon cards by access
@@ -3850,6 +4291,24 @@ async function loadHome() {
       if (el) el.textContent = `${info.count} personnel`;
     }
   } catch(e) { /* counts are decorative */ }
+
+  try {
+    const training = await api('GET', '/training/latest');
+    const countEl = document.getElementById('trainingHomeCount');
+    if (countEl && training && training.import) {
+      countEl.textContent = `${training.summary.completion_percent || 0}% current`;
+    }
+  } catch(e) { /* training count is decorative */ }
+}
+
+function openTraining(push = true) {
+  if (!currentUser) { showLoginScreen(); return; }
+  currentPlatoon = '';
+  if (push) history.pushState({ training: true }, '', '?training=1');
+  showAppScreen('training');
+  const trainingUploadBtn = document.getElementById('trainingUploadBtn');
+  if (trainingUploadBtn) trainingUploadBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
+  loadTraining();
 }
 
 function selectPlatoon(platoon) {
@@ -3979,10 +4438,16 @@ document.getElementById('userMgmtModal').addEventListener('click', function(e) {
 document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
 
 window.addEventListener('popstate', () => {
-  const p = new URLSearchParams(window.location.search).get('platoon');
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('training') === '1') {
+    openTraining(false);
+    return;
+  }
+  const p = params.get('platoon');
   if (p && ['1st','2nd','hq'].includes(p) && userHasAccess(p)) {
     currentPlatoon = p;
     document.getElementById('homeScreen').style.display = 'none';
+    document.getElementById('trainingScreen').style.display = 'none';
     document.getElementById('platoonScreen').style.display = 'block';
     load();
   } else { loadHome(); }

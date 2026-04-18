@@ -5,6 +5,9 @@ import string
 import threading
 import time
 import base64
+import re
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, date
 from functools import wraps
 from datetime import timedelta
@@ -141,6 +144,53 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS training_imports (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename          TEXT DEFAULT '',
+            uploaded_by       TEXT DEFAULT '',
+            uploaded_at       TEXT DEFAULT (datetime('now')),
+            personnel_count   INTEGER DEFAULT 0,
+            requirement_count INTEGER DEFAULT 0
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS training_requirements (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id       INTEGER NOT NULL,
+            key             TEXT NOT NULL,
+            display_name    TEXT NOT NULL,
+            required_by     TEXT DEFAULT '',
+            interval_months INTEGER,
+            delivery_method TEXT DEFAULT '',
+            source_column   TEXT DEFAULT '',
+            FOREIGN KEY(import_id) REFERENCES training_imports(id) ON DELETE CASCADE
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS training_records (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id        INTEGER NOT NULL,
+            platoon          TEXT DEFAULT '',
+            rank             TEXT DEFAULT '',
+            last             TEXT DEFAULT '',
+            first            TEXT DEFAULT '',
+            full_name        TEXT DEFAULT '',
+            requirement_key  TEXT NOT NULL,
+            requirement_name TEXT NOT NULL,
+            raw_value        TEXT DEFAULT '',
+            completed_on     TEXT DEFAULT '',
+            due_on           TEXT DEFAULT '',
+            status           TEXT DEFAULT '',
+            FOREIGN KEY(import_id) REFERENCES training_imports(id) ON DELETE CASCADE
+        )
+    ''')
+
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_training_records_import_platoon ON training_records(import_id, platoon)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_training_records_status ON training_records(import_id, status)')
+
     # ── Migrations ──
     cols = [row[1] for row in cur.execute('PRAGMA table_info(personnel)').fetchall()]
     if 'present_date' not in cols:
@@ -241,6 +291,318 @@ def log_action(action, details='', platoon=''):
         conn.close()
     except Exception:
         pass
+
+
+# ── 350-1 Training tracker helpers ──
+
+XLSX_NS = {
+    'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+    'rel': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+}
+
+TRAINING_HEADER_ROW = 4
+TRAINING_FIRST_DATA_ROW = 5
+TRAINING_FIRST_REQUIREMENT_COL = 5  # E; A-D are PLT, rank, name, and assignment metadata.
+TRAINING_DUE_SOON_DAYS = 30
+
+TRAINING_LINK_ALIASES = {
+    'atl1': 'atlevel1',
+    'opsecatis': 'armyopsec',
+    'tarpatis': 'tarp',
+    'informationsecurityinfosec': 'informationsecurity',
+    'managingclearanceandaccesscplandabove': 'managingpersonnelwithclearancesandaccesstoclassifiedinformation',
+    'unauthorizeddisc': 'unauthorizeddisclosure',
+}
+
+
+def _normalize_training_key(value):
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').lower())
+
+
+def _excel_column_number(cell_ref):
+    match = re.match(r'([A-Z]+)', cell_ref or '')
+    if not match:
+        return 0
+    number = 0
+    for char in match.group(1):
+        number = number * 26 + ord(char) - 64
+    return number
+
+
+def _excel_column_name(number):
+    name = ''
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _cell_value(cell, shared_strings):
+    inline = cell.find('.//main:t', XLSX_NS)
+    if cell.attrib.get('t') == 'inlineStr' and inline is not None:
+        return inline.text or ''
+
+    value = cell.find('main:v', XLSX_NS)
+    if value is None:
+        return None
+
+    text = value.text or ''
+    if cell.attrib.get('t') == 's':
+        try:
+            return shared_strings[int(text)]
+        except (ValueError, IndexError):
+            return text
+    return text
+
+
+def _xlsx_row_values(sheet_root, shared_strings, row_number, max_cols=80):
+    row = sheet_root.find(f".//main:row[@r='{row_number}']", XLSX_NS)
+    values = [None] * max_cols
+    if row is None:
+        return values
+    for cell in row.findall('main:c', XLSX_NS):
+        col_index = _excel_column_number(cell.attrib.get('r', '')) - 1
+        if 0 <= col_index < max_cols:
+            values[col_index] = _cell_value(cell, shared_strings)
+    return values
+
+
+def _xlsx_all_rows(sheet_root, shared_strings, max_cols=80):
+    rows = []
+    for row in sheet_root.findall('main:sheetData/main:row', XLSX_NS):
+        row_number = int(row.attrib.get('r', len(rows) + 1))
+        values = [None] * max_cols
+        for cell in row.findall('main:c', XLSX_NS):
+            col_index = _excel_column_number(cell.attrib.get('r', '')) - 1
+            if 0 <= col_index < max_cols:
+                values[col_index] = _cell_value(cell, shared_strings)
+        rows.append((row_number, values))
+    return rows
+
+
+def _xlsx_sheets(file_obj):
+    try:
+        archive = zipfile.ZipFile(file_obj)
+    except zipfile.BadZipFile as exc:
+        raise ValueError('Upload must be a valid .xlsx workbook.') from exc
+
+    try:
+        names = set(archive.namelist())
+        shared_strings = []
+        if 'xl/sharedStrings.xml' in names:
+            shared_root = ET.fromstring(archive.read('xl/sharedStrings.xml'))
+            for item in shared_root.findall('main:si', XLSX_NS):
+                text = ''.join(t.text or '' for t in item.findall('.//main:t', XLSX_NS))
+                shared_strings.append(text)
+
+        workbook = ET.fromstring(archive.read('xl/workbook.xml'))
+        rels = ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))
+        rel_map = {rel.attrib['Id']: rel.attrib['Target'] for rel in rels}
+        sheets = {}
+        for sheet in workbook.findall('main:sheets/main:sheet', XLSX_NS):
+            title = sheet.attrib.get('name', '')
+            rel_id = sheet.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+            target = rel_map.get(rel_id, '')
+            path = target.lstrip('/')
+            if not path.startswith('xl/'):
+                path = f'xl/{path}'
+            if path not in names:
+                continue
+            sheets[title] = ET.fromstring(archive.read(path))
+        return sheets, shared_strings
+    finally:
+        archive.close()
+
+
+def _parse_interval_months(value):
+    text = str(value or '').strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def _parse_links_sheet(sheet_root, shared_strings):
+    rows = _xlsx_all_rows(sheet_root, shared_strings, max_cols=4)
+    links = []
+    for row_number, values in rows:
+        if row_number == 1:
+            continue
+        topic = str(values[0] or '').strip()
+        if not topic:
+            continue
+        links.append({
+            'topic': topic,
+            'key': _normalize_training_key(topic),
+            'required_by': str(values[1] or '').strip(),
+            'interval_months': _parse_interval_months(values[2]),
+            'delivery_method': str(values[3] or '').strip(),
+        })
+    return links
+
+
+def _match_training_link(header, links):
+    header_key = _normalize_training_key(header)
+    lookup_key = TRAINING_LINK_ALIASES.get(header_key, header_key)
+    best = None
+    best_score = 0
+    for link in links:
+        link_key = link['key']
+        if not link_key:
+            continue
+        score = 0
+        if lookup_key == link_key:
+            score = 100
+        elif lookup_key in link_key or link_key in lookup_key:
+            score = min(len(lookup_key), len(link_key))
+        if score > best_score:
+            best = link
+            best_score = score
+    return best if best_score >= 4 else None
+
+
+def _add_months(source, months):
+    if months is None:
+        return ''
+    month = source.month - 1 + months
+    year = source.year + month // 12
+    month = month % 12 + 1
+    days = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+            31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    day = min(source.day, days[month - 1])
+    return date(year, month, day)
+
+
+def _excel_serial_to_date(value):
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return date(1899, 12, 30) + timedelta(days=int(number))
+
+
+def _normalize_tracker_platoon(value):
+    text = str(value or '').strip().lower()
+    if text.startswith('1st'):
+        return '1st'
+    if text.startswith('2nd'):
+        return '2nd'
+    if text in ('hq', 'hqs', 'headquarters') or text.startswith('hq '):
+        return 'hq'
+    return text.replace(' plt', '').strip()
+
+
+def _split_tracker_name(value):
+    text = ' '.join(str(value or '').replace('\n', ' ').split())
+    if ',' not in text:
+        return text, ''
+    last, first = text.split(',', 1)
+    return last.strip(), first.strip()
+
+
+def _training_record_status(raw_value, interval_months):
+    text = str(raw_value or '').strip()
+    if not text:
+        return 'missing', '', ''
+    if text.upper() in ('N/A', 'NA', 'EXEMPT'):
+        return 'exempt', '', ''
+
+    completed = _excel_serial_to_date(text)
+    if completed is None:
+        return 'unknown', '', ''
+
+    due = _add_months(completed, interval_months if interval_months is not None else 12)
+    today = date.today()
+    if due < today:
+        status = 'expired'
+    elif due <= today + timedelta(days=TRAINING_DUE_SOON_DAYS):
+        status = 'due_soon'
+    else:
+        status = 'current'
+    return status, completed.isoformat(), due.isoformat()
+
+
+def parse_training_tracker(file_obj):
+    sheets, shared_strings = _xlsx_sheets(file_obj)
+    tier_sheet = sheets.get('Tier 1')
+    if tier_sheet is None:
+        raise ValueError('Training tracker must include a "Tier 1" sheet.')
+
+    header_values = _xlsx_row_values(tier_sheet, shared_strings, TRAINING_HEADER_ROW)
+    expected_headers = [_normalize_training_key(header_values[i]) for i in range(3)]
+    if expected_headers != ['plt', 'rank', 'lastnamefirstnamemi']:
+        raise ValueError('Tier 1 sheet does not match the expected 350-1 tracker template.')
+
+    links = _parse_links_sheet(sheets['Links'], shared_strings) if 'Links' in sheets else []
+    requirements = []
+    for col_number in range(TRAINING_FIRST_REQUIREMENT_COL, len(header_values) + 1):
+        header = str(header_values[col_number - 1] or '').strip()
+        if not header:
+            continue
+        matched = _match_training_link(header, links)
+        requirements.append({
+            'key': _normalize_training_key(header) or f'col{col_number}',
+            'display_name': header,
+            'required_by': matched['required_by'] if matched else '',
+            'interval_months': matched['interval_months'] if matched and matched['interval_months'] else 12,
+            'delivery_method': matched['delivery_method'] if matched else '',
+            'source_column': _excel_column_name(col_number),
+        })
+
+    if not requirements:
+        raise ValueError('No training requirement columns were found in the Tier 1 sheet.')
+
+    rows = _xlsx_all_rows(tier_sheet, shared_strings)
+    records = []
+    personnel_seen = set()
+    for row_number, values in rows:
+        if row_number < TRAINING_FIRST_DATA_ROW:
+            continue
+        platoon = _normalize_tracker_platoon(values[0])
+        rank = str(values[1] or '').strip()
+        full_name = str(values[2] or '').strip()
+        if not platoon or not rank or not full_name:
+            continue
+        last, first = _split_tracker_name(full_name)
+        personnel_seen.add((platoon, rank, last, first))
+        for requirement in requirements:
+            col_index = ord(requirement['source_column'][0]) - ord('A')
+            if len(requirement['source_column']) > 1:
+                col_index = _excel_column_number(requirement['source_column']) - 1
+            raw_value = values[col_index] if col_index < len(values) else None
+            status, completed_on, due_on = _training_record_status(raw_value, requirement['interval_months'])
+            records.append({
+                'platoon': platoon,
+                'rank': rank,
+                'last': last,
+                'first': first,
+                'full_name': full_name,
+                'requirement_key': requirement['key'],
+                'requirement_name': requirement['display_name'],
+                'raw_value': str(raw_value or '').strip(),
+                'completed_on': completed_on,
+                'due_on': due_on,
+                'status': status,
+            })
+
+    if not records:
+        raise ValueError('No personnel rows were found in the Tier 1 sheet.')
+
+    return {
+        'requirements': requirements,
+        'records': records,
+        'personnel_count': len(personnel_seen),
+        'requirement_count': len(requirements),
+    }
+
+
+def _latest_training_import_id(conn):
+    row = conn.execute('SELECT id FROM training_imports ORDER BY id DESC LIMIT 1').fetchone()
+    return row['id'] if row else None
 
 
 # ── Auth helpers ──
@@ -857,6 +1219,133 @@ def delete_duty(entry_id):
     return jsonify({'success': True})
 
 
+# ── 350-1 Training tracker ──
+
+@app.route('/api/training/latest', methods=['GET'])
+@login_required
+def get_training_latest():
+    user = get_current_user()
+    platoon = request.args.get('platoon', '').strip()
+    if platoon and not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    conn = get_db()
+    import_id = _latest_training_import_id(conn)
+    if not import_id:
+        conn.close()
+        return jsonify({'import': None, 'requirements': [], 'records': [], 'summary': {}})
+
+    import_row = conn.execute('SELECT * FROM training_imports WHERE id = ?', (import_id,)).fetchone()
+    requirements = [dict(r) for r in conn.execute(
+        'SELECT key, display_name, required_by, interval_months, delivery_method, source_column '
+        'FROM training_requirements WHERE import_id = ? ORDER BY id',
+        (import_id,)
+    ).fetchall()]
+
+    params = [import_id]
+    where = ['import_id = ?']
+    if platoon:
+        where.append('platoon = ?')
+        params.append(platoon)
+    elif not user['is_admin']:
+        accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
+        if '*' not in accessible:
+            if not accessible:
+                conn.close()
+                return jsonify({'error': 'Forbidden'}), 403
+            where.append(f"platoon IN ({','.join('?' * len(accessible))})")
+            params.extend(accessible)
+
+    records = [dict(r) for r in conn.execute(
+        f'SELECT * FROM training_records WHERE {" AND ".join(where)} ORDER BY platoon, last, first, requirement_name',
+        params
+    ).fetchall()]
+    conn.close()
+
+    counts = {}
+    for record in records:
+        counts[record['status']] = counts.get(record['status'], 0) + 1
+    required_total = len([r for r in records if r['status'] != 'exempt'])
+    valid_total = counts.get('current', 0) + counts.get('due_soon', 0)
+    personnel = {(r['platoon'], r['rank'], r['last'], r['first']) for r in records}
+    summary = {
+        'personnel_count': len(personnel),
+        'requirement_count': len(requirements),
+        'record_count': len(records),
+        'required_record_count': required_total,
+        'current': counts.get('current', 0),
+        'due_soon': counts.get('due_soon', 0),
+        'expired': counts.get('expired', 0),
+        'missing': counts.get('missing', 0),
+        'exempt': counts.get('exempt', 0),
+        'unknown': counts.get('unknown', 0),
+        'completion_percent': round((valid_total / required_total) * 100, 1) if required_total else 0,
+    }
+    return jsonify({
+        'import': dict(import_row),
+        'requirements': requirements,
+        'records': records,
+        'summary': summary,
+    })
+
+
+@app.route('/api/training/upload', methods=['POST'])
+@admin_required
+def upload_training_tracker():
+    uploaded = request.files.get('tracker')
+    if not uploaded or not uploaded.filename:
+        return jsonify({'error': 'Select a 350-1 tracker .xlsx file.'}), 400
+    if not uploaded.filename.lower().endswith('.xlsx'):
+        return jsonify({'error': 'Training tracker upload must be an .xlsx file.'}), 400
+
+    try:
+        parsed = parse_training_tracker(uploaded.stream)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except ET.ParseError:
+        return jsonify({'error': 'Training tracker XML could not be read.'}), 400
+
+    user = get_current_user()
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            'INSERT INTO training_imports (filename, uploaded_by, personnel_count, requirement_count) '
+            'VALUES (?, ?, ?, ?)',
+            (os.path.basename(uploaded.filename), user['username'], parsed['personnel_count'], parsed['requirement_count'])
+        )
+        import_id = cur.lastrowid
+        for requirement in parsed['requirements']:
+            conn.execute(
+                'INSERT INTO training_requirements '
+                '(import_id, key, display_name, required_by, interval_months, delivery_method, source_column) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (import_id, requirement['key'], requirement['display_name'], requirement['required_by'],
+                 requirement['interval_months'], requirement['delivery_method'], requirement['source_column'])
+            )
+        for record in parsed['records']:
+            conn.execute(
+                'INSERT INTO training_records '
+                '(import_id, platoon, rank, last, first, full_name, requirement_key, requirement_name, '
+                'raw_value, completed_on, due_on, status) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (import_id, record['platoon'], record['rank'], record['last'], record['first'], record['full_name'],
+                 record['requirement_key'], record['requirement_name'], record['raw_value'],
+                 record['completed_on'], record['due_on'], record['status'])
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+    conn.close()
+
+    log_action(
+        'TRAINING_IMPORT',
+        f'{uploaded.filename}: {parsed["personnel_count"]} personnel, {parsed["requirement_count"]} requirements'
+    )
+    return get_training_latest()
+
+
 # ── Backup / Restore ──
 
 @app.route('/api/backup', methods=['GET'])
@@ -870,6 +1359,9 @@ def export_backup():
     if user['is_admin']:
         personnel = [dict(r) for r in conn.execute('SELECT * FROM personnel').fetchall()]
         scheduled_events = [dict(r) for r in conn.execute('SELECT * FROM scheduled_events').fetchall()]
+        training_imports = [dict(r) for r in conn.execute('SELECT * FROM training_imports').fetchall()]
+        training_requirements = [dict(r) for r in conn.execute('SELECT * FROM training_requirements').fetchall()]
+        training_records = [dict(r) for r in conn.execute('SELECT * FROM training_records').fetchall()]
         settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
         users     = [dict(r) for r in conn.execute(
             'SELECT id, username, email, full_name, is_admin, platoons, clerk_user_id FROM users'
@@ -884,6 +1376,9 @@ def export_backup():
         scheduled_events = [dict(r) for r in conn.execute(
             f'SELECT * FROM scheduled_events WHERE platoon IN ({placeholders})', accessible
         ).fetchall()]
+        training_imports = []
+        training_requirements = []
+        training_records = []
         settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
         users     = []
         label = '-'.join(accessible)
@@ -894,6 +1389,9 @@ def export_backup():
         'exported_at': datetime.utcnow().isoformat() + 'Z',
         'personnel': personnel,
         'scheduled_events': scheduled_events,
+        'training_imports': training_imports,
+        'training_requirements': training_requirements,
+        'training_records': training_records,
         'settings': settings,
         'users': users,
     }
@@ -988,9 +1486,45 @@ def import_backup():
                 )
                 restored_users += 1
 
+        restored_training = 0
+        if user['is_admin'] and any(k in payload for k in ('training_imports', 'training_requirements', 'training_records')):
+            conn.execute('DELETE FROM training_records')
+            conn.execute('DELETE FROM training_requirements')
+            conn.execute('DELETE FROM training_imports')
+            for item in payload.get('training_imports', []):
+                conn.execute(
+                    'INSERT OR REPLACE INTO training_imports '
+                    '(id, filename, uploaded_by, uploaded_at, personnel_count, requirement_count) '
+                    'VALUES (?, ?, ?, ?, ?, ?)',
+                    (item.get('id'), item.get('filename', ''), item.get('uploaded_by', ''),
+                     item.get('uploaded_at', datetime.utcnow().isoformat()), item.get('personnel_count', 0),
+                     item.get('requirement_count', 0))
+                )
+            for item in payload.get('training_requirements', []):
+                conn.execute(
+                    'INSERT OR REPLACE INTO training_requirements '
+                    '(id, import_id, key, display_name, required_by, interval_months, delivery_method, source_column) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (item.get('id'), item.get('import_id'), item.get('key', ''), item.get('display_name', ''),
+                     item.get('required_by', ''), item.get('interval_months'), item.get('delivery_method', ''),
+                     item.get('source_column', ''))
+                )
+            for item in payload.get('training_records', []):
+                conn.execute(
+                    'INSERT OR REPLACE INTO training_records '
+                    '(id, import_id, platoon, rank, last, first, full_name, requirement_key, requirement_name, '
+                    'raw_value, completed_on, due_on, status) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (item.get('id'), item.get('import_id'), item.get('platoon', ''), item.get('rank', ''),
+                     item.get('last', ''), item.get('first', ''), item.get('full_name', ''),
+                     item.get('requirement_key', ''), item.get('requirement_name', ''), item.get('raw_value', ''),
+                     item.get('completed_on', ''), item.get('due_on', ''), item.get('status', ''))
+                )
+                restored_training += 1
+
         conn.commit()
         log_action('BACKUP_RESTORE', f'Backup restored: {restored_personnel} personnel, {restored_users} users')
-        return jsonify({'success': True, 'personnel': restored_personnel, 'users': restored_users})
+        return jsonify({'success': True, 'personnel': restored_personnel, 'users': restored_users, 'training': restored_training})
     except Exception as e:
         conn.rollback()
         return jsonify({'error': str(e)}), 500
