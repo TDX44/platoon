@@ -65,12 +65,13 @@
 
   /* Stats bar */
   .stats-bar {
-    display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;
-    margin-bottom: 20px; padding: 12px; background: #2d2d44; border-radius: 8px;
+    display: flex; gap: 6px; justify-content: stretch; flex-wrap: nowrap;
+    margin-bottom: 14px; padding: 6px; background: #2d2d44; border-radius: 8px;
+    width: 100%;
   }
-  .stat { text-align: center; }
-  .stat .num { font-size: 1.4em; font-weight: 700; color: #00d4ff; }
-  .stat .label { font-size: 0.75em; color: #aaa; text-transform: uppercase; }
+  .stat { text-align: center; flex: 1 1 0; min-width: 0; }
+  .stat .num { font-size: 1.05em; font-weight: 700; color: #00d4ff; line-height: 1; }
+  .stat .label { font-size: 0.62em; color: #aaa; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Table */
   .table-wrap { overflow-x: auto; }
@@ -910,13 +911,16 @@
     border: 1px solid var(--theme_border);
     border-radius: var(--theme_radius);
     box-shadow: var(--theme_shadow-soft);
-    justify-content: flex-start;
-    padding: 14px;
-    gap: 8px;
+    flex-wrap: nowrap;
+    justify-content: stretch;
+    padding: 6px;
+    gap: 6px;
+    width: 100%;
   }
   .stat {
-    min-width: 112px;
-    padding: 10px 14px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
     border: 1px solid var(--theme_border);
     border-radius: var(--theme_radius);
     background: var(--theme_surface-soft);
@@ -924,13 +928,17 @@
   .stat .num,
   body.light-mode .stat .num {
     color: var(--theme_action);
-    font-size: 1.45rem;
+    font-size: 1.05rem;
     line-height: 1;
   }
   .stat .label {
     color: var(--theme_text-weak);
     letter-spacing: 0;
-    margin-top: 5px;
+    margin-top: 3px;
+    font-size: 0.62rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .stat-mobile-away,
   .mobile-more-actions {
@@ -938,39 +946,39 @@
   }
   .accountability-insights {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px;
     margin: 0 0 14px;
+    width: 100%;
   }
   .insight-card {
     min-width: 0;
-    padding: 12px;
+    padding: 8px 10px;
     border: 1px solid var(--theme_border);
     border-radius: var(--theme_radius);
     background: var(--theme_surface);
     color: var(--theme_text);
     box-shadow: var(--theme_shadow-soft);
+    text-align: center;
   }
   .insight-card strong {
     display: block;
-    font-size: 1.35rem;
+    font-size: 1.3rem;
     line-height: 1;
-    margin-bottom: 5px;
+    margin-bottom: 3px;
   }
   .insight-card span {
     display: block;
     color: var(--theme_text-weak);
-    font-size: 0.74rem;
+    font-size: 0.7rem;
     font-weight: 700;
     text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .insight-card small {
-    display: block;
-    margin-top: 7px;
-    color: var(--theme_text-muted);
-    font-size: 0.76rem;
-    line-height: 1.35;
-  }
+  .insight-card small { display: none; }
   .insight-good strong { color: var(--theme_success); }
   .insight-warn strong { color: #b7791f; }
   .insight-action strong { color: var(--theme_action); }
@@ -1986,36 +1994,35 @@
       padding-left: 2px;
     }
     .stats-bar {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      padding: 8px;
-      margin-bottom: 10px;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 4px;
+      padding: 5px;
+      margin-bottom: 8px;
     }
     .stat-detail-mobile-hidden { display: none; }
     .stat-mobile-away { display: block; }
     .stat {
+      flex: 1 1 0;
       min-width: 0;
-      padding: 10px 8px;
+      padding: 5px 3px;
     }
-    .stat .num { font-size: 1.18rem; }
-    .stat .label { font-size: 0.66rem; }
+    .stat .num { font-size: 0.95rem; }
+    .stat .label { font-size: 0.55rem; }
     .accountability-insights {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      margin-bottom: 10px;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
     }
     .insight-card {
-      padding: 10px;
+      padding: 6px 4px;
     }
     .insight-card strong {
-      font-size: 1.12rem;
+      font-size: 1rem;
     }
     .insight-card span {
-      font-size: 0.66rem;
-    }
-    .insight-card small {
-      font-size: 0.72rem;
+      font-size: 0.55rem;
     }
     .controls {
       display: grid;
@@ -2481,9 +2488,9 @@
   <button class="btn-import mobile-secondary-action" onclick="openImportModal()">&#8595; Import List</button>
   <button class="btn-reset mobile-secondary-action" onclick="resetDay()">Reset Day</button>
   <button class="btn-generate" onclick="generateReport()">Generate Report</button>
-  <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
 </div>
 <div class="controls controls-secondary" style="margin-top:6px;">
+  <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
   <button class="btn-reset" onclick="openDutyRoster()">Duty</button>
   <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
   <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
@@ -2973,10 +2980,9 @@ function renderInsights(counts, total, todayStr) {
   }
 
   el.innerHTML = cards.map(card => `
-    <div class="insight-card ${card.cls}">
+    <div class="insight-card ${card.cls}" title="${escapeHtml(card.detail)}">
       <strong>${card.value}</strong>
       <span>${card.label}</span>
-      <small>${escapeHtml(card.detail)}</small>
     </div>
   `).join('');
 }
@@ -3143,7 +3149,7 @@ function renderTrainingInsights() {
   if (!el) return;
   if (!trainingData || !trainingData.import) {
     el.innerHTML = `
-      <div class="insight-card insight-action"><strong>0</strong><span>Uploads</span><small>Upload the tracker to begin.</small></div>
+      <div class="insight-card insight-action" title="Upload the tracker to begin."><strong>0</strong><span>Uploads</span></div>
     `;
     return;
   }
@@ -3161,10 +3167,9 @@ function renderTrainingInsights() {
     { cls: 'insight-warn', value: summary.missing || 0, label: 'No date', detail: 'Blank cells in the tracker' },
     { cls: 'insight-action', value: summary.due_soon || 0, label: 'Due soon', detail: 'Expires within 30 days' }
   ].map(card => `
-    <div class="insight-card ${card.cls}">
+    <div class="insight-card ${card.cls}" title="${escapeHtml(String(card.detail))}">
       <strong>${card.value}</strong>
       <span>${card.label}</span>
-      <small>${escapeHtml(String(card.detail))}</small>
     </div>
   `).join('');
 }
