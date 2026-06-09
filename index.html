@@ -5293,6 +5293,21 @@ async function authResetVerify(code, newPassword) {
   setAuthError(`Reset incomplete (${si.status}). Please try again.`);
 }
 
+async function authSignUp(email, password) {
+  await clerk.client.signUp.create({ emailAddress: email, password });
+  await clerk.client.signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+  setAuthView('verify-email');
+}
+
+async function authVerifyEmail(code) {
+  const su = await clerk.client.signUp.attemptEmailAddressVerification({ code });
+  if (su.status === 'complete') {
+    await finalizeAuth(su.createdSessionId);
+    return;
+  }
+  setAuthError(`Verification incomplete (${su.status}). Please try again.`);
+}
+
 function renderAuthForm() {
   const mount = document.getElementById('clerkAuthMount');
   if (!mount) return;
@@ -5370,6 +5385,53 @@ function renderAuthForm() {
       );
     }));
     document.getElementById('resetVerifyBack').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'signup') {
+    if (subtitle) subtitle.textContent = 'Create your account';
+    mount.innerHTML = `
+      <form class="auth-form" id="signupForm">
+        <button type="button" class="btn-oauth" id="googleSignup">Continue with Google</button>
+        <div class="auth-divider"><span>or</span></div>
+        <label for="signupEmail">Email</label>
+        <input id="signupEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <label for="signupPassword">Password</label>
+        <input id="signupPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters">
+        <div id="clerk-captcha"></div>
+        <button type="submit" class="btn-login" id="signupSubmit">Create account</button>
+        <div class="auth-switch">Already have an account? <button type="button" class="auth-link" id="toSignin">Sign in</button></div>
+      </form>`;
+    const form = document.getElementById('signupForm');
+    const submit = document.getElementById('signupSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Creating account…', async () => {
+      await authSignUp(
+        document.getElementById('signupEmail').value.trim(),
+        document.getElementById('signupPassword').value
+      );
+    }));
+    document.getElementById('googleSignup').addEventListener('click',
+      withBusy(document.getElementById('googleSignup'), 'Redirecting…', () => authOAuth('oauth_google')));
+    document.getElementById('toSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'verify-email') {
+    if (subtitle) subtitle.textContent = 'Verify your email';
+    mount.innerHTML = `
+      <form class="auth-form" id="verifyEmailForm">
+        <p class="auth-hint">We've sent a verification code to your email. Enter it below to finish creating your account.</p>
+        <label for="verifyCode">Verification code</label>
+        <input id="verifyCode" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus placeholder="123456" class="auth-code-input">
+        <button type="submit" class="btn-login" id="verifyEmailSubmit">Verify &amp; continue</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="verifyBackToSignin">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('verifyEmailForm');
+    const submit = document.getElementById('verifyEmailSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Verifying…', async () => {
+      await authVerifyEmail(document.getElementById('verifyCode').value.trim());
+    }));
+    document.getElementById('verifyBackToSignin').addEventListener('click', () => setAuthView('signin'));
     return;
   }
 }
