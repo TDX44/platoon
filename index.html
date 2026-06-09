@@ -5257,6 +5257,15 @@ async function authSignIn(email, password) {
   setAuthError(`Additional verification required (${si.status}). This sign-in method is not yet supported here.`);
 }
 
+async function authOAuth(strategy) {
+  const redirectBase = window.location.origin + '/';
+  await clerk.client.signIn.authenticateWithRedirect({
+    strategy,
+    redirectUrl: redirectBase,
+    redirectUrlComplete: redirectBase,
+  });
+}
+
 function renderAuthForm() {
   const mount = document.getElementById('clerkAuthMount');
   if (!mount) return;
@@ -5267,6 +5276,8 @@ function renderAuthForm() {
     if (subtitle) subtitle.textContent = 'Sign in to continue';
     mount.innerHTML = `
       <form class="auth-form" id="signinForm">
+        <button type="button" class="btn-oauth" id="googleSignin">Continue with Google</button>
+        <div class="auth-divider"><span>or</span></div>
         <label for="signinEmail">Email</label>
         <input id="signinEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
         <label for="signinPassword">Password</label>
@@ -5287,6 +5298,8 @@ function renderAuthForm() {
     document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
     document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
     document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
+    document.getElementById('googleSignin').addEventListener('click',
+      withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
     return;
   }
 }
@@ -5420,8 +5433,19 @@ async function initApp() {
   try {
     await ensureClerk();
     if (!clerk.user) {
-      showLoginScreen();
-      return;
+      const params = new URLSearchParams(window.location.search);
+      const hasClerkRedirect = [...params.keys()].some(k => k.startsWith('__clerk'));
+      if (hasClerkRedirect && typeof clerk.handleRedirectCallback === 'function') {
+        try {
+          await clerk.handleRedirectCallback({});
+        } catch (cbErr) {
+          console.warn('Clerk redirect callback failed:', cbErr);
+        }
+      }
+      if (!clerk.user) {
+        showLoginScreen();
+        return;
+      }
     }
     currentUser = await syncClerkUser();
     routeAfterLogin();
