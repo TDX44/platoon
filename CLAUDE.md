@@ -26,9 +26,9 @@ There are no tests and no lint config — do not invent commands for them.
 
 Two files hold essentially the entire app:
 
-- **`server.py`** (~1650 lines) — the whole Flask backend: routes, auth, SQLite
-  access, and the 350-1 training-tracker `.xlsx` parser.
-- **`index.html`** (~5700 lines) — the entire frontend: markup, CSS, and a
+- **`server.py`** (~1100 lines) — the whole Flask backend: routes, auth, and
+  SQLite access.
+- **`index.html`** (~5000 lines) — the entire frontend: markup, CSS, and a
   vanilla-JS SPA inline in one `<script>`. No framework, no bundler, no CDN libs
   beyond Clerk's script. Client routing uses the History API; `render()` and the
   `render*()` family redraw views from in-memory state.
@@ -48,8 +48,8 @@ made by editing the `CREATE TABLE` statements and adding ad-hoc `ALTER`/backfill
 logic in `init_db()`.
 
 Tables: `personnel`, `settings`, `users`, `audit_log`, `duty_roster`,
-`scheduled_events`, `training_imports`, `training_requirements`,
-`training_records`.
+`scheduled_events`. (Legacy `training_*` tables from the removed 350-1
+tracker feature may still exist in older database files; they are unused.)
 
 ### Multi-platoon model
 
@@ -66,15 +66,6 @@ the session token), `login_required`, and `admin_required`. `sync_clerk_user()`
 mirrors a Clerk identity into the local `users` table; emails in
 `CLERK_ADMIN_EMAILS` are auto-granted admin. `ProxyFix` is applied because the app
 runs behind the Cloudflare tunnel.
-
-### Training tracker import
-
-`/api/training/upload` accepts a 350-1 training tracker `.xlsx`. The parser
-(`parse_training_tracker` and the `_xlsx_*` / `_excel_*` helpers) reads the
-spreadsheet using only the standard library (`zipfile` + `xml.etree`) — no
-openpyxl/pandas. It resolves shared strings, maps columns to training
-requirements, and writes `training_imports` / `training_records`. Keep new
-spreadsheet logic in this stdlib-only style.
 
 ### Background reset (important gotcha)
 
