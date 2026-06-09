@@ -5308,6 +5308,18 @@ async function authVerifyEmail(code) {
   setAuthError(`Verification incomplete (${su.status}). Please try again.`);
 }
 
+function showClassicSignIn() {
+  const subtitle = document.getElementById('loginSubtitle');
+  if (subtitle) subtitle.textContent = 'Classic sign-in';
+  setAuthError('');
+  const mount = document.getElementById('clerkAuthMount');
+  if (mount) {
+    mount.innerHTML = '<div id="classicMount"></div><div class="auth-back"><button type="button" class="auth-link" id="backToNative">Back to Platoon sign-in</button></div>';
+    document.getElementById('backToNative').addEventListener('click', () => setAuthView('signin'));
+    mountClerkSignIn(document.getElementById('classicMount'));
+  }
+}
+
 function renderAuthForm() {
   const mount = document.getElementById('clerkAuthMount');
   if (!mount) return;
@@ -5436,8 +5448,8 @@ function renderAuthForm() {
   }
 }
 
-function mountClerkSignIn() {
-  const mount = document.getElementById('clerkAuthMount');
+function mountClerkSignIn(targetEl) {
+  const mount = targetEl || document.getElementById('clerkAuthMount');
   if (!mount || !clerk) return;
   const dark = document.body.classList.contains('dark-mode');
   mount.innerHTML = '';
