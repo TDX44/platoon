@@ -5266,6 +5266,33 @@ async function authOAuth(strategy) {
   });
 }
 
+async function authResetRequest(email) {
+  // Anti-enumeration: try to start the reset + send the code, but swallow
+  // "identifier not found" errors and ALWAYS advance to the verify screen.
+  try {
+    await clerk.client.signIn.create({
+      strategy: 'reset_password_email_code',
+      identifier: email,
+    });
+  } catch (err) {
+    // do not disclose whether the account exists
+  }
+  setAuthView('reset-verify');
+}
+
+async function authResetVerify(code, newPassword) {
+  await clerk.client.signIn.attemptFirstFactor({
+    strategy: 'reset_password_email_code',
+    code,
+  });
+  const si = await clerk.client.signIn.resetPassword({ password: newPassword });
+  if (si.status === 'complete') {
+    await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  setAuthError(`Reset incomplete (${si.status}). Please try again.`);
+}
+
 function renderAuthForm() {
   const mount = document.getElementById('clerkAuthMount');
   if (!mount) return;
@@ -5300,6 +5327,49 @@ function renderAuthForm() {
     document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
     document.getElementById('googleSignin').addEventListener('click',
       withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
+    return;
+  }
+
+  if (authView === 'reset-request') {
+    if (subtitle) subtitle.textContent = 'Reset your password';
+    mount.innerHTML = `
+      <form class="auth-form" id="resetReqForm">
+        <p class="auth-hint">Enter your email and we'll send a code to reset your password.</p>
+        <label for="resetEmail">Email</label>
+        <input id="resetEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <button type="submit" class="btn-login" id="resetReqSubmit">Send reset code</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="resetBackToSignin">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('resetReqForm');
+    const submit = document.getElementById('resetReqSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Sending…', async () => {
+      await authResetRequest(document.getElementById('resetEmail').value.trim());
+    }));
+    document.getElementById('resetBackToSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'reset-verify') {
+    if (subtitle) subtitle.textContent = 'Enter your reset code';
+    mount.innerHTML = `
+      <form class="auth-form" id="resetVerifyForm">
+        <p class="auth-hint">If an account exists for that email, we've sent a reset code. Enter it below and choose a new password.</p>
+        <label for="resetCode">Reset code</label>
+        <input id="resetCode" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus placeholder="123456" class="auth-code-input">
+        <label for="resetNewPassword">New password</label>
+        <input id="resetNewPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters">
+        <button type="submit" class="btn-login" id="resetVerifySubmit">Reset password &amp; sign in</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="resetVerifyBack">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('resetVerifyForm');
+    const submit = document.getElementById('resetVerifySubmit');
+    form.addEventListener('submit', withBusy(submit, 'Resetting…', async () => {
+      await authResetVerify(
+        document.getElementById('resetCode').value.trim(),
+        document.getElementById('resetNewPassword').value
+      );
+    }));
+    document.getElementById('resetVerifyBack').addEventListener('click', () => setAuthView('signin'));
     return;
   }
 }
