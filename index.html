@@ -2349,6 +2349,387 @@
     }
   }
 
+  /* ─── Accountability dashboard redesign ─── */
+  .dash-layout {
+    --dash-bg: #f4f6fa;
+    --dash-card: #ffffff;
+    --dash-border: #e4e8f0;
+    --dash-text: #1a2233;
+    --dash-muted: #5b6678;
+    --dash-faint: #8a94a8;
+    --dash-accent: #2563eb;
+    --dash-accent-hover: #1d4ed8;
+    --dash-green: #15803d;
+    --dash-green-bg: #f0fdf4;
+    --dash-red: #dc2626;
+    --dash-red-bg: #fef2f2;
+    --dash-blue: #2563eb;
+    --dash-blue-bg: #eff6ff;
+    --dash-amber: #b45309;
+    --dash-amber-bg: #fffbeb;
+    --dash-purple: #6d28d9;
+    --dash-purple-bg: #f5f3ff;
+    --dash-input: #ffffff;
+    --dash-hover: #f8fafc;
+    --dash-shadow: 0 1px 2px rgba(16,24,40,0.06);
+    --dash-shadow-lg: 0 8px 24px rgba(16,24,40,0.12);
+    --dash-side-bg: #131a2c;
+    --dash-side-text: #9aa7bf;
+    --dash-side-active-bg: #1e2a47;
+    --dash-side-active-text: #ffffff;
+  }
+  body.dark-mode .dash-layout {
+    --dash-bg: #0f1117;
+    --dash-card: #171b24;
+    --dash-border: #272d3a;
+    --dash-text: #e8edf5;
+    --dash-muted: #97a1b4;
+    --dash-faint: #6b7488;
+    --dash-green: #4ade80;
+    --dash-green-bg: #122318;
+    --dash-red: #f87171;
+    --dash-red-bg: #2a1616;
+    --dash-blue: #93b8f8;
+    --dash-blue-bg: #15233c;
+    --dash-amber: #fbbf24;
+    --dash-amber-bg: #2a2210;
+    --dash-purple: #c4b5fd;
+    --dash-purple-bg: #221b38;
+    --dash-input: #10131a;
+    --dash-hover: #1d222e;
+    --dash-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    --dash-shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+    --dash-side-bg: #0b0e15;
+    --dash-side-active-bg: #1c2538;
+  }
+  body.dash-active, body.dash-active.light-mode, body.dash-active.dark-mode { padding: 0; }
+
+  .dash-layout {
+    display: grid;
+    grid-template-columns: 224px minmax(0, 1fr) 332px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "side head head"
+      "side main rail";
+    min-height: 100vh;
+    background: var(--dash-bg);
+    color: var(--dash-text);
+  }
+
+  /* Sidebar */
+  .dash-sidebar {
+    grid-area: side;
+    position: sticky; top: 0; height: 100vh;
+    display: flex; flex-direction: column;
+    background: var(--dash-side-bg);
+    padding: 18px 12px calc(14px + env(safe-area-inset-bottom));
+  }
+  .dash-brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; }
+  .dash-brand img { width: 40px; height: 40px; object-fit: contain; }
+  .dash-brand-name {
+    color: #fff; font-weight: 700; font-size: 0.82em;
+    letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.35;
+  }
+  .dash-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .dash-nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: none; border: none; cursor: pointer; text-align: left;
+    color: var(--dash-side-text); font-size: 0.9em; font-weight: 600;
+    padding: 10px 12px; border-radius: 8px; transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+  }
+  .dash-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  .dash-nav-item.active { background: var(--dash-side-active-bg); color: var(--dash-side-active-text); }
+  .dash-nav-item svg { width: 17px; height: 17px; flex: none; stroke: currentColor; }
+  .dash-side-user {
+    margin-top: 10px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.08);
+    color: var(--dash-side-text); font-size: 0.8em; line-height: 1.4; word-break: break-word;
+  }
+  .dash-side-user strong { color: #e6ecf7; display: block; font-size: 1.05em; }
+
+  /* Settings dropdown (shared by sidebar + bottom nav) */
+  .dash-settings-wrap { position: relative; }
+  .dash-settings-menu {
+    display: none; position: absolute; left: 10px; bottom: calc(100% + 6px);
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
+    box-shadow: var(--dash-shadow-lg); min-width: 190px; padding: 6px; z-index: 80;
+  }
+  .dash-settings-menu.open { display: block; }
+  .dash-settings-menu button, .dash-more-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--dash-text); font-size: 0.88em; font-weight: 500; font-family: inherit;
+    padding: 9px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .dash-settings-menu button:hover, .dash-more-menu button:hover { background: var(--dash-hover); }
+  .dash-settings-menu .dash-signout { color: var(--dash-red); }
+
+  /* Header */
+  .dash-header {
+    grid-area: head;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap;
+    padding: 22px 28px 6px;
+  }
+  .dash-title-input.edit-unit-name {
+    font-size: 1.45em; font-weight: 700; color: var(--dash-text);
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    padding: 2px 8px; margin: -2px 0 0 -8px; width: min(440px, 100%);
+    font-family: inherit; text-align: left;
+  }
+  .dash-title-input.edit-unit-name:hover, .dash-title-input.edit-unit-name:focus {
+    border-color: var(--dash-border); background: var(--dash-card); outline: none;
+  }
+  .dash-asof { display: flex; align-items: center; gap: 6px; color: var(--dash-muted); font-size: 0.85em; margin-top: 2px; }
+  .dash-refresh {
+    background: none; border: none; cursor: pointer; color: var(--dash-accent);
+    font-size: 1.05em; line-height: 1; padding: 2px 4px; border-radius: 6px;
+  }
+  .dash-refresh:hover { background: var(--dash-hover); }
+  .dash-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .dash-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    font-size: 0.88em; font-weight: 600; font-family: inherit;
+    border: 1px solid transparent; transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .dash-btn-primary { background: var(--dash-accent); color: #fff; }
+  .dash-btn-primary:hover { background: var(--dash-accent-hover); }
+  .dash-btn-secondary { background: var(--dash-card); color: var(--dash-text); border-color: var(--dash-border); box-shadow: var(--dash-shadow); }
+  .dash-btn-secondary:hover { background: var(--dash-hover); }
+  .dash-btn-ghost { background: none; color: var(--dash-muted); border-color: var(--dash-border); }
+  .dash-btn-ghost:hover { background: var(--dash-hover); color: var(--dash-text); }
+  .dash-btn-sm { padding: 6px 12px; font-size: 0.82em; border-radius: 7px; }
+
+  .dash-more { position: relative; }
+  .dash-more > summary {
+    list-style: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 14px; border-radius: 8px; font-size: 0.88em; font-weight: 600;
+    background: var(--dash-card); color: var(--dash-muted); border: 1px solid var(--dash-border);
+  }
+  .dash-more > summary::-webkit-details-marker { display: none; }
+  .dash-more > summary::after { content: '\25BE'; font-size: 0.85em; }
+  .dash-more[open] > summary { background: var(--dash-hover); }
+  .dash-more-menu {
+    position: absolute; right: 0; top: calc(100% + 6px);
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
+    box-shadow: var(--dash-shadow-lg); min-width: 180px; padding: 6px; z-index: 70;
+  }
+
+  /* Main column + right rail */
+  .dash-main {
+    grid-area: main;
+    padding: 10px 28px 60px;
+    max-width: 1048px; width: 100%;
+    min-width: 0;
+  }
+  .dash-rail {
+    grid-area: rail;
+    padding: 10px 28px 60px 0;
+    display: flex; flex-direction: column; gap: 16px;
+    min-width: 0;
+  }
+  .dash-card {
+    background: var(--dash-card); border: 1px solid var(--dash-border);
+    border-radius: 12px; box-shadow: var(--dash-shadow); padding: 16px;
+  }
+  .dash-card-title { font-size: 0.95em; font-weight: 700; margin-bottom: 12px; color: var(--dash-text); }
+
+  /* Metrics */
+  .dash-metrics-primary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .dash-metric-card {
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 12px;
+    box-shadow: var(--dash-shadow); padding: 16px 18px;
+    display: flex; align-items: center; gap: 14px; min-height: 92px;
+  }
+  button.dash-metric-card { cursor: pointer; text-align: left; font-family: inherit; }
+  button.dash-metric-card:hover { border-color: var(--dash-accent); }
+  .dash-metric-card.alert { border-color: var(--dash-red); background: var(--dash-red-bg); }
+  .dash-metric-card.alert .dash-metric-num { color: var(--dash-red); }
+  .dash-metric-num { font-size: 1.9em; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--dash-text); }
+  .dash-metric-label { font-size: 0.78em; font-weight: 700; color: var(--dash-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .dash-metric-sub { font-size: 0.8em; color: var(--dash-faint); margin-top: 2px; }
+  .dash-ring { flex: none; }
+  .dash-ring .ring-track { stroke: var(--dash-border); }
+  .dash-ring .ring-val { stroke: var(--dash-green); }
+  .dash-ring.warn .ring-val { stroke: var(--dash-amber); }
+  .dash-ring text { fill: var(--dash-text); font-weight: 800; font-size: 15px; }
+
+  .dash-metrics-mini { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 12px; }
+  .dash-mini-tile {
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
+    padding: 10px 12px; text-align: left; cursor: pointer; font-family: inherit;
+    transition: border-color 0.15s, background 0.15s; min-width: 0;
+  }
+  .dash-mini-tile:hover { background: var(--dash-hover); }
+  .dash-mini-tile.active { border-color: var(--dash-accent); box-shadow: 0 0 0 1px var(--dash-accent); }
+  .dash-mini-tile[disabled] { cursor: default; }
+  .dash-mini-num { font-size: 1.25em; font-weight: 800; color: var(--dash-text); line-height: 1.2; }
+  .dash-mini-label { font-size: 0.68em; font-weight: 700; color: var(--dash-faint); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Personnel sections */
+  .dash-sections { margin-top: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .dash-section {
+    background: var(--dash-card); border: 1px solid var(--dash-border);
+    border-left-width: 4px; border-radius: 12px; box-shadow: var(--dash-shadow);
+  }
+  .dash-section.sec-needs { border-left-color: var(--dash-red); }
+  .dash-section.sec-present { border-left-color: var(--dash-green); }
+  .dash-section.sec-away { border-left-color: var(--dash-blue); }
+  .dash-section.sec-ftr { border-left-color: var(--dash-red); }
+  .dash-section.sec-sched { border-left-color: var(--dash-amber); }
+  .dash-section.sec-loan { border-left-color: var(--dash-purple); }
+  .dash-section-head {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 13px 16px; cursor: pointer; background: none; border: none;
+    font-family: inherit; text-align: left;
+  }
+  .dash-section-title { font-size: 0.92em; font-weight: 700; color: var(--dash-text); }
+  .dash-section-count {
+    font-size: 0.75em; font-weight: 700; padding: 2px 9px; border-radius: 99px;
+    background: var(--dash-hover); color: var(--dash-muted); border: 1px solid var(--dash-border);
+  }
+  .sec-needs .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
+  .sec-present .dash-section-count { background: var(--dash-green-bg); color: var(--dash-green); border-color: transparent; }
+  .sec-away .dash-section-count { background: var(--dash-blue-bg); color: var(--dash-blue); border-color: transparent; }
+  .sec-ftr .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
+  .sec-sched .dash-section-count { background: var(--dash-amber-bg); color: var(--dash-amber); border-color: transparent; }
+  .sec-loan .dash-section-count { background: var(--dash-purple-bg); color: var(--dash-purple); border-color: transparent; }
+  .dash-section-spacer { flex: 1; }
+  .dash-section-chev { color: var(--dash-faint); font-size: 0.8em; transition: transform 0.15s; }
+  .dash-section.collapsed .dash-section-chev { transform: rotate(-90deg); }
+  .dash-section.collapsed .dash-section-body { display: none; }
+  .dash-section-empty { padding: 14px 16px; color: var(--dash-muted); font-size: 0.88em; border-top: 1px solid var(--dash-border); }
+
+  .dash-row {
+    display: grid;
+    grid-template-columns: 26px 52px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+    gap: 10px; align-items: center;
+    padding: 11px 16px; border-top: 1px solid var(--dash-border);
+    min-height: 54px;
+  }
+  .dash-row:hover { background: var(--dash-hover); }
+  .dash-row .row-checkbox { width: 15px; height: 15px; accent-color: var(--dash-accent); }
+  .dash-row-rank { font-weight: 700; font-size: 0.84em; color: var(--dash-muted); }
+  .dash-row-name { font-weight: 600; font-size: 0.93em; color: var(--dash-text); cursor: pointer; min-width: 0; }
+  .dash-row-name:hover { color: var(--dash-accent); }
+  .dash-row-detail { font-size: 0.8em; color: var(--dash-muted); margin-top: 2px; font-weight: 400; }
+  .dash-row-meta { font-size: 0.82em; color: var(--dash-muted); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .dash-row-meta > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-row-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+
+  .dash-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 99px; font-size: 0.74em; font-weight: 700;
+    white-space: nowrap;
+  }
+  .dash-pill.p-present { background: var(--dash-green-bg); color: var(--dash-green); }
+  .dash-pill.p-leave, .dash-pill.p-pass { background: var(--dash-amber-bg); color: var(--dash-amber); }
+  .dash-pill.p-tdy { background: var(--dash-blue-bg); color: var(--dash-blue); }
+  .dash-pill.p-other { background: var(--dash-hover); color: var(--dash-muted); }
+  .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
+  .dash-pill.p-loan { background: var(--dash-purple-bg); color: var(--dash-purple); }
+  .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
+  .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; }
+  .dash-badge-returned { font-size: 0.7em; font-weight: 800; color: var(--dash-blue); letter-spacing: 0.04em; margin-left: 6px; }
+
+  .dash-row-menu { position: relative; }
+  .dash-row-menu > summary {
+    list-style: none; cursor: pointer; padding: 5px 9px; border-radius: 7px;
+    border: 1px solid var(--dash-border); background: var(--dash-card);
+    color: var(--dash-muted); font-size: 0.8em; font-weight: 600; white-space: nowrap;
+  }
+  .dash-row-menu > summary::-webkit-details-marker { display: none; }
+  .dash-row-menu > summary:hover { background: var(--dash-hover); }
+  .dash-row-menu .dash-more-menu { right: 0; min-width: 160px; }
+  .dash-more-btn { font-size: 0.84em; font-weight: 600; color: var(--dash-accent); background: none; border: none; cursor: pointer; padding: 11px 16px; width: 100%; text-align: left; border-top: 1px solid var(--dash-border); font-family: inherit; }
+  .dash-more-btn:hover { background: var(--dash-hover); }
+
+  /* Filters card */
+  .dash-filters .search-input {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--dash-border); border-radius: 8px;
+    background: var(--dash-input); color: var(--dash-text); font-size: 0.88em; font-family: inherit;
+  }
+  .dash-filters .search-wrap { display: flex; gap: 6px; margin-bottom: 4px; position: relative; }
+  .dash-filter-label { display: block; font-size: 0.72em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dash-faint); margin: 10px 0 4px; }
+  .dash-filters select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--dash-border); border-radius: 8px;
+    background: var(--dash-input); color: var(--dash-text); font-size: 0.88em; font-family: inherit;
+  }
+  .dash-check { display: flex; align-items: center; gap: 8px; font-size: 0.85em; color: var(--dash-muted); margin: 12px 0; cursor: pointer; }
+  .dash-check input { accent-color: var(--dash-accent); width: 15px; height: 15px; }
+
+  /* Report preview */
+  .dash-preview-lines { font-size: 0.86em; color: var(--dash-muted); display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .dash-preview-line { display: flex; justify-content: space-between; gap: 10px; }
+  .dash-preview-line strong { color: var(--dash-text); font-weight: 700; }
+  .dash-preview-line.warn strong { color: var(--dash-red); }
+  .dash-preview-head { font-weight: 700; color: var(--dash-text); font-size: 0.92em; margin-bottom: 2px; }
+  .dash-preview-date { font-size: 0.78em; color: var(--dash-faint); margin-bottom: 10px; }
+  .dash-preview-actions { display: flex; flex-direction: column; gap: 8px; }
+  .dash-preview-note { font-size: 0.74em; color: var(--dash-faint); margin-top: 10px; line-height: 1.4; }
+
+  /* Bottom nav (mobile only) */
+  .dash-bottomnav {
+    display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: var(--dash-card); border-top: 1px solid var(--dash-border);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .dash-bottomnav button {
+    background: none; border: none; cursor: pointer; font-family: inherit;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    color: var(--dash-muted); font-size: 0.68em; font-weight: 700; padding: 6px 4px; border-radius: 8px;
+  }
+  .dash-bottomnav button.active, .dash-bottomnav button:hover { color: var(--dash-accent); }
+  .dash-bottomnav svg { width: 20px; height: 20px; stroke: currentColor; }
+
+  .dash-layout .bulk-bar { border-radius: 10px; margin-top: 14px; }
+
+  @media (max-width: 1240px) {
+    .dash-layout {
+      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-areas: "side head" "side main" "side rail";
+      grid-template-rows: auto auto 1fr;
+    }
+    .dash-rail { padding: 0 28px 60px; flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+    .dash-rail > .dash-card { flex: 1 1 300px; }
+  }
+
+  @media (max-width: 900px) {
+    .dash-layout {
+      display: flex; flex-direction: column;
+      padding-bottom: calc(66px + env(safe-area-inset-bottom));
+    }
+    .dash-sidebar { display: none; }
+    .dash-bottomnav { display: grid; }
+    .dash-header { padding: 14px 14px 4px; }
+    .dash-header-title { width: 100%; }
+    .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
+    .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
+    .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-start; }
+    .dash-main { display: contents; }
+    .dash-rail { display: contents; }
+    .dash-metrics { order: 1; margin: 6px 14px 0; }
+    #dashFiltersCard { order: 2; margin: 12px 14px 0; }
+    .dash-layout .bulk-bar { order: 3; margin: 12px 14px 0; }
+    .dash-sections { order: 4; margin: 14px 14px 0; }
+    #reportPreviewCard { order: 5; margin: 16px 14px 0; }
+    .dash-metrics-primary { gap: 8px; }
+    .dash-metric-card { padding: 12px; min-height: 78px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
+    .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 10px; }
+    .dash-metric-num { font-size: 1.45em; }
+    .dash-metrics-mini { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
+    .dash-row-meta { display: none; }
+    .dash-row-mobilemeta { display: block !important; }
+    .dash-header-actions { width: 100%; justify-content: flex-end; }
+    .dash-settings-menu { position: fixed; left: auto; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); }
+  }
+  .dash-row-mobilemeta { display: none; font-size: 0.78em; color: var(--dash-muted); margin-top: 2px; }
+
   @media (max-width: 380px) {
     .stats-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .controls button,
@@ -2504,70 +2885,131 @@
 
 <!-- ─── Platoon Screen ─── -->
 <div id="platoonScreen">
-<input type="text" class="edit-unit-name" id="unitName" value="" />
-<div class="stats-bar" id="statsBar"></div>
-<div class="accountability-insights" id="accountabilityInsights"></div>
-<div class="controls">
-  <button class="btn-back" onclick="goHome()">&#8592; Platoons</button>
-  <button class="btn-add" onclick="openAddModal()">+ Add Person</button>
-  <button class="btn-import mobile-secondary-action" onclick="openImportModal()">&#8595; Import List</button>
-  <button class="btn-reset mobile-secondary-action" onclick="resetDay()">Reset Day</button>
-  <button class="btn-generate" onclick="generateReport()">Generate Report</button>
-</div>
-<div class="controls controls-secondary" style="margin-top:6px;">
-  <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
-  <button class="btn-reset" onclick="openDutyRoster()">Duty</button>
-  <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
-  <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
-  <button class="btn-reset" id="auditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
-</div>
-<details class="mobile-more-actions">
-  <summary>More Actions</summary>
-  <div class="mobile-more-grid">
-    <button class="btn-import" onclick="openImportModal()">&#8595; Import List</button>
-    <button class="btn-reset" onclick="resetDay()">Reset Day</button>
-    <button class="btn-reset" onclick="openDutyRoster()">Duty</button>
-    <button class="btn-reset" onclick="openHistory()">&#128337; History</button>
-    <button class="btn-reset" onclick="exportCSV()">&#128190; CSV</button>
-    <button class="btn-reset" onclick="openTraining(true, currentPlatoon)">350-1 Training</button>
-    <button class="btn-reset" id="mobileAuditLogBtn" onclick="openAuditLog()" style="display:none">&#128269; Audit</button>
+<div class="dash-layout">
+
+<aside class="dash-sidebar">
+  <div class="dash-brand">
+    <img src="/images/company-logo.png" alt="Unit logo">
+    <span class="dash-brand-name">Platoon<br>Accountability</span>
   </div>
-</details>
-<div class="search-wrap">
-  <input type="text" class="search-input" id="searchInput" placeholder="&#128269; Search by name, rank, or notes…" oninput="onSearch()">
-  <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
-</div>
-<div class="quick-filter-wrap" id="quickFilterWrap" aria-label="Roster filters"></div>
-<div class="bulk-bar" id="bulkBar">
-  <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
-  <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:0.85em;">
-    <option value="">— Set Status —</option>
-    <option value="present">Present</option>
-    <option value="tdy">TDY</option>
-    <option value="leave">Leave</option>
-    <option value="pass">Pass</option>
-    <option value="other">Other</option>
-    <option value="ftr">FTR</option>
-  </select>
-  <button class="btn-small btn-add" onclick="applyBulkStatus()">Apply</button>
-  <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
+  <nav class="dash-nav" aria-label="Main navigation">
+    <button class="dash-nav-item" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+    <button class="dash-nav-item" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
+    <button class="dash-nav-item active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
+    <button class="dash-nav-item" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
+    <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
+    <button class="dash-nav-item" id="auditLogBtn" onclick="openAuditLog()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Audit Log</button>
+    <div class="dash-section-spacer"></div>
+    <div class="dash-settings-wrap">
+      <button class="dash-nav-item" onclick="toggleDashSettings(event)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
+      <div class="dash-settings-menu" id="dashSettingsMenu">
+        <button onclick="toggleTheme();closeDashMenus()" id="dashThemeItem">Toggle Theme</button>
+        <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
+        <button onclick="openTraining(true, currentPlatoon);closeDashMenus()">350-1 Training</button>
+        <button onclick="openClerkProfile();closeDashMenus()">Manage Account</button>
+        <button id="dashManageUsers" onclick="openUserMgmt();closeDashMenus()" style="display:none">Manage Access</button>
+        <button onclick="exportBackup();closeDashMenus()">Export Backup</button>
+        <button onclick="openRestoreModal();closeDashMenus()">Import Backup</button>
+        <button class="dash-signout" onclick="doLogout()">Sign Out</button>
+      </div>
+    </div>
+  </nav>
+  <div class="dash-side-user" id="dashSideUser"></div>
+</aside>
+
+<header class="dash-header">
+  <div class="dash-header-title">
+    <input type="text" class="edit-unit-name dash-title-input" id="unitName" value="" />
+    <div class="dash-asof">As of <span id="dashAsOf">&mdash;</span>
+      <button class="dash-refresh" onclick="refreshData()" title="Refresh data" aria-label="Refresh data">&#8635;</button>
+    </div>
+  </div>
+  <div class="dash-header-actions">
+    <details class="dash-more" id="dashMore">
+      <summary>More</summary>
+      <div class="dash-more-menu">
+        <button onclick="openImportModal();closeDashMenus()">&#8595; Import List</button>
+        <button onclick="resetDay();closeDashMenus()">Reset Day</button>
+        <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
+        <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
+        <button onclick="openHistory();closeDashMenus()">History</button>
+        <button onclick="openTraining(true, currentPlatoon);closeDashMenus()">350-1 Training</button>
+        <button id="mobileAuditLogBtn" onclick="openAuditLog();closeDashMenus()" style="display:none">Audit Log</button>
+      </div>
+    </details>
+    <button class="dash-btn dash-btn-secondary" onclick="openAddModal()">+ Add Person</button>
+    <button class="dash-btn dash-btn-primary" onclick="generateReport()">Generate Report</button>
+  </div>
+</header>
+
+<div class="dash-main">
+  <section class="dash-metrics" id="dashMetrics" aria-label="Accountability metrics"></section>
+  <div class="bulk-bar" id="bulkBar">
+    <label class="bulk-bar-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="checkbox" id="selectAllChk" class="row-checkbox" onchange="toggleSelectAll()"> All
+    </label>
+    <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
+    <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:0.85em;">
+      <option value="">— Set Status —</option>
+      <option value="present">Present</option>
+      <option value="tdy">TDY</option>
+      <option value="leave">Leave</option>
+      <option value="pass">Pass</option>
+      <option value="other">Other</option>
+      <option value="ftr">FTR</option>
+    </select>
+    <button class="btn-small btn-add" onclick="applyBulkStatus()">Apply</button>
+    <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
+  </div>
+  <div class="dash-sections" id="personnelBody"></div>
 </div>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th style="width:28px"><input type="checkbox" id="selectAllChk" class="row-checkbox" onchange="toggleSelectAll()"></th>
-        <th>#</th>
-        <th class="sortable" id="th-rank" onclick="sortBy('rank')">Rank</th>
-        <th class="sortable" id="th-name" onclick="sortBy('name')">Name (Last, First)</th>
-        <th>Present</th>
-        <th class="sortable" id="th-status" onclick="sortBy('status')">Status</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="personnelBody"></tbody>
-  </table>
+<aside class="dash-rail">
+  <div class="dash-card dash-preview" id="reportPreviewCard">
+    <div class="dash-card-title">Report Preview</div>
+    <div id="reportPreviewBody"></div>
+    <div class="dash-preview-actions">
+      <button class="dash-btn dash-btn-primary" id="dashCopyBtn" onclick="dashCopyReport()">Copy Report</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateReport()">View Full Report</button>
+      <button class="dash-btn dash-btn-ghost" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
+  </div>
+  <div class="dash-card dash-filters" id="dashFiltersCard">
+    <div class="dash-card-title">Filters</div>
+    <div class="search-wrap">
+      <input type="text" class="search-input" id="searchInput" placeholder="Search by name, rank, or notes…" oninput="onSearch()">
+      <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
+    </div>
+    <label class="dash-filter-label" for="statusFilterSel">Status</label>
+    <select id="statusFilterSel" onchange="setQuickFilter(this.value)">
+      <option value="all">All</option>
+      <option value="unaccounted">Needs action</option>
+      <option value="present">Present</option>
+      <option value="leave">Leave / Pass</option>
+      <option value="tdy">TDY / School</option>
+      <option value="other">Other / FTR</option>
+      <option value="scheduled">Scheduled</option>
+      <option value="loan">On Loan</option>
+    </select>
+    <label class="dash-filter-label" for="sortSel">Sort by</label>
+    <select id="sortSel" onchange="setSortFromSel(this.value)">
+      <option value="rank">Rank</option>
+      <option value="name">Name</option>
+      <option value="status">Status</option>
+    </select>
+    <label class="dash-check"><input type="checkbox" id="hideAccountedChk" onchange="toggleHideAccounted(this.checked)"> Hide accounted for</label>
+    <button class="dash-btn dash-btn-ghost dash-btn-sm" onclick="clearDashFilters()">Clear filters</button>
+  </div>
+</aside>
+
+<nav class="dash-bottomnav" aria-label="Mobile navigation">
+  <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+  <button class="active" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
+  <button onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
+  <button onclick="toggleDashSettings(event)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
+</nav>
+
 </div>
 
 <!-- Add / Edit Person Modal -->
@@ -2798,6 +3240,10 @@ let awayStatus = 'tdy';
 let sortCol = 'rank';
 let sortDir = 1;
 let bulkSelected = new Set();
+let hideAccounted = false;
+let collapsedSections = new Set();
+let expandedSections = new Set();
+const DASH_PRESENT_LIMIT = 8;
 let historyViewData = null;
 let activeQuickFilter = 'all';
 let currentDutyEntries = [];
@@ -2841,6 +3287,7 @@ async function load() {
       document.getElementById('unitName').value = settings.unit_name;
     }
     render();
+    updateAsOf();
   } catch (e) {
     console.error('Failed to load from API:', e);
   }
@@ -2927,94 +3374,163 @@ function addDaysStr(dateStr, days) {
 }
 
 function renderQuickFilters(counts, total) {
-  const wrap = document.getElementById('quickFilterWrap');
-  if (!wrap) return;
-  const filters = [
-    ['all', 'All', personnel.length],
-    ['unaccounted', 'Needs', counts.unaccounted || 0],
-    ['present', 'Present', counts.present || 0],
-    ['leave', 'Leave/Pass', (counts.leave || 0) + (counts.pass || 0)],
-    ['tdy', 'TDY', counts.tdy || 0],
-    ['other', 'Other/FTR', (counts.other || 0) + (counts.ftr || 0)],
-    ['scheduled', 'Scheduled', counts.scheduled || 0],
-    ['loan', 'Loan', counts.loan || 0]
-  ];
-  wrap.innerHTML = filters.map(([key, label, count]) => `
-    <button class="quick-filter ${activeQuickFilter === key ? 'active' : ''}" type="button" onclick="setQuickFilter('${key}')" aria-pressed="${activeQuickFilter === key}">
-      ${label}<span class="quick-filter-count">${count}</span>
-    </button>
-  `).join('');
+  // Sync the filter panel controls with current state
+  const sel = document.getElementById('statusFilterSel');
+  if (sel) sel.value = activeQuickFilter;
+  const sortSel = document.getElementById('sortSel');
+  if (sortSel) sortSel.value = sortCol;
+  const chk = document.getElementById('hideAccountedChk');
+  if (chk) chk.checked = hideAccounted;
 }
 
-function renderInsights(counts, total, todayStr) {
-  const el = document.getElementById('accountabilityInsights');
+function renderMetrics(counts, total, todayStr) {
+  const el = document.getElementById('dashMetrics');
   if (!el) return;
 
+  // Same calculations as the previous insights bar — display only
   const accounted = Math.max(0, total - (counts.unaccounted || 0));
   const percent = total ? Math.round((accounted / total) * 100) : 100;
   const nextWeek = addDaysStr(todayStr, 7);
   const unaccounted = personnel.filter(p => p.status !== 'loan' && isUnaccounted(p));
-  const returningToday = personnel.filter(p => p.status !== 'present' && p.to === todayStr);
-  const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to > todayStr && p.to <= nextWeek);
-  const scheduledSoon = personnel.flatMap(p => scheduledEventsFor(p).map(event => ({ ...event, person: p })))
-    .filter(event => event.from_date && event.from_date >= todayStr && event.from_date <= nextWeek);
-  const ftr = personnel.filter(p => p.status === 'ftr');
+  const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek);
 
-  const cards = [
-    {
-      cls: percent === 100 ? 'insight-good' : 'insight-warn',
-      value: `${percent}%`,
-      label: 'Accounted',
-      detail: total ? `${accounted} of ${total}` : 'No assigned personnel'
-    },
-    {
-      cls: unaccounted.length ? 'insight-danger' : 'insight-good',
-      value: unaccounted.length,
-      label: 'Needs accountability',
-      detail: unaccounted.length ? summarizePeople(unaccounted) : 'Clear'
-    },
-    {
-      cls: returningToday.length ? 'insight-action' : 'insight-good',
-      value: returningToday.length,
-      label: 'Returning today',
-      detail: returningToday.length ? summarizePeople(returningToday) : 'None'
-    },
-    {
-      cls: scheduledSoon.length ? 'insight-action' : 'insight-good',
-      value: scheduledSoon.length,
-      label: 'Scheduled soon',
-      detail: scheduledSoon.length ? summarizePeople(scheduledSoon.map(event => event.person)) : `Through ${formatDateShort(nextWeek)}`
-    }
-  ];
+  const R = 26, C = 2 * Math.PI * R;
+  const ring = `<svg class="dash-ring" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+    <circle class="ring-track" cx="32" cy="32" r="${R}" fill="none" stroke-width="6"/>
+    <circle class="ring-val" cx="32" cy="32" r="${R}" fill="none" stroke-width="6" stroke-linecap="round"
+      stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${(C * (1 - percent / 100)).toFixed(2)}" transform="rotate(-90 32 32)"/>
+    <text x="32" y="37" text-anchor="middle">${percent}%</text>
+  </svg>`;
 
-  if (returningSoon.length) {
-    cards.push({
-      cls: 'insight-action',
-      value: returningSoon.length,
-      label: 'Returning this week',
-      detail: summarizePeople(returningSoon)
-    });
-  }
-  if (ftr.length) {
-    cards.push({
-      cls: 'insight-danger',
-      value: ftr.length,
-      label: 'FTR',
-      detail: summarizePeople(ftr)
-    });
-  }
-
-  el.innerHTML = cards.map(card => `
-    <div class="insight-card ${card.cls}" title="${escapeHtml(card.detail)}">
-      <strong>${card.value}</strong>
-      <span>${card.label}</span>
+  const needsSub = unaccounted.length ? escapeHtml(summarizePeople(unaccounted)) : 'All personnel accounted for';
+  const primary = `<div class="dash-metrics-primary">
+    <div class="dash-metric-card has-ring">${ring}
+      <div><div class="dash-metric-label">Accounted</div>
+      <div class="dash-metric-sub">${total ? `${accounted} of ${total}` : 'No assigned personnel'}</div></div>
     </div>
-  `).join('');
+    <button type="button" class="dash-metric-card${unaccounted.length ? ' alert' : ''}" onclick="setQuickFilter('unaccounted')" title="${escapeHtml(summarizePeople(unaccounted) || 'All clear')}">
+      <div><div class="dash-metric-num">${unaccounted.length}</div>
+      <div class="dash-metric-label">Needs Action</div>
+      <div class="dash-metric-sub">${needsSub}</div></div>
+    </button>
+    <button type="button" class="dash-metric-card${counts.ftr ? ' alert' : ''}" onclick="setQuickFilter('other')" title="${escapeHtml(summarizePeople(personnel.filter(p => p.status === 'ftr')) || 'None')}">
+      <div><div class="dash-metric-num">${counts.ftr || 0}</div>
+      <div class="dash-metric-label">FTR</div>
+      <div class="dash-metric-sub">Failure to report</div></div>
+    </button>
+  </div>`;
+
+  const tiles = [
+    ['present', 'Present', counts.present || 0],
+    ['leave', 'Leave / Pass', (counts.leave || 0) + (counts.pass || 0)],
+    ['tdy', 'TDY / School', counts.tdy || 0],
+    ['loan', 'On Loan', counts.loan || 0],
+    ['other', 'Other', counts.other || 0],
+    [null, 'Return This Wk', returningSoon.length, summarizePeople(returningSoon) || 'None']
+  ];
+  if (counts.scheduled) tiles.push(['scheduled', 'Scheduled', counts.scheduled]);
+
+  const mini = `<div class="dash-metrics-mini">${tiles.map(([key, label, count, detail]) => key
+    ? `<button type="button" class="dash-mini-tile${activeQuickFilter === key ? ' active' : ''}" onclick="setQuickFilter('${key}')" aria-pressed="${activeQuickFilter === key}"><div class="dash-mini-num">${count}</div><div class="dash-mini-label">${label}</div></button>`
+    : `<button type="button" class="dash-mini-tile" disabled title="${escapeHtml(detail || '')}"><div class="dash-mini-num">${count}</div><div class="dash-mini-label">${label}</div></button>`
+  ).join('')}</div>`;
+
+  el.innerHTML = primary + mini;
+}
+
+function renderReportPreview(counts, total) {
+  const el = document.getElementById('reportPreviewBody');
+  if (!el) return;
+  const todayStr = getTodayStr();
+  const nextWeek = addDaysStr(todayStr, 7);
+  const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek).length;
+  const unitName = document.getElementById('unitName').value || 'Accountability';
+  const rows = [
+    ['Assigned', total, ''],
+    ['Needs Action', counts.unaccounted || 0, counts.unaccounted ? 'warn' : ''],
+    ['Present (PDY)', counts.present || 0, ''],
+    ['Leave & Pass', (counts.leave || 0) + (counts.pass || 0), ''],
+    ['TDY / School', counts.tdy || 0, ''],
+    ['Other / Not PDY', counts.other || 0, ''],
+    ['FTR', counts.ftr || 0, counts.ftr ? 'warn' : ''],
+    ['On Loan (excluded)', counts.loan || 0, ''],
+    ['Returning this week', returningSoon, '']
+  ];
+  el.innerHTML = `<div class="dash-preview-head">${escapeHtml(unitName)}</div>
+    <div class="dash-preview-date">${formatDate(new Date())}</div>
+    <div class="dash-preview-lines">${rows.map(([label, value, cls]) =>
+      `<div class="dash-preview-line ${cls}"><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>`;
 }
 
 function setQuickFilter(filter) {
   activeQuickFilter = filter;
   render();
+}
+
+// ─── Dashboard controls ───
+function toggleSection(key) {
+  collapsedSections.has(key) ? collapsedSections.delete(key) : collapsedSections.add(key);
+  render();
+}
+function toggleSectionMore(key) {
+  expandedSections.has(key) ? expandedSections.delete(key) : expandedSections.add(key);
+  render();
+}
+function toggleHideAccounted(checked) {
+  hideAccounted = checked;
+  render();
+}
+function clearDashFilters() {
+  hideAccounted = false;
+  activeQuickFilter = 'all';
+  sortCol = 'rank';
+  sortDir = 1;
+  const inp = document.getElementById('searchInput');
+  if (inp) inp.value = '';
+  render();
+}
+function toggleDashSettings(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('dashSettingsMenu');
+  if (menu) menu.classList.toggle('open');
+}
+function closeDashMenus() {
+  const menu = document.getElementById('dashSettingsMenu');
+  if (menu) menu.classList.remove('open');
+  document.querySelectorAll('#platoonScreen details.dash-more[open], #platoonScreen details.dash-row-menu[open]')
+    .forEach(d => d.removeAttribute('open'));
+}
+function dashGoRoster() {
+  clearDashFilters();
+  const el = document.getElementById('personnelBody');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function dashGoAccountability() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function refreshData() {
+  load();
+}
+function updateAsOf() {
+  const el = document.getElementById('dashAsOf');
+  if (!el) return;
+  el.textContent = new Date().toLocaleString(undefined, {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+}
+function dashCopyReport() {
+  // Same pipeline as the report modal: generateReport() builds the standard
+  // report (or alerts if personnel are unaccounted), then we copy it.
+  generateReport();
+  const modal = document.getElementById('reportModal');
+  if (modal && modal.classList.contains('active')) {
+    copyReport();
+    const btn = document.getElementById('dashCopyBtn');
+    if (btn) {
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy Report'; }, 1500);
+    }
+  }
 }
 
 function formatDateShort(dateStr) {
@@ -3864,7 +4380,8 @@ function render() {
     p.first.toLowerCase().includes(term) ||
     (p.notes || '').toLowerCase().includes(term)
   ) : personnel;
-  const visible = searchVisible.filter(p => statusFilterMatches(p, activeQuickFilter));
+  let visible = searchVisible.filter(p => statusFilterMatches(p, activeQuickFilter));
+  if (hideAccounted) visible = visible.filter(p => isUnaccounted(p) || p.status === 'ftr');
 
   // Build section lists with sort applied
   const unaccountedList = applySort(visible.filter(p => isUnaccounted(p)));
@@ -3876,8 +4393,11 @@ function render() {
     ? applySort(visible.filter(p => p.status === 'tdy'))
     : visible.filter(p => p.status === 'tdy').sort(endDateSort);
   const otherList       = sortCol !== 'rank'
-    ? applySort(visible.filter(p => p.status === 'other' || p.status === 'ftr'))
-    : visible.filter(p => p.status === 'other' || p.status === 'ftr').sort(endDateSort);
+    ? applySort(visible.filter(p => p.status === 'other'))
+    : visible.filter(p => p.status === 'other').sort(endDateSort);
+  const ftrList         = sortCol !== 'rank'
+    ? applySort(visible.filter(p => p.status === 'ftr'))
+    : visible.filter(p => p.status === 'ftr').sort(endDateSort);
   const loanList        = applySort(visible.filter(p => p.status === 'loan'));
   const scheduledList   = applySort(visible.filter(p => scheduledEventsFor(p).length || p.sched_status));
 
@@ -3894,175 +4414,195 @@ function render() {
   });
   const total = personnel.filter(p => p.status !== 'loan').length;
 
-  renderInsights(counts, total, todayStr);
+  renderMetrics(counts, total, todayStr);
+  renderReportPreview(counts, total);
   renderQuickFilters(counts, total);
 
-  let rowNum = 1;
+  const isFiltered = !!term || activeQuickFilter !== 'all' || hideAccounted;
+  const secCount = (shown, full) => (isFiltered && shown !== full) ? `${shown} of ${full}` : `${full}`;
 
-  // Unaccounted section
-  if (unaccountedList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7" style="color:#e17055;border-color:#e17055;">NOT YET ACCOUNTED FOR (${counts.unaccounted}${term ? ` — showing ${unaccountedList.length}` : ''})</td>`;
-    body.appendChild(sep);
-    unaccountedList.forEach(p => {
-      const i = personnel.indexOf(p);
-      const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
-      const tr = document.createElement('tr');
-      tr.className = 'roster-row';
-      tr.innerHTML = `
-        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td class="mobile-num-cell">${rowNum++}</td>
-        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
-        <td class="name-cell mobile-name-cell edit-name-trigger" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}">${p.last}, ${p.first}${returnedBadge}<span class="mobile-edit-hint">Tap name to edit</span></td>
-        <td class="mobile-primary-action-cell"><button class="present-btn unaccounted" onclick="markPresentToday(${i})">&#9675; Mark Present</button></td>
-        <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-        <td class="mobile-edit-cell">
-          <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
-        </td>
-      `;
-      body.appendChild(tr);
-    });
-  }
+  // Needs Action — always first, always visible
+  const needsEmpty = isFiltered
+    ? 'No matching personnel in this view.'
+    : 'All personnel accounted for. Nothing needs action. ✓';
+  const needsRows = unaccountedList.map(p => dashNeedsRow(p, recentlyReturned.has(p))).join('');
+  let html = dashSection('needs', 'Needs Action', 'sec-needs', needsRows, secCount(unaccountedList.length, counts.unaccounted), { empty: needsEmpty });
 
-  // Present section
+  // Present for Duty — collapsed list beyond the first few
   if (presentList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7" style="color:#00b894;border-color:#00b894;">PRESENT FOR DUTY (${counts.present}${term ? ` — showing ${presentList.length}` : ''})</td>`;
-    body.appendChild(sep);
-  }
-  presentList.forEach(p => {
-    const i = personnel.indexOf(p);
-    const returnedBadge = recentlyReturned.has(p) ? `<span class="returned-badge">RETURNED</span>` : '';
-    const tr = document.createElement('tr');
-    tr.className = 'roster-row';
-    tr.innerHTML = `
-      <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-      <td class="mobile-num-cell">${rowNum++}</td>
-      <td class="rank-cell mobile-rank-cell">${p.rank}</td>
-      <td class="name-cell mobile-name-cell edit-name-trigger" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}">${p.last}, ${p.first}${returnedBadge}<span class="mobile-edit-hint">Tap name to edit</span></td>
-      <td class="mobile-primary-action-cell"><button class="present-btn active" onclick="unmarkPresent(${i})">&#10003; Present</button></td>
-      <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-      <td class="mobile-edit-cell">
-        <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
-      </td>
-    `;
-    body.appendChild(tr);
-  });
-
-  // Leave / Pass section
-  if (leaveList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7">LEAVE / PASS (${(counts.leave||0)+(counts.pass||0)}${term?` — showing ${leaveList.length}`:''}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
-    body.appendChild(sep);
-    leaveList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
+    const limit = DASH_PRESENT_LIMIT;
+    const expanded = expandedSections.has('present');
+    const shown = expanded ? presentList : presentList.slice(0, limit);
+    let presentRows = shown.map(p => dashPresentRow(p, recentlyReturned.has(p))).join('');
+    if (presentList.length > limit) {
+      presentRows += `<button type="button" class="dash-more-btn" onclick="toggleSectionMore('present')">${expanded ? 'Show less' : `+ ${presentList.length - limit} more`}</button>`;
+    }
+    html += dashSection('present', 'Present for Duty', 'sec-present', presentRows, secCount(presentList.length, counts.present));
   }
 
-  // TDY / School section
-  if (tdyList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header-tdy';
-    sep.innerHTML = `<td colspan="7">TDY / SCHOOL (${counts.tdy||0}${term?` — showing ${tdyList.length}`:''}) &nbsp; <span style="font-size:0.75em;font-weight:400;color:#b2bec3;">sorted by return date</span></td>`;
-    body.appendChild(sep);
-    tdyList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
+  // Away but Accounted For — leave/pass, then TDY/school, then other
+  const awayList = [...leaveList, ...tdyList, ...otherList];
+  if (awayList.length) {
+    const awayFull = (counts.leave || 0) + (counts.pass || 0) + (counts.tdy || 0) + (counts.other || 0);
+    const awayRows = awayList.map(p => dashAwayRow(p, todayStr)).join('');
+    html += dashSection('away', 'Away but Accounted For', 'sec-away', awayRows, secCount(awayList.length, awayFull));
   }
 
-  // Other / FTR section
-  if (otherList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7" style="color:#e17055;border-color:#e17055;">OTHER / FTR (${(counts.other||0)+(counts.ftr||0)}${term?` — showing ${otherList.length}`:''})`;
-    body.appendChild(sep);
-    otherList.forEach(p => { body.appendChild(buildAwayRow(p, rowNum++, todayStr)); });
+  // FTR — red, prominent
+  if (ftrList.length) {
+    const ftrRows = ftrList.map(p => dashAwayRow(p, todayStr)).join('');
+    html += dashSection('ftr', 'FTR — Failure to Report', 'sec-ftr', ftrRows, secCount(ftrList.length, counts.ftr || 0));
   }
 
-  // Scheduled (future) section
+  // Scheduled (future events)
   if (scheduledList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7" style="color:#fdcb6e;border-color:#fdcb6e;">&#128337; SCHEDULED (${counts.scheduled}${term ? ` — showing ${scheduledList.length}` : ''})</td>`;
-    body.appendChild(sep);
-    scheduledList.forEach(p => {
-      const i = personnel.indexOf(p);
-      const labels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
-      const events = scheduledEventsFor(p).length
-        ? scheduledEventsFor(p)
-        : [{ status: p.sched_status, from_date: p.sched_from, to_date: p.sched_to, notes: p.sched_notes }];
-      const eventSummary = events.map(event => {
-        const dateRange = (event.from_date || event.to_date)
-          ? `${formatDateShort(event.from_date)} - ${formatDateShort(event.to_date)}` : '';
-        const notes = event.notes ? `: ${escapeHtml(event.notes)}` : '';
-        return `<div class="away-notes" style="color:#fdcb6e;">${labels[event.status] || event.status}${notes}${dateRange ? ` · ${dateRange}` : ''}</div>`;
-      }).join('');
-      const tr = document.createElement('tr');
-      tr.className = 'roster-row away-row';
-      tr.innerHTML = `
-        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td class="mobile-num-cell">${rowNum++}</td>
-        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
-        <td class="name-cell mobile-name-cell edit-name-trigger" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}">
-          ${p.last}, ${p.first}
-          <span class="status-badge mobile-status-chip" style="background:#fdcb6e33;color:#fdcb6e;border:1px solid #fdcb6e;">Scheduled</span>
-          ${eventSummary}
-          <span class="mobile-edit-hint">Tap name to edit</span>
-        </td>
-        <td class="mobile-primary-action-cell"><span class="status-badge" style="background:#fdcb6e33;color:#fdcb6e;border:1px solid #fdcb6e;">${events.length} Scheduled</span></td>
-        <td class="mobile-secondary-action-cell"><span class="desktop-status-note" style="font-size:0.75em;color:#b2bec3;font-style:italic;white-space:nowrap;">Now: ${p.status}</span><button class="btn-tdy-leave mobile-only-action" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-        <td class="mobile-edit-cell"><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
-      `;
-      body.appendChild(tr);
-    });
+    const schedRows = scheduledList.map(p => dashSchedRow(p)).join('');
+    html += dashSection('sched', 'Scheduled', 'sec-sched', schedRows, secCount(scheduledList.length, counts.scheduled));
   }
 
-  // On Loan section (bottom, excluded from accountability)
+  // On Loan — excluded from accountability counts
   if (loanList.length) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7" style="color:#a29bfe;border-color:#6c5ce7;">ON LOAN TO BATTALION (${counts.loan}${term ? ` — showing ${loanList.length}` : ''})</td>`;
-    body.appendChild(sep);
-    loanList.forEach(p => {
-      const i = personnel.indexOf(p);
-      const tr = document.createElement('tr');
-      tr.className = 'roster-row away-row';
-      tr.innerHTML = `
-        <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-        <td class="mobile-num-cell">${rowNum++}</td>
-        <td class="rank-cell mobile-rank-cell">${p.rank}</td>
-        <td class="name-cell mobile-name-cell edit-name-trigger" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}">${p.last}, ${p.first}<span class="mobile-status-chip">${statusBadge('loan')}</span>${p.notes ? `<div class="away-notes" style="color:#a29bfe;">${escapeHtml(p.notes)}</div>` : ''}<span class="mobile-edit-hint">Tap name to edit</span></td>
-        <td class="mobile-primary-action-cell"><span class="mobile-only-action">${statusBadge('loan')}</span></td>
-        <td class="mobile-secondary-action-cell"><span class="desktop-status-note">${statusBadge('loan')}</span><button class="btn-tdy-leave mobile-only-action" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-        <td class="mobile-edit-cell"><button class="btn-small btn-edit" onclick="openTdyLeave(${i})" title="Edit">&#9998;</button></td>
-      `;
-      body.appendChild(tr);
-    });
+    const loanRows = loanList.map(p => dashLoanRow(p)).join('');
+    html += dashSection('loan', 'On Loan', 'sec-loan', loanRows, secCount(loanList.length, counts.loan));
   }
 
-  const leavePass = (counts.leave || 0) + (counts.pass || 0);
-  const awayTotal = leavePass + (counts.tdy || 0) + (counts.other || 0) + (counts.ftr || 0);
-  document.getElementById('statsBar').innerHTML = `
-    <div class="stat"><div class="num">${total}</div><div class="label">Assigned</div></div>
-    <div class="stat"><div class="num" style="color:${counts.unaccounted ? '#e17055' : '#888'}">${counts.unaccounted}</div><div class="label">Unaccounted</div></div>
-    <div class="stat"><div class="num" style="color:#00b894">${counts.present}</div><div class="label">Present</div></div>
-    <div class="stat stat-mobile-away"><div class="num" style="color:var(--theme_action)">${awayTotal}</div><div class="label">Away</div></div>
-    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#fdcb6e">${leavePass}</div><div class="label">Leave/Pass</div></div>
-    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#74b9ff">${counts.tdy||0}</div><div class="label">TDY</div></div>
-    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#e17055">${counts.other||0}</div><div class="label">Other</div></div>
-    <div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#d63031">${counts.ftr||0}</div><div class="label">FTR</div></div>
-    ${counts.loan ? `<div class="stat stat-detail-mobile-hidden"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
-    ${counts.loan ? `<div class="stat stat-mobile-away"><div class="num" style="color:#a29bfe">${counts.loan}</div><div class="label">On Loan</div></div>` : ''}
-  `;
-
-  if (rowNum === 1) {
-    const sep = document.createElement('tr');
-    sep.className = 'section-header';
-    sep.innerHTML = `<td colspan="7">No matching personnel</td>`;
-    body.appendChild(sep);
-  }
+  body.innerHTML = html;
 
   updateSortHeaders();
   updateBulkBar();
+}
+
+// ─── Dashboard row + section builders ───
+function dashSection(key, title, secClass, rowsHtml, count, opts = {}) {
+  const collapsed = collapsedSections.has(key);
+  const bodyHtml = rowsHtml || `<div class="dash-section-empty">${opts.empty || 'None'}</div>`;
+  return `<section class="dash-section ${secClass}${collapsed ? ' collapsed' : ''}">
+    <button type="button" class="dash-section-head" onclick="toggleSection('${key}')" aria-expanded="${!collapsed}">
+      <span class="dash-section-title">${title}</span>
+      <span class="dash-section-count">${count}</span>
+      <span class="dash-section-spacer"></span>
+      <span class="dash-section-chev">&#9660;</span>
+    </button>
+    <div class="dash-section-body">${bodyHtml}</div>
+  </section>`;
+}
+
+function dashPill(status) {
+  const labels = { present: '✓ Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
+  return `<span class="dash-pill p-${status}">${labels[status] || escapeHtml(status)}</span>`;
+}
+
+function dashCheckbox(p) {
+  return `<input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id) ? 'checked' : ''}>`;
+}
+
+function dashName(p, i, extra = '') {
+  const nm = `${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
+  return `<div class="dash-row-name" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${nm}">${nm}${extra}</div>`;
+}
+
+function dashRowMenu(items) {
+  const buttons = items.map(([label, fn]) => `<button onclick="${fn};closeDashMenus()">${label}</button>`).join('');
+  return `<details class="dash-row-menu"><summary>Update &#9662;</summary><div class="dash-more-menu">${buttons}</div></details>`;
+}
+
+function dashNeedsRow(p, returned) {
+  const i = personnel.indexOf(p);
+  const badge = returned ? '<span class="dash-badge-returned">RETURNED</span>' : '';
+  return `<div class="dash-row dash-row-needs">
+    ${dashCheckbox(p)}
+    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
+    <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
+    <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
+    <div class="dash-row-actions">
+      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
+      <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
+    </div>
+  </div>`;
+}
+
+function dashPresentRow(p, returned) {
+  const i = personnel.indexOf(p);
+  const badge = returned ? '<span class="dash-badge-returned">RETURNED</span>' : '';
+  return `<div class="dash-row">
+    ${dashCheckbox(p)}
+    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
+    <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">${dashPill('present')}</div></div>
+    <div class="dash-row-meta"><span>${dashPill('present')}</span></div>
+    <div class="dash-row-actions">${dashRowMenu([
+      ['Unmark present', `unmarkPresent(${i})`],
+      ['Set status…', `openTdyLeave(${i})`],
+      ['Edit person', `openEditModal(${i})`]
+    ])}</div>
+  </div>`;
+}
+
+function dashAwayRow(p, todayStr) {
+  const i = personnel.indexOf(p);
+  const dateRange = (p.from || p.to) ? `${formatDateShort(p.from)} – ${formatDateShort(p.to)}` : '';
+  const returningToday = p.to && p.to === (todayStr || getTodayStr());
+  const returning = returningToday ? ' <span class="dash-badge-returning">RETURNING TODAY</span>' : '';
+  const meta = [
+    `<span>${dashPill(p.status)}${returning}</span>`,
+    p.notes ? `<span title="${escapeHtml(p.notes)}">${escapeHtml(p.notes)}</span>` : '',
+    dateRange ? `<span>${dateRange}</span>` : ''
+  ].filter(Boolean).join('');
+  const mobileMeta = [escapeHtml(p.notes || ''), dateRange].filter(Boolean).join(' · ');
+  return `<div class="dash-row">
+    ${dashCheckbox(p)}
+    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
+    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill(p.status)}${returning}${mobileMeta ? ' ' + mobileMeta : ''}</div></div>
+    <div class="dash-row-meta">${meta}</div>
+    <div class="dash-row-actions">${dashRowMenu([
+      ['Mark Present', `markPresent(${i})`],
+      ['Update status…', `openTdyLeave(${i})`],
+      ['Edit person', `openEditModal(${i})`]
+    ])}</div>
+  </div>`;
+}
+
+function dashLoanRow(p) {
+  const i = personnel.indexOf(p);
+  return `<div class="dash-row">
+    ${dashCheckbox(p)}
+    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
+    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill('loan')}${p.notes ? ' ' + escapeHtml(p.notes) : ''}</div></div>
+    <div class="dash-row-meta">
+      <span>${dashPill('loan')}</span>
+      ${p.notes ? `<span title="${escapeHtml(p.notes)}">${escapeHtml(p.notes)}</span>` : ''}
+    </div>
+    <div class="dash-row-actions">${dashRowMenu([
+      ['Update status…', `openTdyLeave(${i})`],
+      ['Edit person', `openEditModal(${i})`]
+    ])}</div>
+  </div>`;
+}
+
+function dashSchedRow(p) {
+  const i = personnel.indexOf(p);
+  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR' };
+  const events = scheduledEventsFor(p).length
+    ? scheduledEventsFor(p)
+    : [{ status: p.sched_status, from_date: p.sched_from, to_date: p.sched_to, notes: p.sched_notes }];
+  const eventLines = events.map(event => {
+    const dateRange = (event.from_date || event.to_date)
+      ? `${formatDateShort(event.from_date)} – ${formatDateShort(event.to_date)}` : '';
+    const notes = event.notes ? `: ${escapeHtml(event.notes)}` : '';
+    return `<span>${labels[event.status] || escapeHtml(event.status || '')}${notes}${dateRange ? ` · ${dateRange}` : ''}</span>`;
+  }).join('');
+  return `<div class="dash-row">
+    ${dashCheckbox(p)}
+    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
+    <div>${dashName(p, i)}<div class="dash-row-mobilemeta"><span class="dash-pill p-sched">${events.length} Scheduled</span> · now ${escapeHtml(p.status)}</div></div>
+    <div class="dash-row-meta">
+      <span><span class="dash-pill p-sched">${events.length} Scheduled</span> <span style="font-style:italic;">Now: ${escapeHtml(p.status)}</span></span>
+      ${eventLines}
+    </div>
+    <div class="dash-row-actions">${dashRowMenu([
+      ['Edit schedule…', `openTdyLeave(${i})`],
+      ['Edit person', `openEditModal(${i})`]
+    ])}</div>
+  </div>`;
 }
 
 function getTodayStr() {
@@ -4070,33 +4610,6 @@ function getTodayStr() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-function buildAwayRow(p, rowNum, todayStr) {
-  const i = personnel.indexOf(p);
-  const dateRange = (p.from || p.to) ? `${formatDateShort(p.from)} - ${formatDateShort(p.to)}` : '';
-  const returningToday = p.to && p.to === (todayStr || getTodayStr());
-  const returningBadge = returningToday ? `<span class="returning-badge">RETURNING TODAY</span>` : '';
-  const tr = document.createElement('tr');
-  tr.className = 'roster-row away-row';
-  tr.innerHTML = `
-    <td class="mobile-select-cell"><input type="checkbox" class="row-checkbox" data-id="${p.id}" onchange="toggleSelectRow(${p.id})" ${bulkSelected.has(p.id)?'checked':''}></td>
-    <td class="mobile-num-cell">${rowNum}</td>
-    <td class="rank-cell mobile-rank-cell">${p.rank}</td>
-    <td class="name-cell mobile-name-cell edit-name-trigger" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}">
-      ${p.last}, ${p.first}
-      <span class="mobile-status-chip">${statusBadge(p.status)}</span>
-      ${p.notes ? `<div class="away-notes">${escapeHtml(p.notes)}</div>` : ''}
-      ${dateRange ? `<div class="away-dates">${dateRange}</div>` : ''}
-      ${returningBadge ? `<div style="margin-top:3px;text-align:left;">${returningBadge}</div>` : ''}
-      <span class="mobile-edit-hint">Tap name to edit</span>
-    </td>
-    <td class="mobile-primary-action-cell away-status-action">${statusBadge(p.status)}<button class="present-btn inactive" onclick="markPresent(${i})">&#9675; Mark Present</button></td>
-    <td class="mobile-secondary-action-cell"><button class="btn-tdy-leave" onclick="openTdyLeave(${i})">TDY / Leave</button></td>
-    <td class="mobile-edit-cell">
-      <button class="btn-small btn-edit" onclick="openEditModal(${i})" title="Edit">&#9998;</button>
-    </td>
-  `;
-  return tr;
-}
 
 async function markPresentToday(i) {
   const p = personnel[i];
@@ -4826,6 +5339,9 @@ function sortBy(col) {
   if (sortCol === col) { sortDir = -sortDir; } else { sortCol = col; sortDir = 1; }
   render();
 }
+function setSortFromSel(col) {
+  if (sortCol !== col) { sortCol = col; sortDir = 1; render(); }
+}
 function applySort(list) {
   if (sortCol === 'name') return [...list].sort((a, b) => sortDir * a.last.localeCompare(b.last));
   if (sortCol === 'status') {
@@ -5098,6 +5614,7 @@ document.getElementById('addFirst').addEventListener('keydown', function(e) { if
 // ─── Auth ───
 function showAppScreen(screen) {
   document.body.classList.add('app-authenticated');
+  document.body.classList.toggle('dash-active', screen === 'platoon');
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
   document.getElementById('trainingScreen').style.display = screen === 'training' ? 'block' : 'none';
@@ -5661,10 +6178,18 @@ function selectPlatoon(platoon, push = true) {
   currentPlatoon = platoon;
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
-  ['auditLogBtn', 'mobileAuditLogBtn'].forEach(id => {
-    const auditBtn = document.getElementById(id);
-    if (auditBtn) auditBtn.style.display = currentUser && currentUser.is_admin ? 'inline-block' : 'none';
-  });
+  const isAdmin = currentUser && currentUser.is_admin;
+  const auditNav = document.getElementById('auditLogBtn');
+  if (auditNav) auditNav.style.display = isAdmin ? 'flex' : 'none';
+  const auditMore = document.getElementById('mobileAuditLogBtn');
+  if (auditMore) auditMore.style.display = isAdmin ? 'block' : 'none';
+  const manageUsers = document.getElementById('dashManageUsers');
+  if (manageUsers) manageUsers.style.display = isAdmin ? 'block' : 'none';
+  const sideUser = document.getElementById('dashSideUser');
+  if (sideUser && currentUser) {
+    const platoonLabel = platoon === 'hq' ? 'HQ' : `${platoon} Platoon`;
+    sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(platoonLabel)}`;
+  }
   load();
 }
 
@@ -5787,7 +6312,19 @@ async function deleteUser(userId, username) {
 }
 
 // ─── Init ───
-document.addEventListener('click', e => { if (!e.target.closest('.hamburger-wrap')) closeHamburger(); });
+document.addEventListener('click', e => {
+  if (!e.target.closest('.hamburger-wrap')) closeHamburger();
+  if (!e.target.closest('.dash-settings-wrap') && !e.target.closest('.dash-bottomnav')) {
+    const menu = document.getElementById('dashSettingsMenu');
+    if (menu) menu.classList.remove('open');
+  }
+  if (!e.target.closest('details.dash-more')) {
+    document.querySelectorAll('#platoonScreen details.dash-more[open]').forEach(d => d.removeAttribute('open'));
+  }
+  if (!e.target.closest('details.dash-row-menu')) {
+    document.querySelectorAll('#platoonScreen details.dash-row-menu[open]').forEach(d => d.removeAttribute('open'));
+  }
+});
 document.addEventListener('DOMContentLoaded', () => {
   // These modals are defined after this script tag, so wait for the DOM.
   document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
