@@ -252,7 +252,29 @@
   .login-card label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
   .login-card input { width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid #444; border-radius: 5px; background: #1a1a2e; color: #e0e0e0; font-size: 0.95em; }
   .login-note { display: none; }
-  #clerkAuthMount { min-height: 320px; width: 100%; display: flex; justify-content: center; }
+  #clerkAuthMount { width: 100%; }
+  /* native auth form */
+  .auth-form { width: 100%; display: flex; flex-direction: column; }
+  .auth-hint { color: #8aa0b6; font-size: 0.85em; margin-bottom: 12px; line-height: 1.4; }
+  .btn-oauth {
+    width: 100%; padding: 11px; margin-bottom: 4px;
+    background: #1a1a2e; color: #e0e0e0;
+    border: 1px solid #3a4256; border-radius: 6px;
+    font-size: 0.95em; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .btn-oauth:hover { background: #21213a; border-color: #4a5a80; }
+  .btn-oauth:disabled { opacity: 0.6; cursor: default; }
+  .auth-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+  .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: #3a4256; }
+  .auth-divider span { color: #7d88a6; font-size: 0.72em; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .auth-link { background: none; border: none; color: #6aa6ff; font-size: 0.82em; cursor: pointer; padding: 0; }
+  .auth-link:hover { text-decoration: underline; }
+  .auth-forgot { display: flex; justify-content: flex-end; margin: -8px 0 12px; }
+  .auth-switch { text-align: center; color: #8aa0b6; font-size: 0.82em; margin-top: 14px; }
+  .auth-back { text-align: center; margin-top: 12px; }
+  .auth-code-input { letter-spacing: 0.3em; text-align: center; font-size: 1.1em !important; }
   .login-status { text-align: center; color: #8aa0b6; font-size: 0.82em; min-height: 1.2em; }
   .user-row-meta { font-size: 0.78em; color: #8aa0b6; margin-top: 2px; font-weight: 400; }
   .user-row-name-block { flex: 1; min-width: 0; }
@@ -378,6 +400,9 @@
   body.light-mode tbody tr { border-bottom: 1px solid #d0d7e0; }
   body.light-mode .modal input, body.light-mode .modal select, body.light-mode .modal textarea,
   body.light-mode .login-card input { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
+  body.light-mode .btn-oauth { background: #f0f4f8; border-color: #c0c8d8; color: #2d3436; }
+  body.light-mode .btn-oauth:hover { background: #e4ebf3; }
+  body.light-mode .auth-divider::before, body.light-mode .auth-divider::after { background: #c0c8d8; }
   body.light-mode .rank-cell { color: #0770c2; }
   body.light-mode .report-text { background: #f0f4f8; color: #2d3436; }
   body.light-mode .edit-unit-name { color: #0770c2; }
@@ -2369,7 +2394,7 @@
       <div id="loginError" class="login-error" style="display:none"></div>
     </div>
     <div id="clerkAuthMount"></div>
-    <div class="login-status" id="loginStatus">Loading Clerk sign-in…</div>
+    <div class="login-status" id="loginStatus"></div>
     <div class="login-note" id="loginNote"></div>
   </div>
 </div>
@@ -5089,7 +5114,7 @@ function showLoginScreen() {
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
   ensureClerk()
-    .then(() => mountClerkSignIn())
+    .then(() => renderAuthForm())
     .catch(err => {
       errEl.textContent = err.message || 'Unable to load Clerk.';
       errEl.style.display = 'block';
@@ -5166,8 +5191,265 @@ async function ensureClerk() {
   return clerkReadyPromise;
 }
 
-function mountClerkSignIn() {
+// ─── Native auth flow (replaces the prebuilt Clerk widget) ───
+let authView = 'signin';
+let authBusy = false;
+
+function clerkErrorMessage(err, fallback) {
+  const first = err && err.errors && err.errors[0];
+  return (
+    (first && (first.longMessage || first.message)) ||
+    (err && (err.longMessage || err.message)) ||
+    fallback
+  );
+}
+
+function setAuthError(message) {
+  const errEl = document.getElementById('loginError');
+  if (!errEl) return;
+  if (message) {
+    errEl.textContent = message;
+    errEl.style.display = 'block';
+  } else {
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+  }
+}
+
+function setAuthView(view) {
+  authView = view;
+  setAuthError('');
+  renderAuthForm();
+}
+
+async function finalizeAuth(createdSessionId) {
+  await clerk.setActive({ session: createdSessionId });
+  currentUser = await syncClerkUser();
+  routeAfterLogin();
+}
+
+// Wraps an async handler: disables the form, shows a busy label, restores on finish.
+function withBusy(button, busyLabel, fn) {
+  return async (event) => {
+    if (event) event.preventDefault();
+    if (authBusy) return;
+    authBusy = true;
+    setAuthError('');
+    const idleLabel = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = busyLabel; }
+    try {
+      await fn();
+    } catch (err) {
+      setAuthError(clerkErrorMessage(err, 'Something went wrong. Please try again.'));
+    } finally {
+      authBusy = false;
+      if (button) { button.disabled = false; button.textContent = idleLabel; }
+    }
+  };
+}
+
+async function authSignIn(email, password) {
+  const si = await clerk.client.signIn.create({ identifier: email, password });
+  if (si.status === 'complete') {
+    await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  setAuthError(`Additional verification required (${si.status}). This sign-in method is not yet supported here.`);
+}
+
+async function authOAuth(strategy) {
+  const redirectBase = window.location.origin + '/';
+  await clerk.client.signIn.authenticateWithRedirect({
+    strategy,
+    redirectUrl: redirectBase,
+    redirectUrlComplete: redirectBase,
+  });
+}
+
+async function authResetRequest(email) {
+  // Anti-enumeration: try to start the reset + send the code, but swallow
+  // "identifier not found" errors and ALWAYS advance to the verify screen.
+  try {
+    await clerk.client.signIn.create({
+      strategy: 'reset_password_email_code',
+      identifier: email,
+    });
+  } catch (err) {
+    // do not disclose whether the account exists
+  }
+  setAuthView('reset-verify');
+}
+
+async function authResetVerify(code, newPassword) {
+  await clerk.client.signIn.attemptFirstFactor({
+    strategy: 'reset_password_email_code',
+    code,
+  });
+  const si = await clerk.client.signIn.resetPassword({ password: newPassword });
+  if (si.status === 'complete') {
+    await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  setAuthError(`Reset incomplete (${si.status}). Please try again.`);
+}
+
+async function authSignUp(email, password) {
+  await clerk.client.signUp.create({ emailAddress: email, password });
+  await clerk.client.signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+  setAuthView('verify-email');
+}
+
+async function authVerifyEmail(code) {
+  const su = await clerk.client.signUp.attemptEmailAddressVerification({ code });
+  if (su.status === 'complete') {
+    await finalizeAuth(su.createdSessionId);
+    return;
+  }
+  setAuthError(`Verification incomplete (${su.status}). Please try again.`);
+}
+
+function showClassicSignIn() {
+  const subtitle = document.getElementById('loginSubtitle');
+  if (subtitle) subtitle.textContent = 'Classic sign-in';
+  setAuthError('');
   const mount = document.getElementById('clerkAuthMount');
+  if (mount) {
+    mount.innerHTML = '<div id="classicMount"></div><div class="auth-back"><button type="button" class="auth-link" id="backToNative">Back to Platoon sign-in</button></div>';
+    document.getElementById('backToNative').addEventListener('click', () => setAuthView('signin'));
+    mountClerkSignIn(document.getElementById('classicMount'));
+  }
+}
+
+function renderAuthForm() {
+  const mount = document.getElementById('clerkAuthMount');
+  if (!mount) return;
+  setLoginStatus('');
+  const subtitle = document.getElementById('loginSubtitle');
+
+  if (authView === 'signin') {
+    if (subtitle) subtitle.textContent = 'Sign in to continue';
+    mount.innerHTML = `
+      <form class="auth-form" id="signinForm">
+        <button type="button" class="btn-oauth" id="googleSignin">Continue with Google</button>
+        <div class="auth-divider"><span>or</span></div>
+        <label for="signinEmail">Email</label>
+        <input id="signinEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <label for="signinPassword">Password</label>
+        <input id="signinPassword" type="password" autocomplete="current-password" required placeholder="Your password">
+        <div class="auth-forgot"><button type="button" class="auth-link" id="forgotLink">Forgot password?</button></div>
+        <button type="submit" class="btn-login" id="signinSubmit">Sign in</button>
+        <div class="auth-switch">New here? <button type="button" class="auth-link" id="toSignup">Create an account</button></div>
+        <div class="auth-back"><button type="button" class="auth-link" id="classicLink">Trouble signing in? Use classic sign-in</button></div>
+      </form>`;
+    const form = document.getElementById('signinForm');
+    const submit = document.getElementById('signinSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Signing in…', async () => {
+      await authSignIn(
+        document.getElementById('signinEmail').value.trim(),
+        document.getElementById('signinPassword').value
+      );
+    }));
+    document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
+    document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
+    document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
+    document.getElementById('googleSignin').addEventListener('click',
+      withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
+    return;
+  }
+
+  if (authView === 'reset-request') {
+    if (subtitle) subtitle.textContent = 'Reset your password';
+    mount.innerHTML = `
+      <form class="auth-form" id="resetReqForm">
+        <p class="auth-hint">Enter your email and we'll send a code to reset your password.</p>
+        <label for="resetEmail">Email</label>
+        <input id="resetEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <button type="submit" class="btn-login" id="resetReqSubmit">Send reset code</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="resetBackToSignin">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('resetReqForm');
+    const submit = document.getElementById('resetReqSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Sending…', async () => {
+      await authResetRequest(document.getElementById('resetEmail').value.trim());
+    }));
+    document.getElementById('resetBackToSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'reset-verify') {
+    if (subtitle) subtitle.textContent = 'Enter your reset code';
+    mount.innerHTML = `
+      <form class="auth-form" id="resetVerifyForm">
+        <p class="auth-hint">If an account exists for that email, we've sent a reset code. Enter it below and choose a new password.</p>
+        <label for="resetCode">Reset code</label>
+        <input id="resetCode" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus placeholder="123456" class="auth-code-input">
+        <label for="resetNewPassword">New password</label>
+        <input id="resetNewPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters">
+        <button type="submit" class="btn-login" id="resetVerifySubmit">Reset password &amp; sign in</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="resetVerifyBack">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('resetVerifyForm');
+    const submit = document.getElementById('resetVerifySubmit');
+    form.addEventListener('submit', withBusy(submit, 'Resetting…', async () => {
+      await authResetVerify(
+        document.getElementById('resetCode').value.trim(),
+        document.getElementById('resetNewPassword').value
+      );
+    }));
+    document.getElementById('resetVerifyBack').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'signup') {
+    if (subtitle) subtitle.textContent = 'Create your account';
+    mount.innerHTML = `
+      <form class="auth-form" id="signupForm">
+        <button type="button" class="btn-oauth" id="googleSignup">Continue with Google</button>
+        <div class="auth-divider"><span>or</span></div>
+        <label for="signupEmail">Email</label>
+        <input id="signupEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <label for="signupPassword">Password</label>
+        <input id="signupPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters">
+        <div id="clerk-captcha"></div>
+        <button type="submit" class="btn-login" id="signupSubmit">Create account</button>
+        <div class="auth-switch">Already have an account? <button type="button" class="auth-link" id="toSignin">Sign in</button></div>
+      </form>`;
+    const form = document.getElementById('signupForm');
+    const submit = document.getElementById('signupSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Creating account…', async () => {
+      await authSignUp(
+        document.getElementById('signupEmail').value.trim(),
+        document.getElementById('signupPassword').value
+      );
+    }));
+    document.getElementById('googleSignup').addEventListener('click',
+      withBusy(document.getElementById('googleSignup'), 'Redirecting…', () => authOAuth('oauth_google')));
+    document.getElementById('toSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  if (authView === 'verify-email') {
+    if (subtitle) subtitle.textContent = 'Verify your email';
+    mount.innerHTML = `
+      <form class="auth-form" id="verifyEmailForm">
+        <p class="auth-hint">We've sent a verification code to your email. Enter it below to finish creating your account.</p>
+        <label for="verifyCode">Verification code</label>
+        <input id="verifyCode" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus placeholder="123456" class="auth-code-input">
+        <button type="submit" class="btn-login" id="verifyEmailSubmit">Verify &amp; continue</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="verifyBackToSignin">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('verifyEmailForm');
+    const submit = document.getElementById('verifyEmailSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Verifying…', async () => {
+      await authVerifyEmail(document.getElementById('verifyCode').value.trim());
+    }));
+    document.getElementById('verifyBackToSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+}
+
+function mountClerkSignIn(targetEl) {
+  const mount = targetEl || document.getElementById('clerkAuthMount');
   if (!mount || !clerk) return;
   const dark = document.body.classList.contains('dark-mode');
   mount.innerHTML = '';
@@ -5295,9 +5577,19 @@ async function initApp() {
   try {
     await ensureClerk();
     if (!clerk.user) {
-      mountClerkSignIn();
-      showLoginScreen();
-      return;
+      const params = new URLSearchParams(window.location.search);
+      const hasClerkRedirect = [...params.keys()].some(k => k.startsWith('__clerk'));
+      if (hasClerkRedirect && typeof clerk.handleRedirectCallback === 'function') {
+        try {
+          await clerk.handleRedirectCallback({});
+        } catch (cbErr) {
+          console.warn('Clerk redirect callback failed:', cbErr);
+        }
+      }
+      if (!clerk.user) {
+        showLoginScreen();
+        return;
+      }
     }
     currentUser = await syncClerkUser();
     routeAfterLogin();
@@ -5496,8 +5788,11 @@ async function deleteUser(userId, username) {
 
 // ─── Init ───
 document.addEventListener('click', e => { if (!e.target.closest('.hamburger-wrap')) closeHamburger(); });
-document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
-document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
+document.addEventListener('DOMContentLoaded', () => {
+  // These modals are defined after this script tag, so wait for the DOM.
+  document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
+  document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
+});
 
 window.addEventListener('popstate', () => {
   const route = parseAppRoute();
