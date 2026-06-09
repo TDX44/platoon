@@ -5308,18 +5308,6 @@ async function authVerifyEmail(code) {
   setAuthError(`Verification incomplete (${su.status}). Please try again.`);
 }
 
-function showClassicSignIn() {
-  const subtitle = document.getElementById('loginSubtitle');
-  if (subtitle) subtitle.textContent = 'Classic sign-in';
-  setAuthError('');
-  const mount = document.getElementById('clerkAuthMount');
-  if (mount) {
-    mount.innerHTML = '<div id="classicMount"></div><div class="auth-back"><button type="button" class="auth-link" id="backToNative">Back to Platoon sign-in</button></div>';
-    document.getElementById('backToNative').addEventListener('click', () => setAuthView('signin'));
-    mountClerkSignIn(document.getElementById('classicMount'));
-  }
-}
-
 function renderAuthForm() {
   const mount = document.getElementById('clerkAuthMount');
   if (!mount) return;
@@ -5339,7 +5327,6 @@ function renderAuthForm() {
         <div class="auth-forgot"><button type="button" class="auth-link" id="forgotLink">Forgot password?</button></div>
         <button type="submit" class="btn-login" id="signinSubmit">Sign in</button>
         <div class="auth-switch">New here? <button type="button" class="auth-link" id="toSignup">Create an account</button></div>
-        <div class="auth-back"><button type="button" class="auth-link" id="classicLink">Trouble signing in? Use classic sign-in</button></div>
       </form>`;
     const form = document.getElementById('signinForm');
     const submit = document.getElementById('signinSubmit');
@@ -5351,7 +5338,6 @@ function renderAuthForm() {
     }));
     document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
     document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
-    document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
     document.getElementById('googleSignin').addEventListener('click',
       withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
     return;
@@ -5445,34 +5431,6 @@ function renderAuthForm() {
     }));
     document.getElementById('verifyBackToSignin').addEventListener('click', () => setAuthView('signin'));
     return;
-  }
-}
-
-function mountClerkSignIn(targetEl) {
-  const mount = targetEl || document.getElementById('clerkAuthMount');
-  if (!mount || !clerk) return;
-  const dark = document.body.classList.contains('dark-mode');
-  mount.innerHTML = '';
-  setLoginStatus('Rendering Clerk sign-in…');
-  try {
-    clerk.mountSignIn(mount, {
-      appearance: {
-        variables: {
-          colorPrimary: dark ? '#6aa6ff' : '#1b61c9',
-          colorBackground: dark ? '#171a1f' : '#ffffff',
-          colorInputBackground: dark ? '#101114' : '#ffffff',
-          colorInputText: dark ? '#f4f7fb' : '#181d26',
-          colorText: dark ? '#f4f7fb' : '#181d26',
-          colorNeutral: dark ? 'rgba(232,238,247,0.72)' : 'rgba(4,14,32,0.69)',
-        },
-      },
-      afterSignInUrl: window.location.href,
-      afterSignUpUrl: window.location.href,
-    });
-    setLoginStatus('');
-  } catch (err) {
-    setLoginStatus(err.message || 'Failed to render Clerk sign-in.', true);
-    throw err;
   }
 }
 
