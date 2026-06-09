@@ -2394,7 +2394,7 @@
       <div id="loginError" class="login-error" style="display:none"></div>
     </div>
     <div id="clerkAuthMount"></div>
-    <div class="login-status" id="loginStatus">Loading Clerk sign-in…</div>
+    <div class="login-status" id="loginStatus"></div>
     <div class="login-note" id="loginNote"></div>
   </div>
 </div>
@@ -5114,7 +5114,7 @@ function showLoginScreen() {
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
   ensureClerk()
-    .then(() => mountClerkSignIn())
+    .then(() => renderAuthForm())
     .catch(err => {
       errEl.textContent = err.message || 'Unable to load Clerk.';
       errEl.style.display = 'block';
@@ -5189,6 +5189,106 @@ async function ensureClerk() {
     throw err;
   });
   return clerkReadyPromise;
+}
+
+// ─── Native auth flow (replaces the prebuilt Clerk widget) ───
+let authView = 'signin';
+let authBusy = false;
+
+function clerkErrorMessage(err, fallback) {
+  const first = err && err.errors && err.errors[0];
+  return (
+    (first && (first.longMessage || first.message)) ||
+    (err && (err.longMessage || err.message)) ||
+    fallback
+  );
+}
+
+function setAuthError(message) {
+  const errEl = document.getElementById('loginError');
+  if (!errEl) return;
+  if (message) {
+    errEl.textContent = message;
+    errEl.style.display = 'block';
+  } else {
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+  }
+}
+
+function setAuthView(view) {
+  authView = view;
+  setAuthError('');
+  renderAuthForm();
+}
+
+async function finalizeAuth(createdSessionId) {
+  await clerk.setActive({ session: createdSessionId });
+  currentUser = await syncClerkUser();
+  routeAfterLogin();
+}
+
+// Wraps an async handler: disables the form, shows a busy label, restores on finish.
+function withBusy(button, busyLabel, fn) {
+  return async (event) => {
+    if (event) event.preventDefault();
+    if (authBusy) return;
+    authBusy = true;
+    setAuthError('');
+    const idleLabel = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = busyLabel; }
+    try {
+      await fn();
+    } catch (err) {
+      setAuthError(clerkErrorMessage(err, 'Something went wrong. Please try again.'));
+    } finally {
+      authBusy = false;
+      if (button) { button.disabled = false; button.textContent = idleLabel; }
+    }
+  };
+}
+
+async function authSignIn(email, password) {
+  const si = await clerk.client.signIn.create({ identifier: email, password });
+  if (si.status === 'complete') {
+    await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  setAuthError(`Additional verification required (${si.status}). This sign-in method is not yet supported here.`);
+}
+
+function renderAuthForm() {
+  const mount = document.getElementById('clerkAuthMount');
+  if (!mount) return;
+  setLoginStatus('');
+  const subtitle = document.getElementById('loginSubtitle');
+
+  if (authView === 'signin') {
+    if (subtitle) subtitle.textContent = 'Sign in to continue';
+    mount.innerHTML = `
+      <form class="auth-form" id="signinForm">
+        <label for="signinEmail">Email</label>
+        <input id="signinEmail" type="email" autocomplete="email" required autofocus placeholder="you@example.com">
+        <label for="signinPassword">Password</label>
+        <input id="signinPassword" type="password" autocomplete="current-password" required placeholder="Your password">
+        <div class="auth-forgot"><button type="button" class="auth-link" id="forgotLink">Forgot password?</button></div>
+        <button type="submit" class="btn-login" id="signinSubmit">Sign in</button>
+        <div class="auth-switch">New here? <button type="button" class="auth-link" id="toSignup">Create an account</button></div>
+        <div class="auth-back"><button type="button" class="auth-link" id="classicLink">Trouble signing in? Use classic sign-in</button></div>
+      </form>`;
+    const form = document.getElementById('signinForm');
+    const submit = document.getElementById('signinSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Signing in…', async () => {
+      await authSignIn(
+        document.getElementById('signinEmail').value.trim(),
+        document.getElementById('signinPassword').value
+      );
+    }));
+    document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
+    document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
+    document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
+    return;
+  }
 }
 
 function mountClerkSignIn() {
@@ -5320,7 +5420,6 @@ async function initApp() {
   try {
     await ensureClerk();
     if (!clerk.user) {
-      mountClerkSignIn();
       showLoginScreen();
       return;
     }
