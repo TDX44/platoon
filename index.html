@@ -5788,8 +5788,11 @@ async function deleteUser(userId, username) {
 
 // ─── Init ───
 document.addEventListener('click', e => { if (!e.target.closest('.hamburger-wrap')) closeHamburger(); });
-document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
-document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
+document.addEventListener('DOMContentLoaded', () => {
+  // These modals are defined after this script tag, so wait for the DOM.
+  document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
+  document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
+});
 
 window.addEventListener('popstate', () => {
   const route = parseAppRoute();
