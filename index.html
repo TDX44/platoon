@@ -4357,28 +4357,34 @@ async function authSignIn(email, password) {
     await finalizeAuth(si.createdSessionId);
     return;
   }
-  if (si.status === 'needs_second_factor') {
+  if (si.status === 'needs_second_factor' || si.status === 'needs_client_trust') {
     await startSecondFactor();
     return;
   }
   setAuthError(`Additional verification required (${si.status}). This sign-in method is not yet supported here.`);
 }
 
-// ─── Second factor (MFA) ───
+// ─── Second factor (MFA / client trust) ───
 let mfaStrategy = 'totp';
 
 // Inspects the in-progress sign-in, prepares the second factor if needed,
-// and switches to the MFA code view.
+// and switches to the MFA code view. Also completes needs_client_trust
+// (new-device verification), which Clerk satisfies with email/phone codes
+// through the same supportedSecondFactors machinery.
 async function startSecondFactor() {
   const si = clerk.client.signIn;
   const factors = si.supportedSecondFactors || [];
   const totp = factors.find(f => f.strategy === 'totp');
   const phone = factors.find(f => f.strategy === 'phone_code');
+  const email = factors.find(f => f.strategy === 'email_code');
   if (totp) {
     mfaStrategy = 'totp';
   } else if (phone) {
     mfaStrategy = 'phone_code';
     await si.prepareSecondFactor({ strategy: 'phone_code', phoneNumberId: phone.phoneNumberId });
+  } else if (email) {
+    mfaStrategy = 'email_code';
+    await si.prepareSecondFactor({ strategy: 'email_code', emailAddressId: email.emailAddressId });
   } else if (factors.find(f => f.strategy === 'backup_code')) {
     mfaStrategy = 'backup_code';
   } else {
@@ -4435,7 +4441,7 @@ async function authResetVerify(code, newPassword) {
     await finalizeAuth(si.createdSessionId);
     return;
   }
-  if (si.status === 'needs_second_factor') {
+  if (si.status === 'needs_second_factor' || si.status === 'needs_client_trust') {
     await startSecondFactor();
     return;
   }
@@ -4587,6 +4593,7 @@ function renderAuthForm() {
     const hints = {
       totp: 'Enter the 6-digit code from your authenticator app.',
       phone_code: "We've sent a verification code to your phone.",
+      email_code: "New device detected — we've sent a verification code to your email.",
       backup_code: 'Enter one of your backup codes.',
     };
     const factors = (clerk.client.signIn && clerk.client.signIn.supportedSecondFactors) || [];
