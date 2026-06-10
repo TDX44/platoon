@@ -1867,10 +1867,10 @@
   }
   .dash-side-user strong { color: #e6ecf7; display: block; font-size: 1.05em; }
 
-  /* Settings dropdown (shared by sidebar + bottom nav) */
-  .dash-settings-wrap { position: relative; }
+  /* Settings dropdown (shared by sidebar + bottom nav; lives outside the
+     sidebar so it still renders when the sidebar is hidden on mobile) */
   .dash-settings-menu {
-    display: none; position: absolute; left: 10px; bottom: calc(100% + 6px);
+    display: none; position: fixed; left: 14px; bottom: calc(86px + env(safe-area-inset-bottom));
     background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
     box-shadow: var(--dash-shadow-lg); min-width: 190px; padding: 6px; z-index: 80;
   }
@@ -2067,7 +2067,15 @@
   .dash-more-btn { font-size: 0.84em; font-weight: 600; color: var(--dash-accent); background: none; border: none; cursor: pointer; padding: 11px 16px; width: 100%; text-align: left; border-top: 1px solid var(--dash-border); font-family: inherit; }
   .dash-more-btn:hover { background: var(--dash-hover); }
 
-  /* Filters card */
+  /* Filters card (collapsible, closed by default) */
+  .dash-filters-details > summary {
+    list-style: none; cursor: pointer; margin-bottom: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .dash-filters-details > summary::-webkit-details-marker { display: none; }
+  .dash-filters-details > summary::after { content: '\25BE'; font-size: 0.85em; color: var(--dash-muted); transition: transform 0.15s; }
+  .dash-filters-details[open] > summary { margin-bottom: 12px; }
+  .dash-filters-details[open] > summary::after { transform: rotate(180deg); }
   .dash-filters .search-input {
     width: 100%; padding: 9px 11px; border: 1px solid var(--dash-border); border-radius: 8px;
     background: var(--dash-input); color: var(--dash-text); font-size: 0.88em; font-family: inherit;
@@ -2129,7 +2137,7 @@
     .dash-header-title { width: 100%; }
     .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
-    .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-start; }
+    .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
     .dash-main { display: contents; }
     .dash-rail { display: contents; }
     .dash-metrics { order: 1; margin: 6px 14px 0; }
@@ -2146,7 +2154,13 @@
     .dash-row-meta { display: none; }
     .dash-row-mobilemeta { display: block !important; }
     .dash-header-actions { width: 100%; justify-content: flex-end; }
-    .dash-settings-menu { position: fixed; left: auto; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); }
+    /* The More button sits near the left screen edge on small screens, so a
+       right-aligned menu would hang off-screen — open it to the right instead. */
+    #dashMore .dash-more-menu { right: auto; left: 0; }
+    /* .dash-rail is display:contents here, so the 1240px rule giving rail cards
+       flex: 1 1 300px would force a 300px height on them in the column layout. */
+    .dash-rail > .dash-card { flex: none; }
+    .dash-settings-menu { left: auto; right: 12px; bottom: calc(64px + env(safe-area-inset-bottom)); }
   }
   .dash-row-mobilemeta { display: none; font-size: 0.78em; color: var(--dash-muted); margin-top: 2px; }
 
@@ -2267,18 +2281,7 @@
     <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
     <button class="dash-nav-item" id="auditLogBtn" onclick="openAuditLog()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Audit Log</button>
     <div class="dash-section-spacer"></div>
-    <div class="dash-settings-wrap">
-      <button class="dash-nav-item" onclick="toggleDashSettings(event)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
-      <div class="dash-settings-menu" id="dashSettingsMenu">
-        <button onclick="toggleTheme();closeDashMenus()" id="dashThemeItem">Toggle Theme</button>
-        <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
-        <button onclick="openClerkProfile();closeDashMenus()">Manage Account</button>
-        <button id="dashManageUsers" onclick="openUserMgmt();closeDashMenus()" style="display:none">Manage Access</button>
-        <button onclick="exportBackup();closeDashMenus()">Export Backup</button>
-        <button onclick="openRestoreModal();closeDashMenus()">Import Backup</button>
-        <button class="dash-signout" onclick="doLogout()">Sign Out</button>
-      </div>
-    </div>
+    <button class="dash-nav-item" onclick="toggleDashSettings(event)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
   </nav>
   <div class="dash-side-user" id="dashSideUser"></div>
 </aside>
@@ -2341,7 +2344,8 @@
     <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
   </div>
   <div class="dash-card dash-filters" id="dashFiltersCard">
-    <div class="dash-card-title">Filters</div>
+    <details class="dash-filters-details" id="dashFiltersDetails">
+    <summary class="dash-card-title">Filters</summary>
     <div class="search-wrap">
       <input type="text" class="search-input" id="searchInput" placeholder="Search by name, rank, or notes…" oninput="onSearch()">
       <button class="btn-small btn-danger" id="clearSearchBtn" onclick="clearSearch()" style="display:none">&#10005;</button>
@@ -2365,8 +2369,21 @@
     </select>
     <label class="dash-check"><input type="checkbox" id="hideAccountedChk" onchange="toggleHideAccounted(this.checked)"> Hide accounted for</label>
     <button class="dash-btn dash-btn-ghost dash-btn-sm" onclick="clearDashFilters()">Clear filters</button>
+    </details>
   </div>
 </aside>
+
+<!-- Settings menu lives outside the sidebar so the mobile bottom nav
+     (which hides the sidebar) can still open it. -->
+<div class="dash-settings-menu" id="dashSettingsMenu">
+  <button onclick="toggleTheme();closeDashMenus()" id="dashThemeItem">Toggle Theme</button>
+  <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
+  <button onclick="openClerkProfile();closeDashMenus()">Manage Account</button>
+  <button id="dashManageUsers" onclick="openUserMgmt();closeDashMenus()" style="display:none">Manage Access</button>
+  <button onclick="exportBackup();closeDashMenus()">Export Backup</button>
+  <button onclick="openRestoreModal();closeDashMenus()">Import Backup</button>
+  <button class="dash-signout" onclick="doLogout()">Sign Out</button>
+</div>
 
 <nav class="dash-bottomnav" aria-label="Mobile navigation">
   <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
@@ -4335,12 +4352,49 @@ function withBusy(button, busyLabel, fn) {
 }
 
 async function authSignIn(email, password) {
-  const si = await clerk.client.signIn.create({ identifier: email, password });
+  const si = await clerk.client.signIn.create({ strategy: 'password', identifier: email, password });
   if (si.status === 'complete') {
     await finalizeAuth(si.createdSessionId);
     return;
   }
+  if (si.status === 'needs_second_factor') {
+    await startSecondFactor();
+    return;
+  }
   setAuthError(`Additional verification required (${si.status}). This sign-in method is not yet supported here.`);
+}
+
+// ─── Second factor (MFA) ───
+let mfaStrategy = 'totp';
+
+// Inspects the in-progress sign-in, prepares the second factor if needed,
+// and switches to the MFA code view.
+async function startSecondFactor() {
+  const si = clerk.client.signIn;
+  const factors = si.supportedSecondFactors || [];
+  const totp = factors.find(f => f.strategy === 'totp');
+  const phone = factors.find(f => f.strategy === 'phone_code');
+  if (totp) {
+    mfaStrategy = 'totp';
+  } else if (phone) {
+    mfaStrategy = 'phone_code';
+    await si.prepareSecondFactor({ strategy: 'phone_code', phoneNumberId: phone.phoneNumberId });
+  } else if (factors.find(f => f.strategy === 'backup_code')) {
+    mfaStrategy = 'backup_code';
+  } else {
+    setAuthError('This account requires a second factor this app cannot verify. Contact an administrator.');
+    return;
+  }
+  setAuthView('mfa');
+}
+
+async function authSecondFactor(code) {
+  const si = await clerk.client.signIn.attemptSecondFactor({ strategy: mfaStrategy, code });
+  if (si.status === 'complete') {
+    await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  setAuthError(`Verification incomplete (${si.status}). Please try again.`);
 }
 
 async function authOAuth(strategy) {
@@ -4367,13 +4421,22 @@ async function authResetRequest(email) {
 }
 
 async function authResetVerify(code, newPassword) {
-  await clerk.client.signIn.attemptFirstFactor({
+  // Clerk accepts the new password together with the reset code; if it
+  // instead reports needs_new_password, finish with resetPassword().
+  let si = await clerk.client.signIn.attemptFirstFactor({
     strategy: 'reset_password_email_code',
     code,
+    password: newPassword,
   });
-  const si = await clerk.client.signIn.resetPassword({ password: newPassword });
+  if (si.status === 'needs_new_password') {
+    si = await clerk.client.signIn.resetPassword({ password: newPassword });
+  }
   if (si.status === 'complete') {
     await finalizeAuth(si.createdSessionId);
+    return;
+  }
+  if (si.status === 'needs_second_factor') {
+    await startSecondFactor();
     return;
   }
   setAuthError(`Reset incomplete (${si.status}). Please try again.`);
@@ -4392,18 +4455,6 @@ async function authVerifyEmail(code) {
     return;
   }
   setAuthError(`Verification incomplete (${su.status}). Please try again.`);
-}
-
-function showClassicSignIn() {
-  const subtitle = document.getElementById('loginSubtitle');
-  if (subtitle) subtitle.textContent = 'Classic sign-in';
-  setAuthError('');
-  const mount = document.getElementById('clerkAuthMount');
-  if (mount) {
-    mount.innerHTML = '<div id="classicMount"></div><div class="auth-back"><button type="button" class="auth-link" id="backToNative">Back to Platoon sign-in</button></div>';
-    document.getElementById('backToNative').addEventListener('click', () => setAuthView('signin'));
-    mountClerkSignIn(document.getElementById('classicMount'));
-  }
 }
 
 function renderAuthForm() {
@@ -4425,7 +4476,6 @@ function renderAuthForm() {
         <div class="auth-forgot"><button type="button" class="auth-link" id="forgotLink">Forgot password?</button></div>
         <button type="submit" class="btn-login" id="signinSubmit">Sign in</button>
         <div class="auth-switch">New here? <button type="button" class="auth-link" id="toSignup">Create an account</button></div>
-        <div class="auth-back"><button type="button" class="auth-link" id="classicLink">Trouble signing in? Use classic sign-in</button></div>
       </form>`;
     const form = document.getElementById('signinForm');
     const submit = document.getElementById('signinSubmit');
@@ -4437,7 +4487,6 @@ function renderAuthForm() {
     }));
     document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
     document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
-    document.getElementById('classicLink').addEventListener('click', showClassicSignIn);
     document.getElementById('googleSignin').addEventListener('click',
       withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
     return;
@@ -4532,33 +4581,34 @@ function renderAuthForm() {
     document.getElementById('verifyBackToSignin').addEventListener('click', () => setAuthView('signin'));
     return;
   }
-}
 
-function mountClerkSignIn(targetEl) {
-  const mount = targetEl || document.getElementById('clerkAuthMount');
-  if (!mount || !clerk) return;
-  const dark = document.body.classList.contains('dark-mode');
-  mount.innerHTML = '';
-  setLoginStatus('Rendering Clerk sign-in…');
-  try {
-    clerk.mountSignIn(mount, {
-      appearance: {
-        variables: {
-          colorPrimary: dark ? '#6aa6ff' : '#1b61c9',
-          colorBackground: dark ? '#171a1f' : '#ffffff',
-          colorInputBackground: dark ? '#101114' : '#ffffff',
-          colorInputText: dark ? '#f4f7fb' : '#181d26',
-          colorText: dark ? '#f4f7fb' : '#181d26',
-          colorNeutral: dark ? 'rgba(232,238,247,0.72)' : 'rgba(4,14,32,0.69)',
-        },
-      },
-      afterSignInUrl: window.location.href,
-      afterSignUpUrl: window.location.href,
-    });
-    setLoginStatus('');
-  } catch (err) {
-    setLoginStatus(err.message || 'Failed to render Clerk sign-in.', true);
-    throw err;
+  if (authView === 'mfa') {
+    if (subtitle) subtitle.textContent = 'Two-factor verification';
+    const hints = {
+      totp: 'Enter the 6-digit code from your authenticator app.',
+      phone_code: "We've sent a verification code to your phone.",
+      backup_code: 'Enter one of your backup codes.',
+    };
+    const factors = (clerk.client.signIn && clerk.client.signIn.supportedSecondFactors) || [];
+    const hasBackup = factors.some(f => f.strategy === 'backup_code');
+    mount.innerHTML = `
+      <form class="auth-form" id="mfaForm">
+        <p class="auth-hint">${hints[mfaStrategy] || hints.totp}</p>
+        <label for="mfaCode">${mfaStrategy === 'backup_code' ? 'Backup code' : 'Verification code'}</label>
+        <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus placeholder="123456" class="auth-code-input">
+        <button type="submit" class="btn-login" id="mfaSubmit">Verify &amp; sign in</button>
+        ${hasBackup && mfaStrategy !== 'backup_code' ? '<div class="auth-switch"><button type="button" class="auth-link" id="mfaUseBackup">Use a backup code instead</button></div>' : ''}
+        <div class="auth-back"><button type="button" class="auth-link" id="mfaBackToSignin">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('mfaForm');
+    const submit = document.getElementById('mfaSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Verifying…', async () => {
+      await authSecondFactor(document.getElementById('mfaCode').value.trim());
+    }));
+    const useBackup = document.getElementById('mfaUseBackup');
+    if (useBackup) useBackup.addEventListener('click', () => { mfaStrategy = 'backup_code'; renderAuthForm(); });
+    document.getElementById('mfaBackToSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
   }
 }
 
@@ -4845,7 +4895,7 @@ async function deleteUser(userId, username) {
 // ─── Init ───
 document.addEventListener('click', e => {
   if (!e.target.closest('.hamburger-wrap')) closeHamburger();
-  if (!e.target.closest('.dash-settings-wrap') && !e.target.closest('.dash-bottomnav')) {
+  if (!e.target.closest('.dash-settings-menu') && !e.target.closest('.dash-bottomnav')) {
     const menu = document.getElementById('dashSettingsMenu');
     if (menu) menu.classList.remove('open');
   }
