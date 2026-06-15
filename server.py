@@ -299,7 +299,11 @@ def _verify_clerk_session_token():
             algorithms=['RS256'],
             options={'require': ['exp', 'iat', 'nbf', 'sub']},
         )
-    except (jwt.InvalidTokenError, URLError, ValueError) as exc:
+    except (jwt.PyJWTError, URLError, ValueError) as exc:
+        # PyJWTError covers InvalidTokenError plus PyJWKClientError, which is
+        # raised when the token's signing key isn't in our instance's JWKS
+        # (e.g. a token minted by a different Clerk instance). Treat all of
+        # these as an auth failure (401) rather than letting them 500.
         return None, str(exc) or 'Unauthorized'
 
     permitted_origins = CLERK_AUTHORIZED_PARTIES or [_get_request_origin()]
