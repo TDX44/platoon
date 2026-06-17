@@ -912,7 +912,7 @@
   }
 
   #platoonScreen {
-    max-width: 1480px;
+    max-width: none;
     margin: 0 auto;
   }
   .edit-unit-name,
@@ -3539,8 +3539,8 @@ function dashNeedsRow(p, returned) {
     <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
-      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
       <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
+      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
     </div>
   </div>`;
 }
