@@ -141,6 +141,27 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS personnel_profile (
+            person_id         INTEGER PRIMARY KEY,
+            phone             TEXT DEFAULT '',
+            email             TEXT DEFAULT '',
+            address           TEXT DEFAULT '',
+            emergency_name    TEXT DEFAULT '',
+            emergency_phone   TEXT DEFAULT '',
+            spouse_dependents TEXT DEFAULT '',
+            next_of_kin       TEXT DEFAULT '',
+            dod_id            TEXT DEFAULT '',
+            date_of_rank      TEXT DEFAULT '',
+            mos               TEXT DEFAULT '',
+            clearance         TEXT DEFAULT '',
+            ets_date          TEXT DEFAULT '',
+            section           TEXT DEFAULT '',
+            profile_notes     TEXT DEFAULT '',
+            FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
+        )
+    ''')
+
     # ── Migrations ──
     cols = [row[1] for row in cur.execute('PRAGMA table_info(personnel)').fetchall()]
     if 'present_date' not in cols:
@@ -169,6 +190,8 @@ def init_db():
             cur.execute(f'ALTER TABLE personnel ADD COLUMN {col} TEXT DEFAULT ""')
 
     scols = [row[1] for row in cur.execute('PRAGMA table_info(scheduled_events)').fetchall()]
+    if 'location' not in scols:
+        cur.execute('ALTER TABLE scheduled_events ADD COLUMN location TEXT DEFAULT ""')
     if scols:
         cur.execute(
             "INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes) "
@@ -276,7 +299,11 @@ def _verify_clerk_session_token():
             algorithms=['RS256'],
             options={'require': ['exp', 'iat', 'nbf', 'sub']},
         )
-    except (jwt.InvalidTokenError, URLError, ValueError) as exc:
+    except (jwt.PyJWTError, URLError, ValueError) as exc:
+        # PyJWTError covers InvalidTokenError plus PyJWKClientError, which is
+        # raised when the token's signing key isn't in our instance's JWKS
+        # (e.g. a token minted by a different Clerk instance). Treat all of
+        # these as an auth failure (401) rather than letting them 500.
         return None, str(exc) or 'Unauthorized'
 
     permitted_origins = CLERK_AUTHORIZED_PARTIES or [_get_request_origin()]
@@ -666,6 +693,64 @@ def update_person(person_id):
     return jsonify(dict(row))
 
 
+PROFILE_FIELDS = (
+    'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
+    'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
+    'clearance', 'ets_date', 'section', 'profile_notes',
+)
+
+
+@app.route('/api/personnel/<int:person_id>/profile', methods=['GET'])
+@login_required
+def get_profile(person_id):
+    conn = get_db()
+    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, person['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = ?', (person_id,)).fetchone()
+    conn.close()
+    profile = dict(row) if row else {'person_id': person_id, **{f: '' for f in PROFILE_FIELDS}}
+    return jsonify(profile)
+
+
+@app.route('/api/personnel/<int:person_id>/profile', methods=['PUT'])
+@login_required
+def update_profile(person_id):
+    data = request.get_json() or {}
+    conn = get_db()
+    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, person['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+
+    updates = {f: data[f] for f in PROFILE_FIELDS if f in data}
+    if not updates:
+        conn.close()
+        return jsonify({'error': 'No fields to update'}), 400
+
+    # Ensure a row exists, then update only the provided columns.
+    conn.execute('INSERT OR IGNORE INTO personnel_profile (person_id) VALUES (?)', (person_id,))
+    assignments = ', '.join(f'{col} = ?' for col in updates)
+    conn.execute(
+        f'UPDATE personnel_profile SET {assignments} WHERE person_id = ?',
+        [*updates.values(), person_id]
+    )
+    conn.commit()
+    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = ?', (person_id,)).fetchone()
+    conn.close()
+    log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['platoon'])
+    return jsonify(dict(row))
+
+
 @app.route('/api/personnel/<int:person_id>/schedule', methods=['POST'])
 @login_required
 def add_scheduled_event(person_id):
@@ -686,8 +771,9 @@ def add_scheduled_event(person_id):
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
     cur = conn.execute(
-        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes) VALUES (?, ?, ?, ?, ?, ?)',
-        (person_id, person['platoon'], status, data.get('from_date', ''), data.get('to_date', ''), data.get('notes', ''))
+        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (person_id, person['platoon'], status, data.get('from_date', ''), data.get('to_date', ''),
+         data.get('notes', ''), data.get('location', ''))
     )
     new_id = cur.lastrowid
     first = conn.execute(
@@ -880,6 +966,7 @@ def export_backup():
     if user['is_admin']:
         personnel = [dict(r) for r in conn.execute('SELECT * FROM personnel').fetchall()]
         scheduled_events = [dict(r) for r in conn.execute('SELECT * FROM scheduled_events').fetchall()]
+        profiles  = [dict(r) for r in conn.execute('SELECT * FROM personnel_profile').fetchall()]
         settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
         users     = [dict(r) for r in conn.execute(
             'SELECT id, username, email, full_name, is_admin, platoons, clerk_user_id FROM users'
@@ -894,6 +981,10 @@ def export_backup():
         scheduled_events = [dict(r) for r in conn.execute(
             f'SELECT * FROM scheduled_events WHERE platoon IN ({placeholders})', accessible
         ).fetchall()]
+        profiles  = [dict(r) for r in conn.execute(
+            f'SELECT pp.* FROM personnel_profile pp JOIN personnel p ON p.id = pp.person_id '
+            f'WHERE p.platoon IN ({placeholders})', accessible
+        ).fetchall()]
         settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
         users     = []
         label = '-'.join(accessible)
@@ -904,6 +995,7 @@ def export_backup():
         'exported_at': datetime.utcnow().isoformat() + 'Z',
         'personnel': personnel,
         'scheduled_events': scheduled_events,
+        'personnel_profile': profiles,
         'settings': settings,
         'users': users,
     }
@@ -970,11 +1062,22 @@ def import_backup():
                 if not user['is_admin'] and s.get('platoon') not in accessible:
                     continue
                 conn.execute(
-                    'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, created_at) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     (s.get('id') if user['is_admin'] else None, s.get('person_id'), s.get('platoon', '2nd'),
                      s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
-                     s.get('notes', ''), s.get('created_at', datetime.utcnow().isoformat()))
+                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()))
+                )
+
+        # Profiles restore only on a full (admin) restore, where personnel ids are preserved.
+        if user['is_admin'] and 'personnel_profile' in payload:
+            conn.execute('DELETE FROM personnel_profile')
+            cols = ('person_id', *PROFILE_FIELDS)
+            placeholders = ', '.join('?' * len(cols))
+            for pp in payload['personnel_profile']:
+                conn.execute(
+                    f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({placeholders})',
+                    [pp.get(c, '') for c in cols]
                 )
 
         if 'settings' in payload:
@@ -1110,4 +1213,4 @@ if __name__ == '__main__':
     init_db()
     t = threading.Thread(target=_midnight_reset_worker, daemon=True)
     t.start()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)

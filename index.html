@@ -912,7 +912,7 @@
   }
 
   #platoonScreen {
-    max-width: 1480px;
+    max-width: none;
     margin: 0 auto;
   }
   .edit-unit-name,
@@ -1357,6 +1357,144 @@
     font-size: 0.76rem;
     margin-top: 3px;
     line-height: 1.3;
+  }
+
+  /* ── Soldier profile ── */
+  .profile-head {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .profile-head h2 { margin: 0; }
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    margin: 12px 0;
+  }
+  .profile-card {
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    background: var(--theme_surface-soft);
+    padding: 12px 14px;
+  }
+  .profile-card-wide { grid-column: 1 / -1; }
+  .profile-card h3 {
+    margin: 0 0 8px; font-size: 0.82rem; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--theme_text-muted);
+  }
+  .profile-card label {
+    display: block; margin-top: 8px; font-size: 0.74rem;
+    color: var(--theme_text-muted);
+  }
+  .profile-card input, .profile-card textarea {
+    width: 100%; box-sizing: border-box;
+  }
+  .profile-abs-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap;
+  }
+  .abs-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+  }
+  .add-absence-form {
+    border: 1px dashed var(--theme_border);
+    border-radius: var(--theme_radius);
+    padding: 10px 12px; margin: 10px 0;
+  }
+  .directory-list { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+  .directory-row {
+    display: grid; grid-template-columns: 56px minmax(0,1fr) auto;
+    gap: 10px; align-items: center; padding: 9px 11px; cursor: pointer;
+    border: 1px solid var(--theme_border); border-radius: var(--theme_radius);
+    background: var(--theme_surface-soft); text-align: left; width: 100%;
+    color: var(--theme_text); font-size: 0.88rem;
+  }
+  .directory-row:hover { border-color: var(--theme_accent, #6c5ce7); }
+  .directory-row .dir-rank { color: var(--theme_text-muted); font-weight: 600; }
+
+  /* ── Soldier detail page ── */
+  .soldier-view { display: none; }
+  body.soldier-active #dashMetrics,
+  body.soldier-active #bulkBar,
+  body.soldier-active #personnelBody { display: none; }
+  body.soldier-active .dash-rail { display: none; }
+  body.soldier-active .dash-main { grid-column: 2 / 4; }
+  body.soldier-active .soldier-view { display: block; }
+
+  .soldier-back {
+    background: none; border: none; cursor: pointer; padding: 4px 0;
+    color: var(--theme_text-muted); font-size: 0.85rem; font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .soldier-back:hover { color: var(--theme_text); }
+
+  .soldier-hero {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 18px 20px; margin-bottom: 16px;
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    background: var(--theme_surface);
+    box-shadow: var(--theme_shadow-soft);
+  }
+  .soldier-avatar {
+    width: 60px; height: 60px; flex: none; border-radius: 14px;
+    display: grid; place-items: center;
+    font-size: 1.4rem; font-weight: 700; letter-spacing: 0.02em;
+    color: #fff; background: linear-gradient(135deg, #1b61c9, #6c5ce7);
+  }
+  .soldier-hero-main { flex: 1 1 220px; min-width: 0; }
+  .soldier-hero-name {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 1.4rem; font-weight: 700; color: var(--theme_text);
+  }
+  .soldier-hero-sub { color: var(--theme_text-muted); font-size: 0.85rem; margin-top: 4px; }
+  .soldier-hero-actions { flex: none; }
+
+  .soldier-tabs {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--theme_border);
+    margin-bottom: 16px;
+  }
+  .soldier-tab {
+    background: none; border: none; cursor: pointer;
+    padding: 9px 16px; font-size: 0.9rem; font-weight: 600;
+    color: var(--theme_text-muted); border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .soldier-tab:hover { color: var(--theme_text); }
+  .soldier-tab.active { color: var(--theme_accent, #1b61c9); border-bottom-color: var(--theme_accent, #1b61c9); }
+
+  .soldier-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-items: start;
+    gap: 14px;
+  }
+  .soldier-card {
+    border: 1px solid var(--theme_border);
+    border-radius: var(--theme_radius);
+    background: var(--theme_surface);
+    padding: 16px 18px;
+  }
+  .soldier-card h3 {
+    margin: 0 0 10px; font-size: 0.78rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--theme_text-muted);
+  }
+  .pf-label {
+    display: block; margin-top: 12px; font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em; color: var(--theme_text-muted);
+  }
+  .soldier-card input, .soldier-card textarea, .soldier-card select {
+    width: 100%; box-sizing: border-box; margin-top: 4px;
+    background: var(--theme_surface-soft, var(--theme_surface));
+    color: var(--theme_text);
+    border: 1px solid var(--theme_border);
+    border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; font-family: inherit;
+  }
+  .soldier-card input:focus, .soldier-card textarea:focus, .soldier-card select:focus {
+    outline: none; border-color: var(--theme_accent, #1b61c9);
+    box-shadow: 0 0 0 3px rgba(27,97,201,0.12);
   }
 
   #futureScheduleNotice {
@@ -2276,6 +2414,7 @@
   <nav class="dash-nav" aria-label="Main navigation">
     <button class="dash-nav-item" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
     <button class="dash-nav-item" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
+    <button class="dash-nav-item" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
     <button class="dash-nav-item" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
     <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
@@ -2330,6 +2469,7 @@
     <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
   </div>
   <div class="dash-sections" id="personnelBody"></div>
+  <div class="soldier-view" id="soldierView"></div>
 </div>
 
 <aside class="dash-rail">
@@ -2510,6 +2650,18 @@
   </div>
 </div>
 
+<!-- Personnel Directory Modal -->
+<div class="modal-overlay" id="directoryModal">
+  <div class="modal modal-wide">
+    <h2>Personnel Directory</h2>
+    <input type="text" id="directorySearch" placeholder="Search name or rank…" oninput="renderDirectory()" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+    <div id="directoryList" class="directory-list"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-danger" onclick="closeDirectory()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Report Modal -->
 <div class="report-overlay" id="reportModal">
   <div class="report-box">
@@ -2669,6 +2821,14 @@ async function load() {
     }
     render();
     updateAsOf();
+    if (pendingSoldierId != null) {
+      const sid = pendingSoldierId;
+      pendingSoldierId = null;
+      openSoldierPage(sid, false);
+    } else if (currentSoldierId != null && document.body.classList.contains('soldier-active')) {
+      // Refresh the open soldier page's absence list against new data.
+      renderProfileAbsences();
+    }
   } catch (e) {
     console.error('Failed to load from API:', e);
   }
@@ -2882,11 +3042,13 @@ function closeDashMenus() {
     .forEach(d => d.removeAttribute('open'));
 }
 function dashGoRoster() {
+  closeSoldierPage();
   clearDashFilters();
   const el = document.getElementById('personnelBody');
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function dashGoAccountability() {
+  closeSoldierPage();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function refreshData() {
@@ -2937,6 +3099,280 @@ function scheduledEventsFor(p) {
 
 function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Soldier Directory ───
+function openDirectory() {
+  const search = document.getElementById('directorySearch');
+  if (search) search.value = '';
+  renderDirectory();
+  document.getElementById('directoryModal').classList.add('active');
+}
+
+function closeDirectory() {
+  document.getElementById('directoryModal').classList.remove('active');
+}
+
+function renderDirectory() {
+  const list = document.getElementById('directoryList');
+  if (!list) return;
+  const term = (document.getElementById('directorySearch').value || '').toLowerCase().trim();
+  const rows = personnel
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => !term || `${p.rank} ${p.last} ${p.first}`.toLowerCase().includes(term))
+    .map(({ p, i }) => `<button class="directory-row" onclick="openProfile(${i})">
+      <span class="dir-rank">${escapeHtml(p.rank)}</span>
+      <span>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
+      ${dashPill(p.status)}
+    </button>`).join('');
+  list.innerHTML = rows || '<div class="scheduled-event-meta">No personnel found.</div>';
+}
+
+// ─── Soldier Detail Page ───
+const PROFILE_FIELD_IDS = [
+  'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
+  'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
+  'clearance', 'ets_date', 'section', 'profile_notes'
+];
+let currentSoldierId = null;
+let pendingSoldierId = null;
+let soldierTab = 'overview';
+
+function currentSoldierPerson() {
+  return personnel.find(p => p.id === currentSoldierId) || null;
+}
+
+// Called from roster row menus and the directory (index into personnel).
+function openProfile(i) {
+  const p = personnel[i];
+  if (p) openSoldierPage(p.id);
+}
+
+function openSoldierPage(id, push = true) {
+  const p = personnel.find(x => x.id === id);
+  if (!p) return;
+  currentSoldierId = id;
+  soldierTab = 'overview';
+  closeDirectory();
+  if (push) pushAppRoute(currentPlatoon, 'soldier', id);
+  document.body.classList.add('soldier-active');
+  renderSoldierPage();
+  window.scrollTo({ top: 0 });
+  // Load saved profile fields, then fill the inputs.
+  api('GET', `/personnel/${id}/profile`).then(profile => {
+    if (profile && !profile.error && currentSoldierId === id) {
+      PROFILE_FIELD_IDS.forEach(f => {
+        const el = document.getElementById('pf_' + f);
+        if (el) el.value = profile[f] || '';
+      });
+    }
+  });
+}
+
+function closeSoldierPage(push = true) {
+  if (!document.body.classList.contains('soldier-active')) return;
+  document.body.classList.remove('soldier-active');
+  currentSoldierId = null;
+  if (push) pushAppRoute(currentPlatoon, 'accountability');
+}
+
+function setSoldierTab(tab) {
+  soldierTab = tab;
+  document.querySelectorAll('#soldierView .soldier-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('#soldierView .soldier-panel').forEach(panel => {
+    panel.hidden = panel.dataset.panel !== tab;
+  });
+}
+
+function soldierInitials(p) {
+  return (((p.first || '').charAt(0)) + ((p.last || '').charAt(0))).toUpperCase() || '?';
+}
+
+function profileField(label, id, type = 'text') {
+  const control = type === 'textarea'
+    ? `<textarea id="pf_${id}" rows="2"></textarea>`
+    : `<input type="${type}" id="pf_${id}">`;
+  return `<label class="pf-label" for="pf_${id}">${label}</label>${control}`;
+}
+
+function renderSoldierPage() {
+  const view = document.getElementById('soldierView');
+  const p = currentSoldierPerson();
+  if (!view || !p) return;
+  const absCount = scheduledEventsFor(p).length;
+  const platoonLabel = currentPlatoon === 'hq' ? 'HQ' : `${currentPlatoon} Platoon`;
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeSoldierPage()">&larr; Back to roster</button>
+    <div class="soldier-hero">
+      <div class="soldier-avatar">${soldierInitials(p)}</div>
+      <div class="soldier-hero-main">
+        <div class="soldier-hero-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)} ${dashPill(p.status)}</div>
+        <div class="soldier-hero-sub">${escapeHtml(platoonLabel)}</div>
+      </div>
+      <div class="soldier-hero-actions">
+        <button class="dash-btn dash-btn-primary" onclick="saveProfile()">Save changes</button>
+      </div>
+    </div>
+    <div class="soldier-tabs">
+      <button class="soldier-tab active" data-tab="overview" onclick="setSoldierTab('overview')">Overview</button>
+      <button class="soldier-tab" data-tab="absences" onclick="setSoldierTab('absences')">Absences${absCount ? ` (${absCount})` : ''}</button>
+      <button class="soldier-tab" data-tab="notes" onclick="setSoldierTab('notes')">Notes</button>
+    </div>
+
+    <div class="soldier-panel" data-panel="overview">
+      <div class="soldier-cards">
+        <section class="soldier-card">
+          <h3>Contact</h3>
+          ${profileField('Phone', 'phone', 'tel')}
+          ${profileField('Email', 'email', 'email')}
+          ${profileField('Home Address', 'address', 'textarea')}
+        </section>
+        <section class="soldier-card">
+          <h3>Emergency &amp; Family</h3>
+          ${profileField('Emergency Contact', 'emergency_name')}
+          ${profileField('Emergency Phone', 'emergency_phone', 'tel')}
+          ${profileField('Spouse / Dependents', 'spouse_dependents')}
+          ${profileField('Next of Kin', 'next_of_kin')}
+        </section>
+        <section class="soldier-card">
+          <h3>Administrative</h3>
+          ${profileField('DOD ID', 'dod_id')}
+          ${profileField('Date of Rank', 'date_of_rank', 'date')}
+          ${profileField('MOS', 'mos')}
+          ${profileField('Security Clearance', 'clearance')}
+          ${profileField('ETS Date', 'ets_date', 'date')}
+          ${profileField('Section / Team', 'section')}
+        </section>
+      </div>
+    </div>
+
+    <div class="soldier-panel" data-panel="absences" hidden>
+      <div class="soldier-card">
+        <div class="profile-abs-head">
+          <h3>Absences (TDY / Leave)</h3>
+          <button class="btn-small btn-add" onclick="toggleAddAbsence()">+ Add Absence</button>
+        </div>
+        <div id="addAbsenceForm" class="add-absence-form" style="display:none">
+          <div class="abs-form-grid">
+            <div>
+              <label>Type</label>
+              <select id="abs_status">
+                <option value="tdy">TDY</option>
+                <option value="leave">Leave</option>
+                <option value="pass">Pass</option>
+                <option value="ftr">FTR</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div><label>From</label><input type="date" id="abs_from"></div>
+            <div><label>To</label><input type="date" id="abs_to"></div>
+            <div><label>Location</label><input type="text" id="abs_location" placeholder="e.g. Fort Knox KY"></div>
+          </div>
+          <label>Notes</label>
+          <input type="text" id="abs_notes" placeholder="Reason / course / details">
+          <div class="modal-buttons">
+            <button class="btn-small btn-danger" onclick="toggleAddAbsence(false)">Cancel</button>
+            <button class="btn-small btn-add" onclick="saveAbsence()">Save Absence</button>
+          </div>
+        </div>
+        <div id="profileAbsenceList" class="scheduled-event-list"></div>
+      </div>
+    </div>
+
+    <div class="soldier-panel" data-panel="notes" hidden>
+      <div class="soldier-card">
+        <h3>Notes</h3>
+        <textarea id="pf_profile_notes" rows="6" placeholder="Medical profile, flags, misc…"></textarea>
+      </div>
+    </div>
+  `;
+  setSoldierTab(soldierTab);
+  renderProfileAbsences();
+}
+
+async function saveProfile() {
+  if (!currentSoldierId) return;
+  const body = {};
+  PROFILE_FIELD_IDS.forEach(f => {
+    const el = document.getElementById('pf_' + f);
+    if (el) body[f] = el.value;
+  });
+  const btn = document.querySelector('#soldierView .soldier-hero-actions button');
+  const res = await api('PUT', `/personnel/${currentSoldierId}/profile`, body);
+  if (res && res.error) { alert(res.error); return; }
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = 'Saved ✓';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
+}
+
+function toggleAddAbsence(show) {
+  const form = document.getElementById('addAbsenceForm');
+  if (!form) return;
+  const willShow = show === undefined ? form.style.display === 'none' : show;
+  form.style.display = willShow ? 'block' : 'none';
+  if (willShow) {
+    document.getElementById('abs_status').value = 'tdy';
+    ['abs_from', 'abs_to', 'abs_location', 'abs_notes'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+  }
+}
+
+async function saveAbsence() {
+  const p = currentSoldierPerson();
+  if (!p) return;
+  const payload = {
+    status: document.getElementById('abs_status').value,
+    from_date: document.getElementById('abs_from').value,
+    to_date: document.getElementById('abs_to').value,
+    location: document.getElementById('abs_location').value,
+    notes: document.getElementById('abs_notes').value
+  };
+  if (!payload.from_date) { alert('Enter a start date for the absence.'); return; }
+  const res = await api('POST', `/personnel/${p.id}/schedule`, payload);
+  if (!res || res.error) { alert(res && res.error ? res.error : 'Could not save absence.'); return; }
+  toggleAddAbsence(false);
+  await load();              // refresh roster + this person's scheduled_events
+  renderProfileAbsences();
+}
+
+async function removeAbsence(eventId) {
+  if (!confirm('Remove this absence?')) return;
+  const res = await api('DELETE', `/schedules/${eventId}`);
+  if (res && res.error) { alert(res.error); return; }
+  await load();
+  renderProfileAbsences();
+}
+
+function renderProfileAbsences() {
+  const list = document.getElementById('profileAbsenceList');
+  if (!list) return;
+  const p = currentSoldierPerson();
+  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', ftr: 'FTR', other: 'Other' };
+  const events = p ? scheduledEventsFor(p).slice().sort(
+    (a, b) => (a.from_date || '').localeCompare(b.from_date || '')
+  ) : [];
+  const tabBtn = document.querySelector('#soldierView .soldier-tab[data-tab="absences"]');
+  if (tabBtn) tabBtn.textContent = 'Absences' + (events.length ? ` (${events.length})` : '');
+  if (!events.length) {
+    list.innerHTML = '<div class="scheduled-event-meta">No upcoming absences scheduled.</div>';
+    return;
+  }
+  list.innerHTML = events.map(ev => {
+    const range = (ev.from_date || ev.to_date)
+      ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
+    const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
+    return `<div class="scheduled-event-row">
+      <div>
+        <div class="scheduled-event-title">${labels[ev.status] || escapeHtml(ev.status || '')}</div>
+        <div class="scheduled-event-meta">${meta || '—'}</div>
+      </div>
+      <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
+    </div>`;
+  }).join('');
 }
 
 // ─── Render ───
@@ -3103,8 +3539,8 @@ function dashNeedsRow(p, returned) {
     <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
-      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
       <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
+      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
     </div>
   </div>`;
 }
@@ -3118,6 +3554,7 @@ function dashPresentRow(p, returned) {
     <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">${dashPill('present')}</div></div>
     <div class="dash-row-meta"><span>${dashPill('present')}</span></div>
     <div class="dash-row-actions">${dashRowMenu([
+      ['View profile', `openProfile(${i})`],
       ['Unmark present', `unmarkPresent(${i})`],
       ['Set status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
@@ -3142,6 +3579,7 @@ function dashAwayRow(p, todayStr) {
     <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill(p.status)}${returning}${mobileMeta ? ' ' + mobileMeta : ''}</div></div>
     <div class="dash-row-meta">${meta}</div>
     <div class="dash-row-actions">${dashRowMenu([
+      ['View profile', `openProfile(${i})`],
       ['Mark Present', `markPresent(${i})`],
       ['Update status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
@@ -3160,6 +3598,7 @@ function dashLoanRow(p) {
       ${p.notes ? `<span title="${escapeHtml(p.notes)}">${escapeHtml(p.notes)}</span>` : ''}
     </div>
     <div class="dash-row-actions">${dashRowMenu([
+      ['View profile', `openProfile(${i})`],
       ['Update status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
@@ -3187,6 +3626,7 @@ function dashSchedRow(p) {
       ${eventLines}
     </div>
     <div class="dash-row-actions">${dashRowMenu([
+      ['View profile', `openProfile(${i})`],
       ['Edit schedule…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
@@ -4203,6 +4643,10 @@ document.getElementById('addFirst').addEventListener('keydown', function(e) { if
 function showAppScreen(screen) {
   document.body.classList.add('app-authenticated');
   document.body.classList.toggle('dash-active', screen === 'platoon');
+  if (screen !== 'platoon') {
+    document.body.classList.remove('soldier-active');
+    currentSoldierId = null;
+  }
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
   document.getElementById('platoonScreen').style.display = screen === 'platoon' ? 'block' : 'none';
@@ -4666,14 +5110,17 @@ function defaultAccessiblePlatoon() {
   return PLATOONS.find(platoon => userHasAccess(platoon)) || '';
 }
 
-function appRoutePath(platoon, section) {
-  if (platoon && PLATOON_PATHS[platoon]) return `/${PLATOON_PATHS[platoon]}/${section || 'accountability'}`;
+function appRoutePath(platoon, section, soldierId) {
+  if (platoon && PLATOON_PATHS[platoon]) {
+    if (section === 'soldier' && soldierId != null) return `/${PLATOON_PATHS[platoon]}/soldier/${soldierId}`;
+    return `/${PLATOON_PATHS[platoon]}/${section || 'accountability'}`;
+  }
   return '/';
 }
 
-function pushAppRoute(platoon, section, replace = false) {
-  const state = { platoon: platoon || '', section: section || 'home' };
-  const path = appRoutePath(platoon, section);
+function pushAppRoute(platoon, section, soldierId = null, replace = false) {
+  const state = { platoon: platoon || '', section: section || 'home', soldierId };
+  const path = appRoutePath(platoon, section, soldierId);
   if (replace) history.replaceState(state, '', path);
   else history.pushState(state, '', path);
 }
@@ -4682,10 +5129,11 @@ function parseAppRoute() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
   const parts = path ? path.split('/') : [];
   if (parts.length && PATH_TO_PLATOON[parts[0]]) {
-    return {
-      platoon: PATH_TO_PLATOON[parts[0]],
-      section: parts[1] || 'accountability'
-    };
+    const platoon = PATH_TO_PLATOON[parts[0]];
+    if (parts[1] === 'soldier' && parts[2]) {
+      return { platoon, section: 'soldier', soldierId: parseInt(parts[2], 10) };
+    }
+    return { platoon, section: parts[1] || 'accountability' };
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -4704,7 +5152,7 @@ function routeAfterLogin() {
     return;
   }
   if (route.platoon) {
-    selectPlatoon(route.platoon, false);
+    selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
   } else {
     loadHome();
   }
@@ -4766,12 +5214,14 @@ async function loadHome() {
   } catch(e) { /* counts are decorative */ }
 }
 
-function selectPlatoon(platoon, push = true) {
+function selectPlatoon(platoon, push = true, pendingSoldier = null) {
   if (!userHasAccess(platoon)) {
     loadHome();
     return;
   }
   currentPlatoon = platoon;
+  pendingSoldierId = pendingSoldier;
+  if (!pendingSoldier) document.body.classList.remove('soldier-active');
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
   const isAdmin = currentUser && currentUser.is_admin;
@@ -4926,7 +5376,14 @@ window.addEventListener('popstate', () => {
     return;
   }
   if (route.platoon) {
-    selectPlatoon(route.platoon, false);
+    const wantSoldier = route.section === 'soldier' ? route.soldierId : null;
+    if (route.platoon !== currentPlatoon) {
+      selectPlatoon(route.platoon, false, wantSoldier);
+    } else if (wantSoldier != null) {
+      openSoldierPage(wantSoldier, false);
+    } else {
+      closeSoldierPage(false);
+    }
   } else { loadHome(); }
 });
 
