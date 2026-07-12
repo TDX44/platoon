@@ -800,6 +800,28 @@ def add_scheduled_event(person_id):
     return jsonify(dict(row)), 201
 
 
+@app.route('/api/personnel/<int:person_id>/absences', methods=['GET'])
+@login_required
+def get_absences(person_id):
+    conn = get_db()
+    person = conn.execute('SELECT id, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, person['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+    _reconcile_absences(conn, date.today().isoformat())
+    conn.commit()
+    rows = conn.execute(
+        'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date DESC, id DESC',
+        (person_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify({'absences': [dict(r) for r in rows]})
+
+
 @app.route('/api/schedules/<int:event_id>', methods=['DELETE'])
 @login_required
 def delete_scheduled_event(event_id):

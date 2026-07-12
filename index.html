@@ -1321,6 +1321,11 @@
     gap: 8px;
     margin: 10px 0 12px;
   }
+  .absence-group { margin-bottom: 14px; }
+  .absence-group-title {
+    font-size: 0.75em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--dash-muted, #888); margin-bottom: 6px;
+  }
   .scheduled-event-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -3334,30 +3339,46 @@ async function removeAbsence(eventId) {
   renderProfileAbsences();
 }
 
-function renderProfileAbsences() {
+async function renderProfileAbsences() {
   const list = document.getElementById('profileAbsenceList');
   if (!list) return;
   const p = currentSoldierPerson();
-  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', ftr: 'FTR', other: 'Other' };
-  const events = p ? scheduledEventsFor(p).slice().sort(
-    (a, b) => (a.from_date || '').localeCompare(b.from_date || '')
-  ) : [];
+  if (!p) { list.innerHTML = ''; return; }
+
+  const res = await api('GET', `/personnel/${p.id}/absences`);
+  const all = (res && res.absences) ? res.absences : [];
+  const groups = [
+    ['Current',  all.filter(ev => ev.state === 'active'),    true],
+    ['Upcoming', all.filter(ev => ev.state === 'scheduled'), true],
+    ['Past',     all.filter(ev => ev.state === 'completed'), false],
+  ];
+  const openCount = groups[0][1].length + groups[1][1].length;
   const tabBtn = document.querySelector('#soldierView .soldier-tab[data-tab="absences"]');
-  if (tabBtn) tabBtn.textContent = 'Absences' + (events.length ? ` (${events.length})` : '');
-  if (!events.length) {
-    list.innerHTML = '<div class="scheduled-event-meta">No upcoming absences scheduled.</div>';
+  if (tabBtn) tabBtn.textContent = 'Absences' + (openCount ? ` (${openCount})` : '');
+
+  if (!all.length) {
+    list.innerHTML = '<div class="scheduled-event-meta">No absences on record.</div>';
     return;
   }
-  list.innerHTML = events.map(ev => {
-    const range = (ev.from_date || ev.to_date)
-      ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
-    const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
-    return `<div class="scheduled-event-row">
-      <div>
-        <div class="scheduled-event-title">${labels[ev.status] || escapeHtml(ev.status || '')}</div>
-        <div class="scheduled-event-meta">${meta || '—'}</div>
-      </div>
-      <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
+  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', ftr: 'FTR', other: 'Other' };
+  list.innerHTML = groups.filter(([, evs]) => evs.length).map(([title, evs, removable]) => {
+    const rows = evs.map(ev => {
+      const range = (ev.from_date || ev.to_date)
+        ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
+      const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
+      const btn = removable
+        ? `<button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>` : '';
+      return `<div class="scheduled-event-row">
+        <div>
+          <div class="scheduled-event-title">${labels[ev.status] || escapeHtml(ev.status || '')}</div>
+          <div class="scheduled-event-meta">${meta || '—'}</div>
+        </div>
+        ${btn}
+      </div>`;
+    }).join('');
+    return `<div class="absence-group">
+      <div class="absence-group-title">${title} (${evs.length})</div>
+      ${rows}
     </div>`;
   }).join('');
 }
