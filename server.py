@@ -643,11 +643,14 @@ def get_personnel():
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
+    _reconcile_absences(conn, date.today().isoformat())
+    conn.commit()
     rows = conn.execute(
         'SELECT * FROM personnel WHERE platoon = ? ORDER BY rank, last, first', (platoon,)
     ).fetchall()
     scheduled_rows = conn.execute(
-        'SELECT * FROM scheduled_events WHERE platoon = ? ORDER BY from_date, to_date, id', (platoon,)
+        "SELECT * FROM scheduled_events WHERE platoon = ? AND state != 'completed' "
+        'ORDER BY from_date, to_date, id', (platoon,)
     ).fetchall()
     conn.close()
     scheduled_by_person = {}
@@ -656,13 +659,7 @@ def get_personnel():
     result = []
     for r in rows:
         item = dict(r)
-        events = scheduled_by_person.get(r['id'], [])
-        item['scheduled_events'] = events
-        if events:
-            item['sched_status'] = events[0]['status']
-            item['sched_from'] = events[0]['from_date']
-            item['sched_to'] = events[0]['to_date']
-            item['sched_notes'] = events[0]['notes']
+        item['scheduled_events'] = scheduled_by_person.get(r['id'], [])
         result.append(item)
     return jsonify(result)
 
@@ -693,8 +690,7 @@ def add_person():
 def update_person(person_id):
     data = request.get_json()
     fields, values = [], []
-    for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date',
-                'sched_status', 'sched_from', 'sched_to', 'sched_notes'):
+    for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date'):
         if col in data:
             fields.append(f'{col} = ?')
             values.append(data[col])
@@ -788,19 +784,15 @@ def add_scheduled_event(person_id):
         conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
+    from_date = (data.get('from_date') or '').strip() or date.today().isoformat()
     cur = conn.execute(
-        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (person_id, person['platoon'], status, data.get('from_date', ''), data.get('to_date', ''),
+        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state) '
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')",
+        (person_id, person['platoon'], status, from_date, data.get('to_date', ''),
          data.get('notes', ''), data.get('location', ''))
     )
     new_id = cur.lastrowid
-    first = conn.execute(
-        'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date, to_date, id LIMIT 1', (person_id,)
-    ).fetchone()
-    conn.execute(
-        'UPDATE personnel SET sched_status = ?, sched_from = ?, sched_to = ?, sched_notes = ? WHERE id = ?',
-        (first['status'], first['from_date'], first['to_date'], first['notes'], person_id)
-    )
+    _reconcile_absences(conn, date.today().isoformat())
     conn.commit()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (new_id,)).fetchone()
     conn.close()
@@ -822,18 +814,11 @@ def delete_scheduled_event(event_id):
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
     conn.execute('DELETE FROM scheduled_events WHERE id = ?', (event_id,))
-    first = conn.execute(
-        'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date, to_date, id LIMIT 1', (person_id,)
-    ).fetchone()
-    if first:
+    if row['state'] == 'active':
+        # Cancelling an in-progress absence returns the soldier to duty.
         conn.execute(
-            'UPDATE personnel SET sched_status = ?, sched_from = ?, sched_to = ?, sched_notes = ? WHERE id = ?',
-            (first['status'], first['from_date'], first['to_date'], first['notes'], person_id)
-        )
-    else:
-        conn.execute(
-            "UPDATE personnel SET sched_status = '', sched_from = '', sched_to = '', sched_notes = '' WHERE id = ?",
-            (person_id,)
+            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
+            "WHERE id = ? AND status = ?", (person_id, row['status'])
         )
     conn.commit()
     conn.close()
