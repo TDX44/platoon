@@ -41,7 +41,7 @@
   .tdy-field-separator::before, .tdy-field-separator::after { content: ''; flex: 1; height: 1px; background: #3a3a55; }
   .tdy-field-separator span { font-size: 0.72em; color: #636e72; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }
   .import-hint { font-size: 0.78em; color: #636e72; margin-bottom: 8px; line-height: 1.5; }
-  .import-preview { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+  .import-preview { margin-top: 10px; max-height: 200px; overflow-y: auto; overflow-x: auto; }
   .import-preview table { width: 100%; font-size: 0.85em; }
   .import-preview td { padding: 3px 6px; border-bottom: 1px solid #3a3a55; }
   .import-error { color: #e17055; font-size: 0.8em; margin-top: 4px; }
@@ -426,6 +426,10 @@
     background: #0984e322; border: 1px solid #0984e3; border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .bulk-bar.visible { display: flex; }
   .bulk-bar-label { font-weight: 600; color: #74b9ff; font-size: 0.9em; }
+  .bulk-status-select {
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #444;
+    border-radius: 4px; padding: 5px 8px; font-size: 0.85em;
+  }
 
   /* ─── Returning-today / overdue badges ─── */
   .returning-badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 0.7em;
@@ -2308,35 +2312,7 @@
   .dash-row-mobilemeta { display: none; font-size: 0.78em; color: var(--dash-muted); margin-top: 2px; }
 
   @media (max-width: 380px) {
-    .stats-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .controls button,
-    .controls-secondary button {
-      font-size: 0.74rem;
-      padding-left: 6px;
-      padding-right: 6px;
-    }
-    .present-btn,
-    .btn-tdy-leave,
-    .btn-small {
-      font-size: 0.74rem;
-    }
-    .table-wrap table tbody tr {
-      grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
-      grid-template-areas:
-        "rank name name"
-        "secondary primary primary";
-      row-gap: 7px;
-    }
-    .mobile-primary-action-cell,
-    .mobile-secondary-action-cell {
-      justify-self: stretch;
-    }
-    .present-btn,
-    .btn-tdy-leave,
-    .mobile-only-action {
-      width: 100%;
-      min-height: 40px;
-    }
+    .btn-small { font-size: 0.74rem; }
   }
 </style>
 </head>
@@ -2461,7 +2437,7 @@
       <input type="checkbox" id="selectAllChk" class="row-checkbox" onchange="toggleSelectAll()"> All
     </label>
     <span class="bulk-bar-label"><span id="bulkCount">0</span> selected</span>
-    <select id="bulkStatusSelect" style="background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:0.85em;">
+    <select id="bulkStatusSelect" class="bulk-status-select">
       <option value="">— Set Status —</option>
       <option value="present">Present</option>
       <option value="tdy">TDY</option>
@@ -5295,20 +5271,20 @@ async function confirmReset() {
   render();
 }
 
-// ─── Swipe to Mark Present ───
+// ─── Swipe right on a Needs-Action row to mark present ───
 (function initSwipe() {
   let touchStartX = 0, touchStartY = 0, touchTarget = null;
   document.addEventListener('touchstart', e => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    touchTarget = e.target.closest('tr');
+    touchTarget = e.target.closest('.dash-row-needs');
   }, { passive: true });
   document.addEventListener('touchend', e => {
     if (!touchTarget) return;
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
     if (dx > 60 && dy < 40) {
-      const btn = touchTarget.querySelector('.present-btn.unaccounted, .present-btn.inactive');
+      const btn = [...touchTarget.querySelectorAll('button')].find(b => b.textContent.trim() === 'Mark Present');
       if (btn) btn.click();
     }
     touchTarget = null;
