@@ -1182,6 +1182,12 @@ def _reconcile_absences(conn, today_str):
             # Window already entirely in the past: never became visible; file as history.
             conn.execute("UPDATE scheduled_events SET state = 'completed' WHERE id = ?", (r['id'],))
             continue
+        # The newest activation supersedes any absence still marked active,
+        # otherwise the stale event would later "return" the soldier mid-absence.
+        conn.execute(
+            "UPDATE scheduled_events SET state = 'completed' "
+            "WHERE person_id = ? AND state = 'active' AND id != ?", (r['person_id'], r['id'])
+        )
         conn.execute(
             "UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?",
             (r['status'], r['from_date'], r['to_date'], r['notes'], r['person_id'])
