@@ -137,6 +137,7 @@ def init_db():
             to_date    TEXT DEFAULT '',
             notes      TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')),
+            state      TEXT DEFAULT 'scheduled',
             FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
         )
     ''')
@@ -203,6 +204,23 @@ def init_db():
             "  AND s.notes = p.sched_notes"
             ")"
         )
+    if scols and 'state' not in scols:
+        cur.execute("ALTER TABLE scheduled_events ADD COLUMN state TEXT DEFAULT 'scheduled'")
+        # Old-model rows whose whole window already passed were never activated
+        # (activation was broken in production); file them as history.
+        cur.execute(
+            "UPDATE scheduled_events SET state = 'completed' "
+            "WHERE to_date != '' AND to_date < date('now', 'localtime')"
+        )
+    # Soldiers already away have no event row under the old model (activation
+    # deleted it); backfill an active event so reconciliation owns their return.
+    cur.execute(
+        "INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) "
+        "SELECT id, platoon, status, from_date, to_date, notes, 'active' FROM personnel p "
+        "WHERE status IN ('tdy', 'leave', 'pass', 'other', 'ftr') AND NOT EXISTS ("
+        "  SELECT 1 FROM scheduled_events s WHERE s.person_id = p.id AND s.state = 'active'"
+        ")"
+    )
 
     # ── Seed legacy admin user only when Clerk is not configured ──
     cur.execute('SELECT COUNT(*) FROM users')
@@ -1118,10 +1136,10 @@ def import_backup():
 def activate_scheduled():
     today_str = date.today().isoformat()
     conn = get_db()
-    activated = _activate_scheduled(conn, today_str)
+    result = _reconcile_absences(conn, today_str)
     conn.commit()
     conn.close()
-    return jsonify({'activated': activated})
+    return jsonify(result)
 
 
 # ── Reset route (used by auto-reset and manual reset) ──
@@ -1150,43 +1168,46 @@ def reset_day():
 
 # ── Midnight auto-reset background thread ──
 
-def _activate_scheduled(conn, today_str):
-    """Promote scheduled entries whose start date has arrived."""
-    rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE from_date != '' AND from_date <= ? ORDER BY from_date, id",
-        (today_str,)
+def _reconcile_absences(conn, today_str):
+    """Advance the absence lifecycle: scheduled -> active when from_date arrives,
+    active -> completed when to_date passes (returning the soldier to duty)."""
+    completed_rows = conn.execute(
+        "SELECT * FROM scheduled_events WHERE state = 'active' "
+        "AND to_date != '' AND to_date < ?", (today_str,)
     ).fetchall()
-    for r in rows:
+    for r in completed_rows:
+        conn.execute("UPDATE scheduled_events SET state = 'completed' WHERE id = ?", (r['id'],))
         conn.execute(
-            "UPDATE personnel SET status=?, from_date=?, to_date=?, notes=?, "
-            "sched_status='', sched_from='', sched_to='', sched_notes='' WHERE id=?",
+            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
+            "WHERE id = ? AND status = ?", (r['person_id'], r['status'])
+        )
+        conn.execute(
+            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
+            ('system', 'ABSENCE_COMPLETE', f'person {r["person_id"]}: {r["status"]} ended {r["to_date"]}', r['platoon'])
+        )
+
+    activated = 0
+    activated_rows = conn.execute(
+        "SELECT * FROM scheduled_events WHERE state = 'scheduled' "
+        "AND from_date != '' AND from_date <= ? ORDER BY from_date, id", (today_str,)
+    ).fetchall()
+    for r in activated_rows:
+        if r['to_date'] and r['to_date'] < today_str:
+            # Window already entirely in the past: never became visible; file as history.
+            conn.execute("UPDATE scheduled_events SET state = 'completed' WHERE id = ?", (r['id'],))
+            continue
+        conn.execute(
+            "UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?",
             (r['status'], r['from_date'], r['to_date'], r['notes'], r['person_id'])
         )
-        conn.execute('DELETE FROM scheduled_events WHERE id = ?', (r['id'],))
-        first = conn.execute(
-            'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date, to_date, id LIMIT 1',
-            (r['person_id'],)
-        ).fetchone()
-        if first:
-            conn.execute(
-                'UPDATE personnel SET sched_status = ?, sched_from = ?, sched_to = ?, sched_notes = ? WHERE id = ?',
-                (first['status'], first['from_date'], first['to_date'], first['notes'], r['person_id'])
-            )
-
-    legacy_rows = conn.execute(
-        "SELECT id, sched_status, sched_from, sched_to, sched_notes FROM personnel "
-        "WHERE sched_status != '' AND sched_from <= ? AND NOT EXISTS ("
-        "  SELECT 1 FROM scheduled_events s WHERE s.person_id = personnel.id"
-        ")",
-        (today_str,)
-    ).fetchall()
-    for r in legacy_rows:
+        conn.execute("UPDATE scheduled_events SET state = 'active' WHERE id = ?", (r['id'],))
         conn.execute(
-            "UPDATE personnel SET status=?, from_date=?, to_date=?, notes=?, "
-            "sched_status='', sched_from='', sched_to='', sched_notes='' WHERE id=?",
-            (r['sched_status'], r['sched_from'], r['sched_to'], r['sched_notes'], r['id'])
+            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
+            ('system', 'ABSENCE_ACTIVATE', f'person {r["person_id"]}: {r["status"]} from {r["from_date"]}', r['platoon'])
         )
-    return len(rows) + len(legacy_rows)
+        activated += 1
+
+    return {'activated': activated, 'completed': len(completed_rows)}
 
 
 def _midnight_reset_worker():
@@ -1199,11 +1220,11 @@ def _midnight_reset_worker():
             try:
                 conn = get_db()
                 conn.execute("UPDATE personnel SET present_date = '' WHERE status = 'present'")
-                activated = _activate_scheduled(conn, today_str)
+                result = _reconcile_absences(conn, today_str)
                 conn.commit()
                 conn.close()
                 last_reset_date = today
-                print(f'[auto-reset] Day reset at {now}; {activated} scheduled entries activated', flush=True)
+                print(f'[auto-reset] Day reset at {now}; absences reconciled: {result}', flush=True)
             except Exception as e:
                 print(f'[auto-reset] Error: {e}', flush=True)
         time.sleep(30)
