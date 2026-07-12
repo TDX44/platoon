@@ -2000,13 +2000,13 @@
   .dash-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
   .dash-nav-item {
     display: flex; align-items: center; gap: 10px; width: 100%;
-    background: none; border: none; cursor: pointer; text-align: left;
-    color: var(--dash-side-text); font-size: 0.9em; font-weight: 600;
-    padding: 10px 12px; border-radius: 8px; transition: background 0.15s, color 0.15s;
-    font-family: inherit;
+    background: none; border: none; border-left: 3px solid transparent; cursor: pointer; text-align: left;
+    color: var(--dash-side-text); font-size: 0.86em; font-weight: 600;
+    font-family: var(--cp-font-display); text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 10px 12px; border-radius: 0 3px 3px 0; transition: background 0.15s, color 0.15s;
   }
   .dash-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
-  .dash-nav-item.active { background: var(--dash-side-active-bg); color: var(--dash-side-active-text); }
+  .dash-nav-item.active { background: var(--dash-side-active-bg); color: var(--dash-side-active-text); border-left-color: var(--cp-accent); }
   .dash-nav-item svg { width: 17px; height: 17px; flex: none; stroke: currentColor; }
   .dash-side-user {
     margin-top: 10px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.08);
@@ -2056,18 +2056,18 @@
 
   .dash-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    padding: 9px 16px; border-radius: var(--cp-radius); cursor: pointer;
     font-size: 0.88em; font-weight: 600; font-family: inherit;
     border: 1px solid transparent; transition: background 0.15s, border-color 0.15s;
     white-space: nowrap;
   }
-  .dash-btn-primary { background: var(--dash-accent); color: #fff; }
+  .dash-btn-primary { background: var(--dash-accent); color: var(--cp-accent-text); }
   .dash-btn-primary:hover { background: var(--dash-accent-hover); }
   .dash-btn-secondary { background: var(--dash-card); color: var(--dash-text); border-color: var(--dash-border); box-shadow: var(--dash-shadow); }
   .dash-btn-secondary:hover { background: var(--dash-hover); }
   .dash-btn-ghost { background: none; color: var(--dash-muted); border-color: var(--dash-border); }
   .dash-btn-ghost:hover { background: var(--dash-hover); color: var(--dash-text); }
-  .dash-btn-sm { padding: 6px 12px; font-size: 0.82em; border-radius: 7px; }
+  .dash-btn-sm { padding: 6px 12px; font-size: 0.82em; }
 
   .dash-more { position: relative; }
   .dash-more > summary {
@@ -2100,22 +2100,28 @@
   }
   .dash-card {
     background: var(--dash-card); border: 1px solid var(--dash-border);
-    border-radius: 12px; box-shadow: var(--dash-shadow); padding: 16px;
+    border-radius: 4px; padding: 16px;
   }
-  .dash-card-title { font-size: 0.95em; font-weight: 700; margin-bottom: 12px; color: var(--dash-text); }
+  .dash-card-title {
+    font-size: 0.85em; font-weight: 700; margin-bottom: 12px; color: var(--dash-muted);
+    font-family: var(--cp-font-display); text-transform: uppercase; letter-spacing: 0.08em;
+  }
 
   /* Metrics */
   .dash-metrics-primary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .dash-metric-card {
-    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 12px;
-    box-shadow: var(--dash-shadow); padding: 16px 18px;
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 4px;
+    border-top: 2px solid var(--dash-border); padding: 16px 18px;
     display: flex; align-items: center; gap: 14px; min-height: 92px;
   }
   button.dash-metric-card { cursor: pointer; text-align: left; font-family: inherit; }
   button.dash-metric-card:hover { border-color: var(--dash-accent); }
   .dash-metric-card.alert { border-color: var(--dash-red); background: var(--dash-red-bg); }
   .dash-metric-card.alert .dash-metric-num { color: var(--dash-red); }
-  .dash-metric-num { font-size: 1.9em; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--dash-text); }
+  .dash-metric-num {
+    font-size: 2.1em; font-weight: 700; line-height: 1.05; color: var(--dash-text);
+    font-family: var(--cp-font-display); font-variant-numeric: tabular-nums;
+  }
   .dash-metric-label { font-size: 0.78em; font-weight: 700; color: var(--dash-muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .dash-metric-sub { font-size: 0.8em; color: var(--dash-faint); margin-top: 2px; }
   .dash-ring { flex: none; }
@@ -2126,14 +2132,17 @@
 
   .dash-metrics-mini { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 12px; }
   .dash-mini-tile {
-    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
+    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 3px;
     padding: 10px 12px; text-align: left; cursor: pointer; font-family: inherit;
     transition: border-color 0.15s, background 0.15s; min-width: 0;
   }
   .dash-mini-tile:hover { background: var(--dash-hover); }
   .dash-mini-tile.active { border-color: var(--dash-accent); box-shadow: 0 0 0 1px var(--dash-accent); }
   .dash-mini-tile[disabled] { cursor: default; }
-  .dash-mini-num { font-size: 1.25em; font-weight: 800; color: var(--dash-text); line-height: 1.2; }
+  .dash-mini-num {
+    font-size: 1.3em; font-weight: 700; color: var(--dash-text); line-height: 1.2;
+    font-family: var(--cp-font-display); font-variant-numeric: tabular-nums;
+  }
   .dash-mini-label { font-size: 0.68em; font-weight: 700; color: var(--dash-faint); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Personnel sections */
@@ -2624,6 +2633,19 @@
     <div id="loanRow" style="display:none;">
       <label>Position</label>
       <input type="text" id="loanPosition" placeholder="e.g. S2 NCOIC, BN Intel Officer" oninput="updateNotesPreview()" />
+    </div>
+
+    <div id="otherRow" style="display:none;">
+      <label>Category</label>
+      <input type="text" id="otherCategory" list="otherCategorySuggestions"
+             placeholder="e.g. Quarters, Staff Duty Recovery" oninput="updateNotesPreview()" />
+      <datalist id="otherCategorySuggestions">
+        <option value="Quarters"></option>
+        <option value="Staff Duty Recovery"></option>
+        <option value="CQ Recovery"></option>
+        <option value="Appointment"></option>
+        <option value="Detail"></option>
+      </datalist>
     </div>
 
     <div class="tdy-school-row" id="tdySchoolRow">
@@ -3735,6 +3757,7 @@ function setAwayStatus(status) {
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
   document.getElementById('loanRow').style.display = status === 'loan' ? 'block' : 'none';
+  document.getElementById('otherRow').style.display = status === 'other' ? 'block' : 'none';
   // Hide date picker for loan (no dates needed)
   document.querySelector('.date-pick-row').style.display = status === 'loan' ? 'none' : '';
   document.getElementById('notesPreview').closest('div').previousElementSibling.style.display = status === 'loan' ? 'none' : '';
@@ -3752,6 +3775,9 @@ function updateNotesPreview() {
     const location = document.getElementById('awayLocation').value.trim();
     if (school) parts.push(school);
     if (location) parts.push(location);
+  } else if (awayStatus === 'other') {
+    const category = document.getElementById('otherCategory').value.trim();
+    if (category) parts.push(category);
   }
 
   if (awayFrom || awayTo) {
@@ -3773,10 +3799,11 @@ function openTdyLeave(i) {
   const status = (p.status === 'present') ? 'tdy' : p.status;
   setAwayStatus(status);
 
-  // Restore school/location or position from notes
+  // Restore school/location, position, or category from notes
   document.getElementById('awaySchool').value = '';
   document.getElementById('awayLocation').value = '';
   document.getElementById('loanPosition').value = '';
+  document.getElementById('otherCategory').value = '';
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
@@ -3787,6 +3814,8 @@ function openTdyLeave(i) {
     }
   } else if (status === 'loan' && p.notes) {
     document.getElementById('loanPosition').value = p.notes;
+  } else if (status === 'other' && p.notes) {
+    document.getElementById('otherCategory').value = p.notes;
   }
 
   awayFrom = p.from || '';
@@ -3820,6 +3849,8 @@ async function saveTdyLeave() {
     notesVal = [school, location].filter(Boolean).join(' - ');
   } else if (awayStatus === 'loan') {
     notesVal = document.getElementById('loanPosition').value.trim();
+  } else if (awayStatus === 'other') {
+    notesVal = document.getElementById('otherCategory').value.trim();
   }
 
   if (awayStatus === 'loan') {
@@ -4138,10 +4169,10 @@ function generateReport() {
     lines.push(`OTHER/NOT PDY ${other.length}`);
     other.forEach(p => {
       const parts = [];
-      if (p.notes) parts.push(p.notes);
+      parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
     });
   }
 
