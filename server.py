@@ -994,7 +994,7 @@ def export_backup():
 
     conn.close()
     payload = {
-        'version': 1,
+        'version': 2,
         'exported_at': datetime.utcnow().isoformat() + 'Z',
         'personnel': personnel,
         'scheduled_events': scheduled_events,
@@ -1015,7 +1015,7 @@ def export_backup():
 def import_backup():
     user = get_current_user()
     payload = request.get_json()
-    if not payload or payload.get('version') != 1:
+    if not payload or payload.get('version') not in (1, 2):
         return jsonify({'error': 'Invalid or unsupported backup file'}), 400
 
     conn = get_db()
@@ -1065,11 +1065,12 @@ def import_backup():
                 if not user['is_admin'] and s.get('platoon') not in accessible:
                     continue
                 conn.execute(
-                    'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     (s.get('id') if user['is_admin'] else None, s.get('person_id'), s.get('platoon', '2nd'),
                      s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
-                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()))
+                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
+                     s.get('state', 'scheduled'))
                 )
 
         # Profiles restore only on a full (admin) restore, where personnel ids are preserved.
