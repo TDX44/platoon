@@ -1459,16 +1459,48 @@
     border-radius: var(--theme_radius);
     padding: 10px 12px; margin: 10px 0;
   }
-  .directory-list { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
-  .directory-row {
-    display: grid; grid-template-columns: 56px minmax(0,1fr) auto;
-    gap: 10px; align-items: center; padding: 9px 11px; cursor: pointer;
-    border: 1px solid var(--theme_border); border-radius: var(--theme_radius);
-    background: var(--theme_surface-soft); text-align: left; width: 100%;
-    color: var(--theme_text); font-size: 0.88rem;
+  /* ── Directory page ── */
+  .directory-view { display: none; }
+  body.directory-active #dashMetrics,
+  body.directory-active #bulkBar,
+  body.directory-active #personnelBody { display: none; }
+  body.directory-active .dash-rail { display: none; }
+  body.directory-active .dash-main { grid-column: 2 / 4; max-width: none; }
+  body.directory-active .directory-view { display: block; }
+
+  .directory-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin: 4px 0 14px;
   }
-  .directory-row:hover { border-color: var(--theme_accent, #6c5ce7); }
-  .directory-row .dir-rank { color: var(--theme_text-muted); font-weight: 600; }
+  .directory-head h2 { font-size: 1.15rem; font-weight: 650; margin: 0; }
+  .directory-head .directory-count { color: var(--cp-muted); font-size: 0.85rem; }
+  .directory-search {
+    margin-left: auto; width: min(300px, 100%);
+    padding: 8px 12px; font-size: 0.88rem;
+    background: var(--cp-input); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+  }
+  .directory-search:focus { border-color: var(--cp-accent); outline: none; }
+  .directory-table-wrap {
+    overflow-x: auto; background: var(--cp-surface);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+  }
+  .directory-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .directory-table th {
+    position: sticky; top: 0; z-index: 1; text-align: left;
+    background: var(--cp-subtle); color: var(--cp-muted);
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 10px 12px; border-bottom: 1px solid var(--cp-border); white-space: nowrap;
+  }
+  .directory-table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--cp-hairline);
+    color: var(--cp-text); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .directory-table tbody tr { cursor: pointer; }
+  .directory-table tbody tr:hover td { background: var(--cp-hover); }
+  .directory-table tbody tr:last-child td { border-bottom: none; }
+  .directory-table .dir-name { font-weight: 600; color: var(--cp-text-strong); }
+  .directory-table .dir-muted { color: var(--cp-muted); }
 
   /* ── Soldier detail page ── */
   .soldier-view { display: none; }
@@ -1478,6 +1510,7 @@
   body.soldier-active .dash-rail { display: none; }
   body.soldier-active .dash-main { grid-column: 2 / 4; }
   body.soldier-active .soldier-view { display: block; }
+  body.soldier-active .directory-view { display: none; }
 
   .soldier-back {
     background: none; border: none; cursor: pointer; padding: 4px 0;
@@ -2510,6 +2543,7 @@
   </div>
   <div class="dash-sections" id="personnelBody"></div>
   <div class="soldier-view" id="soldierView"></div>
+  <div class="directory-view" id="directoryView"></div>
 </div>
 
 <aside class="dash-rail">
@@ -2710,17 +2744,6 @@
   </div>
 </div>
 
-<!-- Personnel Directory Modal -->
-<div class="modal-overlay" id="directoryModal">
-  <div class="modal modal-wide">
-    <h2>Personnel Directory</h2>
-    <input type="text" id="directorySearch" placeholder="Search name or rank…" oninput="renderDirectory()" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
-    <div id="directoryList" class="directory-list"></div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeDirectory()">Close</button>
-    </div>
-  </div>
-</div>
 
 <!-- Report Modal -->
 <div class="report-overlay" id="reportModal">
@@ -2819,6 +2842,7 @@ const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT
 
 let personnel = [];
 let tdyLeaveIndex = -1;
+let bulkTdyIds = [];   // when non-empty, the status modal applies to all of these ids
 let currentUser = null;
 let clerk = null;
 let authConfig = null;
@@ -3008,11 +3032,11 @@ function renderMetrics(counts, total, todayStr) {
       <div class="dash-metric-label">Needs Action</div>
       <div class="dash-metric-sub">${needsSub}</div></div>
     </button>
-    <button type="button" class="dash-metric-card${counts.ftr ? ' alert' : ''}" onclick="setQuickFilter('other')" title="${escapeHtml(summarizePeople(personnel.filter(p => p.status === 'ftr')) || 'None')}">
-      <div><div class="dash-metric-num">${counts.ftr || 0}</div>
-      <div class="dash-metric-label">FTR</div>
-      <div class="dash-metric-sub">Failure to report</div></div>
-    </button>
+    <div class="dash-metric-card" title="${escapeHtml(summarizePeople(returningSoon) || 'None')}">
+      <div><div class="dash-metric-num">${returningSoon.length}</div>
+      <div class="dash-metric-label">Return This Week</div>
+      <div class="dash-metric-sub">${returningSoon.length ? escapeHtml(summarizePeople(returningSoon)) : 'No returns due'}</div></div>
+    </div>
   </div>`;
 
   const tiles = [
@@ -3021,7 +3045,7 @@ function renderMetrics(counts, total, todayStr) {
     ['tdy', 'TDY / School', counts.tdy || 0],
     ['loan', 'On Loan', counts.loan || 0],
     ['other', 'Other', counts.other || 0],
-    [null, 'Return This Wk', returningSoon.length, summarizePeople(returningSoon) || 'None']
+    ['other', 'FTR', counts.ftr || 0]
   ];
   if (counts.scheduled) tiles.push(['scheduled', 'Scheduled', counts.scheduled]);
 
@@ -3108,12 +3132,14 @@ function closeMoreSheet() {
 }
 function dashGoRoster() {
   closeSoldierPage();
+  closeDirectoryPage();
   clearDashFilters();
   const el = document.getElementById('personnelBody');
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function dashGoAccountability() {
   closeSoldierPage();
+  closeDirectoryPage();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function refreshData() {
@@ -3160,31 +3186,76 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ─── Soldier Directory ───
-function openDirectory() {
-  const search = document.getElementById('directorySearch');
-  if (search) search.value = '';
+// ─── Personnel Directory (full page) ───
+let directoryRows = [];
+
+async function openDirectory(push = true) {
+  closeSoldierPage(false);
+  document.body.classList.add('directory-active');
+  if (push) pushAppRoute(currentPlatoon, 'directory');
+  const view = document.getElementById('directoryView');
+  view.innerHTML = '<div class="dash-section-empty">Loading directory…</div>';
+  const data = await api('GET', `/directory?platoon=${currentPlatoon}`);
+  if (!data || data.error) {
+    view.innerHTML = '<div class="dash-section-empty">Could not load the directory.</div>';
+    return;
+  }
+  directoryRows = data;
   renderDirectory();
-  document.getElementById('directoryModal').classList.add('active');
 }
 
-function closeDirectory() {
-  document.getElementById('directoryModal').classList.remove('active');
+function closeDirectoryPage(push = true) {
+  if (!document.body.classList.contains('directory-active')) return;
+  document.body.classList.remove('directory-active');
+  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  render();
 }
 
 function renderDirectory() {
-  const list = document.getElementById('directoryList');
-  if (!list) return;
-  const term = (document.getElementById('directorySearch').value || '').toLowerCase().trim();
-  const rows = personnel
-    .map((p, i) => ({ p, i }))
-    .filter(({ p }) => !term || `${p.rank} ${p.last} ${p.first}`.toLowerCase().includes(term))
-    .map(({ p, i }) => `<button class="directory-row" onclick="openProfile(${i})">
-      <span class="dir-rank">${escapeHtml(p.rank)}</span>
-      <span>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
-      ${dashPill(p.status)}
-    </button>`).join('');
-  list.innerHTML = rows || '<div class="scheduled-event-meta">No personnel found.</div>';
+  const view = document.getElementById('directoryView');
+  if (!view) return;
+  const searchEl = document.getElementById('directorySearch');
+  const term = (searchEl ? searchEl.value : '').toLowerCase().trim();
+  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR' };
+  const rows = directoryRows.filter(r =>
+    !term || `${r.rank} ${r.last} ${r.first} ${r.mos || ''} ${r.section || ''}`.toLowerCase().includes(term)
+  );
+  const body = rows.map(r => {
+    const ret = (r.status !== 'present' && r.to_date) ? formatDateShort(r.to_date) : '—';
+    const nxt = r.next_absence
+      ? `${labels[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
+      : '—';
+    return `<tr onclick="openSoldierPage(${r.id})">
+      <td class="dir-name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
+      <td>${dashPill(r.status)}</td>
+      <td>${ret}</td>
+      <td>${r.next_absence ? escapeHtml(nxt) : '<span class="dir-muted">—</span>'}</td>
+      <td>${escapeHtml(r.dod_id || '') || '<span class="dir-muted">—</span>'}</td>
+      <td>${r.dob ? formatDateShort(r.dob) : '<span class="dir-muted">—</span>'}</td>
+      <td>${escapeHtml(r.mos || '') || '<span class="dir-muted">—</span>'}</td>
+      <td>${escapeHtml(r.section || '') || '<span class="dir-muted">—</span>'}</td>
+      <td>${escapeHtml(r.phone || '') || '<span class="dir-muted">—</span>'}</td>
+    </tr>`;
+  }).join('');
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeDirectoryPage()">&larr; Back to roster</button>
+    <div class="directory-head">
+      <h2>Personnel Directory</h2>
+      <span class="directory-count">${rows.length} of ${directoryRows.length}</span>
+      <input type="text" class="directory-search" id="directorySearch" placeholder="Search name, MOS, section…"
+        value="${escapeHtml(term)}" oninput="renderDirectory()">
+    </div>
+    <div class="directory-table-wrap">
+      <table class="directory-table">
+        <thead><tr>
+          <th>Name</th><th>Status</th><th>Return</th><th>Next Scheduled</th>
+          <th>DOD ID</th><th>DOB</th><th>MOS</th><th>Section</th><th>Phone</th>
+        </tr></thead>
+        <tbody>${body || '<tr><td colspan="9" class="dir-muted">No personnel found.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  const search = document.getElementById('directorySearch');
+  if (term && search) { search.focus(); search.setSelectionRange(term.length, term.length); }
 }
 
 // ─── Soldier Detail Page ───
@@ -3192,7 +3263,7 @@ const PROFILE_FIELD_IDS = [
   'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
   'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
   'clearance', 'ets_date', 'section', 'profile_notes',
-  'flags', 'medical_date', 'dental_date', 'weapons_qual'
+  'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'
 ];
 let currentSoldierId = null;
 let pendingSoldierId = null;
@@ -3213,7 +3284,7 @@ function openSoldierPage(id, push = true) {
   if (!p) return;
   currentSoldierId = id;
   soldierTab = 'overview';
-  closeDirectory();
+  document.body.classList.remove('directory-active');
   if (push) pushAppRoute(currentPlatoon, 'soldier', id);
   document.body.classList.add('soldier-active');
   renderSoldierPage();
@@ -3298,6 +3369,7 @@ function renderSoldierPage() {
         <section class="soldier-card">
           <h3>Administrative</h3>
           ${profileField('DOD ID', 'dod_id')}
+          ${profileField('Date of Birth', 'dob', 'date')}
           ${profileField('Date of Rank', 'date_of_rank', 'date')}
           ${profileField('MOS', 'mos')}
           ${profileField('Security Clearance', 'clearance')}
@@ -3816,6 +3888,7 @@ function updateNotesPreview() {
 
 // ─── TDY / Leave Modal ───
 function openTdyLeave(i) {
+  bulkTdyIds = [];
   tdyLeaveIndex = i;
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
@@ -3860,9 +3933,49 @@ function openTdyLeave(i) {
 function closeTdyLeaveModal() {
   document.getElementById('tdyLeaveModal').classList.remove('active');
   tdyLeaveIndex = -1;
+  bulkTdyIds = [];
+}
+
+function bulkAbsenceNotes() {
+  if (awayStatus === 'tdy') {
+    const school = document.getElementById('awaySchool').value.trim();
+    const location = document.getElementById('awayLocation').value.trim();
+    return [school, location].filter(Boolean).join(' - ');
+  }
+  if (awayStatus === 'loan') return document.getElementById('loanPosition').value.trim();
+  if (awayStatus === 'other') return document.getElementById('otherCategory').value.trim();
+  return '';
+}
+
+async function saveBulkTdyLeave() {
+  const ids = [...bulkTdyIds];
+  const notesVal = bulkAbsenceNotes();
+  if (awayStatus === 'loan') {
+    const updates = [];
+    for (const id of ids) {
+      const p = personnel.find(x => x.id === id);
+      if (!p) continue;
+      p.status = 'loan'; p.notes = notesVal; p.from = ''; p.to = '';
+      updates.push(apiUpdate(p));
+    }
+    await Promise.all(updates);
+  } else {
+    const results = await Promise.all(ids.map(id =>
+      api('POST', `/personnel/${id}/schedule`, {
+        status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal
+      })
+    ));
+    const failed = results.filter(r => !r || r.error).length;
+    if (failed) alert(`${failed} of ${ids.length} could not be saved.`);
+    await load();   // server reconciled; pull the truth
+  }
+  clearBulkSelect();
+  closeTdyLeaveModal();
+  render();
 }
 
 async function saveTdyLeave() {
+  if (bulkTdyIds.length) { await saveBulkTdyLeave(); return; }
   if (tdyLeaveIndex < 0) return;
   const p = personnel[tdyLeaveIndex];
 
@@ -4373,18 +4486,47 @@ async function applyBulkStatus() {
   const status = document.getElementById('bulkStatusSelect').value;
   if (!status) { alert('Select a status to apply.'); return; }
   if (!bulkSelected.size) return;
-  if (!confirm(`Set ${bulkSelected.size} personnel to "${status}"?`)) return;
-  const updates = [];
-  for (const id of bulkSelected) {
-    const p = personnel.find(x => x.id === id);
-    if (!p) continue;
-    p.status = status;
-    if (status === 'present') { p.notes = ''; p.from = ''; p.to = ''; p.present_date = getTodayStr(); }
-    updates.push(apiUpdate(p));
+
+  if (status === 'present') {
+    if (!confirm(`Mark ${bulkSelected.size} personnel present?`)) return;
+    const updates = [];
+    for (const id of bulkSelected) {
+      const p = personnel.find(x => x.id === id);
+      if (!p) continue;
+      p.status = 'present'; p.notes = ''; p.from = ''; p.to = '';
+      p.present_date = getTodayStr();
+      updates.push(apiUpdate(p));
+    }
+    await Promise.all(updates);
+    clearBulkSelect();
+    render();
+    return;
   }
-  await Promise.all(updates);
-  clearBulkSelect();
-  render();
+
+  // Absence statuses go through the details modal so dates/school/location
+  // apply to everyone selected.
+  openBulkStatusModal(status);
+}
+
+function openBulkStatusModal(status) {
+  bulkTdyIds = [...bulkSelected];
+  tdyLeaveIndex = -1;
+  document.getElementById('tdyLeaveTitle').textContent =
+    `${bulkTdyIds.length} selected personnel`;
+  setAwayStatus(status);
+  ['awaySchool', 'awayLocation', 'loanPosition', 'otherCategory'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  awayFrom = ''; awayTo = '';
+  document.getElementById('awayFromInput').value = '';
+  document.getElementById('awayToInput').value = '';
+  // The per-soldier scheduled-events list doesn't apply to a bulk edit.
+  document.getElementById('scheduledEventsLabel').style.display = 'none';
+  document.getElementById('scheduledEventsList').innerHTML = '';
+  document.getElementById('clearScheduleBtn').style.display = 'none';
+  updateFutureNotice();
+  updateNotesPreview();
+  document.getElementById('tdyLeaveModal').classList.add('active');
 }
 
 // ─── Download / Print ───
@@ -4593,6 +4735,7 @@ function showAppScreen(screen) {
   document.body.classList.toggle('dash-active', screen === 'platoon');
   if (screen !== 'platoon') {
     document.body.classList.remove('soldier-active');
+    document.body.classList.remove('directory-active');
     currentSoldierId = null;
   }
   document.getElementById('loginScreen').style.display = 'none';
@@ -5101,6 +5244,7 @@ function routeAfterLogin() {
   }
   if (route.platoon) {
     selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
+    if (route.section === 'directory') openDirectory(false);
   } else {
     loadHome();
   }
@@ -5170,6 +5314,7 @@ function selectPlatoon(platoon, push = true, pendingSoldier = null) {
   currentPlatoon = platoon;
   pendingSoldierId = pendingSoldier;
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
+  document.body.classList.remove('directory-active');
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
   const isAdmin = currentUser && currentUser.is_admin;
@@ -5329,10 +5474,14 @@ window.addEventListener('popstate', () => {
     const wantSoldier = route.section === 'soldier' ? route.soldierId : null;
     if (route.platoon !== currentPlatoon) {
       selectPlatoon(route.platoon, false, wantSoldier);
+      if (route.section === 'directory') openDirectory(false);
     } else if (wantSoldier != null) {
       openSoldierPage(wantSoldier, false);
+    } else if (route.section === 'directory') {
+      openDirectory(false);
     } else {
       closeSoldierPage(false);
+      closeDirectoryPage(false);
     }
   } else { loadHome(); }
 });

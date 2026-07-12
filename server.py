@@ -195,7 +195,7 @@ def init_db():
             cur.execute(f'ALTER TABLE personnel ADD COLUMN {col} TEXT DEFAULT ""')
 
     pcols = [row[1] for row in cur.execute('PRAGMA table_info(personnel_profile)').fetchall()]
-    for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual'):
+    for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'):
         if pcols and col not in pcols:
             cur.execute(f'ALTER TABLE personnel_profile ADD COLUMN {col} TEXT DEFAULT ""')
 
@@ -720,7 +720,7 @@ PROFILE_FIELDS = (
     'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
     'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
     'clearance', 'ets_date', 'section', 'profile_notes',
-    'flags', 'medical_date', 'dental_date', 'weapons_qual',
+    'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob',
 )
 
 
@@ -808,6 +808,38 @@ def add_scheduled_event(person_id):
     conn.close()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['platoon'])
     return jsonify(dict(row)), 201
+
+
+@app.route('/api/directory', methods=['GET'])
+@login_required
+def get_directory():
+    platoon = request.args.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    conn = get_db()
+    _reconcile_absences(conn, date.today().isoformat())
+    conn.commit()
+    rows = conn.execute(
+        'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, '
+        '       pp.dod_id, pp.dob, pp.mos, pp.section, pp.phone '
+        'FROM personnel p LEFT JOIN personnel_profile pp ON pp.person_id = p.id '
+        'WHERE p.platoon = ? ORDER BY p.rank, p.last, p.first', (platoon,)
+    ).fetchall()
+    upcoming = conn.execute(
+        "SELECT person_id, status, from_date, to_date FROM scheduled_events "
+        "WHERE platoon = ? AND state = 'scheduled' ORDER BY from_date, id", (platoon,)
+    ).fetchall()
+    conn.close()
+    next_by_person = {}
+    for e in upcoming:
+        next_by_person.setdefault(e['person_id'], dict(e))
+    result = []
+    for r in rows:
+        item = dict(r)
+        item['next_absence'] = next_by_person.get(r['id'])
+        result.append(item)
+    return jsonify(result)
 
 
 @app.route('/api/personnel/<int:person_id>/absences', methods=['GET'])
