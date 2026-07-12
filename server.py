@@ -159,6 +159,10 @@ def init_db():
             ets_date          TEXT DEFAULT '',
             section           TEXT DEFAULT '',
             profile_notes     TEXT DEFAULT '',
+            flags             TEXT DEFAULT '',
+            medical_date      TEXT DEFAULT '',
+            dental_date       TEXT DEFAULT '',
+            weapons_qual      TEXT DEFAULT '',
             FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
         )
     ''')
@@ -189,6 +193,11 @@ def init_db():
     for col, default in [('sched_status',''), ('sched_from',''), ('sched_to',''), ('sched_notes','')]:
         if col not in cols:
             cur.execute(f'ALTER TABLE personnel ADD COLUMN {col} TEXT DEFAULT ""')
+
+    pcols = [row[1] for row in cur.execute('PRAGMA table_info(personnel_profile)').fetchall()]
+    for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual'):
+        if pcols and col not in pcols:
+            cur.execute(f'ALTER TABLE personnel_profile ADD COLUMN {col} TEXT DEFAULT ""')
 
     scols = [row[1] for row in cur.execute('PRAGMA table_info(scheduled_events)').fetchall()]
     if 'location' not in scols:
@@ -711,6 +720,7 @@ PROFILE_FIELDS = (
     'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
     'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
     'clearance', 'ets_date', 'section', 'profile_notes',
+    'flags', 'medical_date', 'dental_date', 'weapons_qual',
 )
 
 

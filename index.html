@@ -3124,7 +3124,8 @@ function renderDirectory() {
 const PROFILE_FIELD_IDS = [
   'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
   'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
-  'clearance', 'ets_date', 'section', 'profile_notes'
+  'clearance', 'ets_date', 'section', 'profile_notes',
+  'flags', 'medical_date', 'dental_date', 'weapons_qual'
 ];
 let currentSoldierId = null;
 let pendingSoldierId = null;
@@ -3235,6 +3236,13 @@ function renderSoldierPage() {
           ${profileField('Security Clearance', 'clearance')}
           ${profileField('ETS Date', 'ets_date', 'date')}
           ${profileField('Section / Team', 'section')}
+        </section>
+        <section class="soldier-card">
+          <h3>Readiness</h3>
+          ${profileField('Flags', 'flags')}
+          ${profileField('Medical Readiness Date', 'medical_date', 'date')}
+          ${profileField('Dental Readiness Date', 'dental_date', 'date')}
+          ${profileField('Weapons Qual (weapon / date)', 'weapons_qual')}
         </section>
       </div>
     </div>
