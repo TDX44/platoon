@@ -2810,12 +2810,10 @@ async function load() {
       status: p.status, notes: p.notes || '',
       from: p.from_date || '', to: p.to_date || '',
       present_date: p.present_date || '',
-      sched_status: p.sched_status || '', sched_from: p.sched_from || '',
-      sched_to: p.sched_to || '', sched_notes: p.sched_notes || '',
-      scheduled_events: p.scheduled_events || []
+      // Active absences are represented by the person's own status; the
+      // scheduled list shows upcoming (state === 'scheduled') events only.
+      scheduled_events: (p.scheduled_events || []).filter(e => e.state === 'scheduled')
     }));
-    // Activate any scheduled entries whose start date has arrived
-    api('POST', '/activate-scheduled');
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
@@ -2844,9 +2842,7 @@ async function apiUpdate(p) {
     rank: p.rank, last: p.last, first: p.first,
     status: p.status, notes: p.notes,
     from_date: p.from, to_date: p.to,
-    present_date: p.present_date || '',
-    sched_status: p.sched_status || '', sched_from: p.sched_from || '',
-    sched_to: p.sched_to || '', sched_notes: p.sched_notes || ''
+    present_date: p.present_date || ''
   });
 }
 
@@ -2892,7 +2888,7 @@ function statusFilterMatches(p, filter) {
   if (filter === 'leave') return p.status === 'leave' || p.status === 'pass';
   if (filter === 'tdy') return p.status === 'tdy';
   if (filter === 'other') return p.status === 'other' || p.status === 'ftr';
-  if (filter === 'scheduled') return scheduledEventsFor(p).length > 0 || !!p.sched_status;
+  if (filter === 'scheduled') return scheduledEventsFor(p).length > 0;
   if (filter === 'loan') return p.status === 'loan';
   return true;
 }
@@ -3378,21 +3374,7 @@ function renderProfileAbsences() {
 // ─── Render ───
 function render() {
   const todayStr = getTodayStr();
-  const recentlyReturned = new Set();
-
-  // Auto-return: move people back to present if their end date has passed
-  personnel.forEach(p => {
-    if (p.status !== 'present' && p.to && p.to < todayStr) {
-      p.returnedFrom = p.notes || p.status;
-      p.returnedDate = p.to;
-      p.status = 'present';
-      p.notes = '';
-      p.from = '';
-      p.to = '';
-      recentlyReturned.add(p);
-      apiUpdate(p);
-    }
-  });
+  // (Auto-return of ended absences happens server-side on every roster read.)
 
   // Apply search filter
   const term = getSearchTerm();
@@ -3423,7 +3405,7 @@ function render() {
     ? applySort(visible.filter(p => p.status === 'ftr'))
     : visible.filter(p => p.status === 'ftr').sort(endDateSort);
   const loanList        = applySort(visible.filter(p => p.status === 'loan'));
-  const scheduledList   = applySort(visible.filter(p => scheduledEventsFor(p).length || p.sched_status));
+  const scheduledList   = applySort(visible.filter(p => scheduledEventsFor(p).length));
 
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
@@ -3431,7 +3413,7 @@ function render() {
   // Counts always use full (unfiltered) personnel — loan excluded from accountability counts
   let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, loan:0, scheduled:0 };
   personnel.forEach(p => {
-    counts.scheduled += scheduledEventsFor(p).length || (p.sched_status ? 1 : 0);
+    counts.scheduled += scheduledEventsFor(p).length;
     if (p.status === 'loan') { counts.loan++; }
     else if (isUnaccounted(p)) { counts.unaccounted++; }
     else { counts[p.status] = (counts[p.status] || 0) + 1; }
@@ -3449,7 +3431,7 @@ function render() {
   const needsEmpty = isFiltered
     ? 'No matching personnel in this view.'
     : 'All personnel accounted for. Nothing needs action. ✓';
-  const needsRows = unaccountedList.map(p => dashNeedsRow(p, recentlyReturned.has(p))).join('');
+  const needsRows = unaccountedList.map(p => dashNeedsRow(p)).join('');
   let html = dashSection('needs', 'Needs Action', 'sec-needs', needsRows, secCount(unaccountedList.length, counts.unaccounted), { empty: needsEmpty });
 
   // Present for Duty — collapsed list beyond the first few
@@ -3457,7 +3439,7 @@ function render() {
     const limit = DASH_PRESENT_LIMIT;
     const expanded = expandedSections.has('present');
     const shown = expanded ? presentList : presentList.slice(0, limit);
-    let presentRows = shown.map(p => dashPresentRow(p, recentlyReturned.has(p))).join('');
+    let presentRows = shown.map(p => dashPresentRow(p)).join('');
     if (presentList.length > limit) {
       presentRows += `<button type="button" class="dash-more-btn" onclick="toggleSectionMore('present')">${expanded ? 'Show less' : `+ ${presentList.length - limit} more`}</button>`;
     }
@@ -3530,13 +3512,12 @@ function dashRowMenu(items) {
   return `<details class="dash-row-menu"><summary>Update &#9662;</summary><div class="dash-more-menu">${buttons}</div></details>`;
 }
 
-function dashNeedsRow(p, returned) {
+function dashNeedsRow(p) {
   const i = personnel.indexOf(p);
-  const badge = returned ? '<span class="dash-badge-returned">RETURNED</span>' : '';
   return `<div class="dash-row dash-row-needs">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
+    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
       <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
@@ -3545,13 +3526,12 @@ function dashNeedsRow(p, returned) {
   </div>`;
 }
 
-function dashPresentRow(p, returned) {
+function dashPresentRow(p) {
   const i = personnel.indexOf(p);
-  const badge = returned ? '<span class="dash-badge-returned">RETURNED</span>' : '';
   return `<div class="dash-row">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i, badge)}<div class="dash-row-mobilemeta">${dashPill('present')}</div></div>
+    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill('present')}</div></div>
     <div class="dash-row-meta"><span>${dashPill('present')}</span></div>
     <div class="dash-row-actions">${dashRowMenu([
       ['View profile', `openProfile(${i})`],
@@ -3608,9 +3588,7 @@ function dashLoanRow(p) {
 function dashSchedRow(p) {
   const i = personnel.indexOf(p);
   const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR' };
-  const events = scheduledEventsFor(p).length
-    ? scheduledEventsFor(p)
-    : [{ status: p.sched_status, from_date: p.sched_from, to_date: p.sched_to, notes: p.sched_notes }];
+  const events = scheduledEventsFor(p);
   const eventLines = events.map(event => {
     const dateRange = (event.from_date || event.to_date)
       ? `${formatDateShort(event.from_date)} – ${formatDateShort(event.to_date)}` : '';
@@ -3907,8 +3885,6 @@ function closeTdyLeaveModal() {
 async function saveTdyLeave() {
   if (tdyLeaveIndex < 0) return;
   const p = personnel[tdyLeaveIndex];
-  const today = getTodayStr();
-  const isFuture = awayFrom && awayFrom > today && awayStatus !== 'loan';
 
   // Build notes string
   let notesVal = '';
@@ -3920,8 +3896,16 @@ async function saveTdyLeave() {
     notesVal = document.getElementById('loanPosition').value.trim();
   }
 
-  if (isFuture) {
-    // Save as an additional scheduled event without changing current status.
+  if (awayStatus === 'loan') {
+    // Loan has no dates and is never a scheduled event.
+    p.status = 'loan';
+    p.notes  = notesVal;
+    p.from   = '';
+    p.to     = '';
+    await apiUpdate(p);
+  } else {
+    // Every dated absence is a lifecycle event; the server activates it
+    // immediately when from_date is today (or blank) and schedules it otherwise.
     const event = await api('POST', `/personnel/${p.id}/schedule`, {
       status: awayStatus,
       from_date: awayFrom,
@@ -3929,18 +3913,10 @@ async function saveTdyLeave() {
       notes: notesVal
     });
     if (!event || event.error) {
-      alert(event && event.error ? event.error : 'Could not save scheduled event.');
+      alert(event && event.error ? event.error : 'Could not save absence.');
       return;
     }
-    p.scheduled_events = [...scheduledEventsFor(p), event].sort(scheduleSort);
-    syncFirstSchedule(p);
-  } else {
-    // Active immediately. Future scheduled events stay on the calendar.
-    p.status = awayStatus;
-    p.notes  = notesVal;
-    p.from   = awayStatus === 'loan' ? '' : awayFrom;
-    p.to     = awayStatus === 'loan' ? '' : awayTo;
-    await apiUpdate(p);
+    await load();   // server reconciled; pull the truth
   }
 
   closeTdyLeaveModal();
@@ -3956,7 +3932,6 @@ async function clearSchedule() {
     await api('DELETE', `/schedules/${event.id}`);
   }
   p.scheduled_events = [];
-  syncFirstSchedule(p);
   renderScheduledEvents(p);
   render();
 }
@@ -3966,14 +3941,6 @@ function scheduleSort(a, b) {
   const bDate = b.from_date || '9999-12-31';
   if (aDate !== bDate) return aDate.localeCompare(bDate);
   return (a.id || 0) - (b.id || 0);
-}
-
-function syncFirstSchedule(p) {
-  const first = scheduledEventsFor(p).sort(scheduleSort)[0];
-  p.sched_status = first ? first.status : '';
-  p.sched_from = first ? first.from_date : '';
-  p.sched_to = first ? first.to_date : '';
-  p.sched_notes = first ? first.notes : '';
 }
 
 function renderScheduledEvents(p) {
@@ -4013,7 +3980,6 @@ async function deleteScheduledEvent(eventId) {
     return;
   }
   p.scheduled_events = scheduledEventsFor(p).filter(event => event.id !== eventId);
-  syncFirstSchedule(p);
   renderScheduledEvents(p);
   render();
 }
