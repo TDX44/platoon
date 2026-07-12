@@ -467,61 +467,104 @@
     .edit-unit-name { border: none !important; background: none !important; }
   }
 
-  /* Design system layer inspired by DESIGN.md */
+  /* ─── Command-post design tokens (single source of truth) ───
+     Light = "field paper": warm neutral surfaces, olive accents.
+     Dark  = "TOC at night": graphite surfaces, brighter olive.
+     Legacy --theme_* and --dash-* names below alias these. */
   :root {
-    --theme_text: #181d26;
-    --theme_text-weak: rgba(4,14,32,0.69);
-    --theme_text-muted: #5b6472;
-    --theme_action: #1b61c9;
-    --theme_action-hover: #154ea4;
-    --theme_surface: #ffffff;
-    --theme_surface-soft: #f8fafc;
-    --theme_surface-blue: #f3f7ff;
-    --theme_border: #e0e2e6;
-    --theme_border-strong: #cbd4e1;
-    --theme_success: #006400;
-    --theme_warning: #a16207;
-    --theme_danger: #b42318;
-    --theme_shadow-blue: rgba(0,0,0,0.32) 0 0 1px, rgba(0,0,0,0.08) 0 0 2px, rgba(45,127,249,0.28) 0 1px 3px, rgba(0,0,0,0.06) 0 0 0 0.5px inset;
-    --theme_shadow-soft: rgba(15,48,106,0.05) 0 0 20px;
-    --theme_radius: 8px;
+    --cp-bg: #eceae3;
+    --cp-surface: #f6f4ee;
+    --cp-raised: #fdfcf9;
+    --cp-border: #d3cfc2;
+    --cp-hairline: #dedacd;
+    --cp-text: #23272c;
+    --cp-text-weak: #4d545c;
+    --cp-muted: #6d7580;
+    --cp-faint: #98917e;
+    --cp-accent: #56682f;
+    --cp-accent-hover: #46551f;
+    --cp-accent-text: #f2f5e6;
+    --cp-green: #35682d;  --cp-green-bg: #e2ead9;
+    --cp-amber: #8f6400;  --cp-amber-bg: #f0e7cf;
+    --cp-steel: #35576f;  --cp-steel-bg: #dee7ec;
+    --cp-red: #a02c2c;    --cp-red-bg: #f0dcda;
+    --cp-violet: #5b5378; --cp-violet-bg: #e4e1ec;
+    --cp-side-bg: #23271c;
+    --cp-side-text: #a8ad97;
+    --cp-side-active-bg: #39402c;
+    --cp-side-active-text: #eef0e4;
+    --cp-input: #fdfcf9;
+    --cp-hover: #efede5;
+    --cp-radius: 3px;
+    --cp-shadow: 0 0 0 1px var(--cp-hairline);
+    --cp-shadow-lg: 0 10px 28px rgba(30, 30, 20, 0.18);
+    --cp-font-display: Bahnschrift, "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+
+    --theme_text: var(--cp-text);
+    --theme_text-weak: var(--cp-text-weak);
+    --theme_text-muted: var(--cp-muted);
+    --theme_action: var(--cp-accent);
+    --theme_action-hover: var(--cp-accent-hover);
+    --theme_surface: var(--cp-raised);
+    --theme_surface-soft: var(--cp-surface);
+    --theme_surface-blue: var(--cp-hover);
+    --theme_border: var(--cp-border);
+    --theme_border-strong: var(--cp-faint);
+    --theme_success: var(--cp-green);
+    --theme_warning: var(--cp-amber);
+    --theme_danger: var(--cp-red);
+    --theme_shadow-blue: 0 0 0 1px var(--cp-border);
+    --theme_shadow-soft: var(--cp-shadow-lg);
+    --theme_radius: var(--cp-radius);
   }
 
   body.dark-mode {
-    --theme_text: #f4f7fb;
-    --theme_text-weak: rgba(232,238,247,0.72);
-    --theme_text-muted: #aab4c2;
-    --theme_action: #6aa6ff;
-    --theme_action-hover: #8fbdff;
-    --theme_surface: #171a1f;
-    --theme_surface-soft: #20242b;
-    --theme_surface-blue: #222b38;
-    --theme_border: #353b45;
-    --theme_border-strong: #4a5360;
-    --theme_success: #15803d;
-    --theme_warning: #facc15;
-    --theme_danger: #ff8a80;
-    --theme_shadow-blue: rgba(0,0,0,0.45) 0 1px 2px, rgba(106,166,255,0.18) 0 1px 3px, rgba(255,255,255,0.05) 0 0 0 0.5px inset;
-    --theme_shadow-soft: rgba(0,0,0,0.22) 0 12px 32px;
+    --cp-bg: #14171c;
+    --cp-surface: #1b2026;
+    --cp-raised: #232932;
+    --cp-border: #333b47;
+    --cp-hairline: #262d37;
+    --cp-text: #dbe2e9;
+    --cp-text-weak: #b7c0ca;
+    --cp-muted: #838e9b;
+    --cp-faint: #626c79;
+    --cp-accent: #91a75c;
+    --cp-accent-hover: #a5bc6f;
+    --cp-accent-text: #151a0e;
+    --cp-green: #6cae5e;  --cp-green-bg: #1d2a1a;
+    --cp-amber: #d9a03f;  --cp-amber-bg: #2b2413;
+    --cp-steel: #7ba7c9;  --cp-steel-bg: #16242f;
+    --cp-red: #d95c4a;    --cp-red-bg: #2e1a17;
+    --cp-violet: #a99bd1; --cp-violet-bg: #221f2e;
+    --cp-side-bg: #111409;
+    --cp-side-text: #99a186;
+    --cp-side-active-bg: #2c3320;
+    --cp-side-active-text: #e6ead6;
+    --cp-input: #12161b;
+    --cp-hover: #232933;
+    --cp-shadow: 0 0 0 1px var(--cp-hairline);
+    --cp-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
   }
 
   html,
-  html.light-mode { background: #ffffff; }
-  html.dark-mode { background: #101114; }
+  html.light-mode { background: #eceae3; }
+  html.dark-mode { background: #14171c; }
   body,
   body.light-mode {
     min-height: 100vh;
-    background:
-      linear-gradient(180deg, #ffffff 0%, #f8fafc 42%, #ffffff 100%);
+    background: var(--cp-bg);
     color: var(--theme_text);
-    font-family: Haas, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     letter-spacing: 0;
     padding: 24px;
   }
   body.dark-mode {
-    background:
-      linear-gradient(180deg, #101114 0%, #171a1f 44%, #101114 100%);
+    background: var(--cp-bg);
     color: var(--theme_text);
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--cp-font-display);
+    letter-spacing: 0.02em;
   }
 
   button,
@@ -1896,58 +1939,35 @@
     }
   }
 
-  /* ─── Accountability dashboard redesign ─── */
+  /* ─── Accountability dashboard: aliases onto the command-post tokens.
+     Dark mode flips automatically via the --cp-* overrides on body.dark-mode. ─── */
   .dash-layout {
-    --dash-bg: #f4f6fa;
-    --dash-card: #ffffff;
-    --dash-border: #e4e8f0;
-    --dash-text: #1a2233;
-    --dash-muted: #5b6678;
-    --dash-faint: #8a94a8;
-    --dash-accent: #2563eb;
-    --dash-accent-hover: #1d4ed8;
-    --dash-green: #15803d;
-    --dash-green-bg: #f0fdf4;
-    --dash-red: #dc2626;
-    --dash-red-bg: #fef2f2;
-    --dash-blue: #2563eb;
-    --dash-blue-bg: #eff6ff;
-    --dash-amber: #b45309;
-    --dash-amber-bg: #fffbeb;
-    --dash-purple: #6d28d9;
-    --dash-purple-bg: #f5f3ff;
-    --dash-input: #ffffff;
-    --dash-hover: #f8fafc;
-    --dash-shadow: 0 1px 2px rgba(16,24,40,0.06);
-    --dash-shadow-lg: 0 8px 24px rgba(16,24,40,0.12);
-    --dash-side-bg: #131a2c;
-    --dash-side-text: #9aa7bf;
-    --dash-side-active-bg: #1e2a47;
-    --dash-side-active-text: #ffffff;
-  }
-  body.dark-mode .dash-layout {
-    --dash-bg: #0f1117;
-    --dash-card: #171b24;
-    --dash-border: #272d3a;
-    --dash-text: #e8edf5;
-    --dash-muted: #97a1b4;
-    --dash-faint: #6b7488;
-    --dash-green: #4ade80;
-    --dash-green-bg: #122318;
-    --dash-red: #f87171;
-    --dash-red-bg: #2a1616;
-    --dash-blue: #93b8f8;
-    --dash-blue-bg: #15233c;
-    --dash-amber: #fbbf24;
-    --dash-amber-bg: #2a2210;
-    --dash-purple: #c4b5fd;
-    --dash-purple-bg: #221b38;
-    --dash-input: #10131a;
-    --dash-hover: #1d222e;
-    --dash-shadow: 0 1px 2px rgba(0,0,0,0.4);
-    --dash-shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-    --dash-side-bg: #0b0e15;
-    --dash-side-active-bg: #1c2538;
+    --dash-bg: var(--cp-bg);
+    --dash-card: var(--cp-surface);
+    --dash-border: var(--cp-border);
+    --dash-text: var(--cp-text);
+    --dash-muted: var(--cp-muted);
+    --dash-faint: var(--cp-faint);
+    --dash-accent: var(--cp-accent);
+    --dash-accent-hover: var(--cp-accent-hover);
+    --dash-green: var(--cp-green);
+    --dash-green-bg: var(--cp-green-bg);
+    --dash-red: var(--cp-red);
+    --dash-red-bg: var(--cp-red-bg);
+    --dash-blue: var(--cp-steel);
+    --dash-blue-bg: var(--cp-steel-bg);
+    --dash-amber: var(--cp-amber);
+    --dash-amber-bg: var(--cp-amber-bg);
+    --dash-purple: var(--cp-violet);
+    --dash-purple-bg: var(--cp-violet-bg);
+    --dash-input: var(--cp-input);
+    --dash-hover: var(--cp-hover);
+    --dash-shadow: var(--cp-shadow);
+    --dash-shadow-lg: var(--cp-shadow-lg);
+    --dash-side-bg: var(--cp-side-bg);
+    --dash-side-text: var(--cp-side-text);
+    --dash-side-active-bg: var(--cp-side-active-bg);
+    --dash-side-active-text: var(--cp-side-active-text);
   }
   body.dash-active, body.dash-active.light-mode, body.dash-active.dark-mode { padding: 0; }
 
