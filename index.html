@@ -591,6 +591,13 @@
   }
   h1, h2, h3, h4 { color: var(--cp-text-strong); }
 
+  /* Desktop reads too small at 100% browser zoom; typography is em-based,
+     so scaling the base size up cascades through the whole UI. Phones and
+     tablets keep the default 16px base. */
+  @media (min-width: 901px) {
+    body { font-size: 21px; }
+  }
+
   button,
   input,
   select,
