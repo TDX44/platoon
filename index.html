@@ -10,6 +10,9 @@
 <meta name="apple-mobile-web-app-title" content="Accountability">
 <link rel="apple-touch-icon" href="/images/company-logo.png">
 <meta name="theme-color" content="#ffffff">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
@@ -684,6 +687,20 @@
   .btn-danger:hover {
     background: var(--cp-red-bg);
     border-color: var(--theme_danger);
+  }
+  /* Cancel/Close are neutral dismissals, not destructive actions */
+  .btn-cancel {
+    background: transparent;
+    color: var(--cp-muted);
+    border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius);
+    min-height: 36px;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  }
+  .btn-cancel:hover {
+    background: var(--cp-hover);
+    color: var(--cp-text);
+    border-color: var(--cp-border-strong);
   }
   .btn-tdy-leave {
     background: var(--cp-accent-soft);
@@ -2136,6 +2153,13 @@
   .dash-btn-ghost { background: none; color: var(--dash-muted); border-color: var(--dash-border); }
   .dash-btn-ghost:hover { background: var(--dash-hover); color: var(--dash-text); }
   .dash-btn-sm { padding: 6px 12px; font-size: 0.82em; }
+  /* Row-level "Mark Present" reads as a quiet confirm, not a page CTA —
+     a column of solid accent buttons drowns out the real primary actions. */
+  .dash-row .dash-btn-primary {
+    background: var(--dash-card); color: var(--cp-green);
+    border-color: var(--cp-green);
+  }
+  .dash-row .dash-btn-primary:hover { background: var(--cp-green-bg); }
 
   .dash-more { position: relative; }
   .dash-more > summary {
@@ -2157,7 +2181,7 @@
   .dash-main {
     grid-area: main;
     padding: 10px 28px 60px;
-    max-width: 1048px; width: 100%;
+    width: 100%;
     min-width: 0;
   }
   .dash-rail {
@@ -2181,8 +2205,8 @@
   }
   button.dash-metric-card { cursor: pointer; text-align: left; font-family: inherit; }
   button.dash-metric-card:hover { border-color: var(--dash-accent); }
-  .dash-metric-card.alert { border-color: var(--dash-red); background: var(--dash-red-bg); }
   .dash-metric-card.alert .dash-metric-num { color: var(--dash-red); }
+  .dash-metric-card.alert .dash-metric-label { color: var(--dash-red); }
   .dash-metric-num {
     font-size: 1.9em; font-weight: 700; line-height: 1.1; color: var(--cp-text-strong);
     font-variant-numeric: tabular-nums;
@@ -2195,33 +2219,14 @@
   .dash-ring.warn .ring-val { stroke: var(--dash-amber); }
   .dash-ring text { fill: var(--dash-text); font-weight: 800; font-size: 15px; }
 
-  .dash-metrics-mini { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 12px; }
-  .dash-mini-tile {
-    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: var(--cp-radius);
-    padding: 10px 12px; text-align: left; cursor: pointer; font-family: inherit;
-    transition: border-color 0.15s, background 0.15s; min-width: 0;
-  }
-  .dash-mini-tile:hover { background: var(--dash-hover); }
-  .dash-mini-tile.active { border-color: var(--dash-accent); box-shadow: 0 0 0 1px var(--dash-accent); }
-  .dash-mini-tile[disabled] { cursor: default; }
-  .dash-mini-num {
-    font-size: 1.25em; font-weight: 700; color: var(--cp-text-strong); line-height: 1.2;
-    font-variant-numeric: tabular-nums;
-  }
-  .dash-mini-label { font-size: 0.68em; font-weight: 700; color: var(--dash-faint); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
   /* Personnel sections */
   .dash-sections { margin-top: 18px; display: flex; flex-direction: column; gap: 16px; }
+  /* Sections stay neutral; the colored count pill carries the status signal.
+     Colored left borders on every card read as template noise. */
   .dash-section {
     background: var(--dash-card); border: 1px solid var(--dash-border);
-    border-left-width: 4px; border-radius: var(--cp-radius-lg);
+    border-radius: var(--cp-radius-lg);
   }
-  .dash-section.sec-needs { border-left-color: var(--dash-red); }
-  .dash-section.sec-present { border-left-color: var(--dash-green); }
-  .dash-section.sec-away { border-left-color: var(--dash-blue); }
-  .dash-section.sec-ftr { border-left-color: var(--dash-red); }
-  .dash-section.sec-sched { border-left-color: var(--dash-amber); }
-  .dash-section.sec-loan { border-left-color: var(--dash-purple); }
   .dash-section-head {
     display: flex; align-items: center; gap: 10px; width: 100%;
     padding: 13px 16px; cursor: pointer; background: none; border: none;
@@ -2262,9 +2267,13 @@
   .dash-row-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 
   .dash-pill {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 99px; font-size: 0.74em; font-weight: 700;
-    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px 3px 8px; border-radius: 99px; font-size: 0.72em; font-weight: 600;
+    white-space: nowrap; letter-spacing: 0.01em;
+  }
+  .dash-pill::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; flex: none;
   }
   .dash-pill.p-present { background: var(--dash-green-bg); color: var(--dash-green); }
   .dash-pill.p-leave, .dash-pill.p-pass { background: var(--dash-amber-bg); color: var(--dash-amber); }
@@ -2395,7 +2404,6 @@
     .dash-metric-card { padding: 12px; min-height: 78px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
     .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 10px; }
     .dash-metric-num { font-size: 1.45em; }
-    .dash-metrics-mini { grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
     .dash-row-meta { display: none; }
     .dash-row-mobilemeta { display: block !important; }
@@ -2437,27 +2445,27 @@
   <div class="hamburger-wrap">
     <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleHamburger()" aria-label="Menu">&#9776;</button>
     <div class="hamburger-dropdown" id="hamburgerDropdown">
-      <button onclick="toggleTheme();closeHamburger()" id="themeMenuItem">&#9788; Light Mode</button>
+      <button onclick="toggleTheme();closeHamburger()" id="themeMenuItem">Light Mode</button>
 
       <!-- Backup group -->
       <button class="menu-group-header" id="backupGroupHeader" onclick="toggleMenuGroup('backupGroup')" style="display:none">
-        &#128190; Backup <span class="menu-arrow">&#9658;</span>
+        Backup <span class="menu-arrow">&#9658;</span>
       </button>
       <div class="menu-submenu" id="backupGroup">
-        <button onclick="exportBackup();closeHamburger()">&#8595; Export Backup</button>
-        <button onclick="openRestoreModal();closeHamburger()">&#8593; Import Backup</button>
+        <button onclick="exportBackup();closeHamburger()">Export Backup</button>
+        <button onclick="openRestoreModal();closeHamburger()">Import Backup</button>
       </div>
 
       <!-- Users group -->
       <button class="menu-group-header" onclick="toggleMenuGroup('usersGroup')">
-        &#128100; Account <span class="menu-arrow">&#9658;</span>
+        Account <span class="menu-arrow">&#9658;</span>
       </button>
       <div class="menu-submenu" id="usersGroup">
-        <button onclick="openClerkProfile();closeHamburger()">&#128100; Manage Account</button>
-        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">&#9881; Manage Access</button>
+        <button onclick="openClerkProfile();closeHamburger()">Manage Account</button>
+        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">Manage Access</button>
       </div>
 
-      <button onclick="doLogout()" style="color:#ff7675;">&#8594; Sign Out</button>
+      <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
     </div>
   </div>
   <img src="/images/company-logo.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
@@ -2516,7 +2524,7 @@
     <details class="dash-more" id="dashMore">
       <summary>More</summary>
       <div class="dash-more-menu">
-        <button onclick="openImportModal();closeDashMenus()">&#8595; Import List</button>
+        <button onclick="openImportModal();closeDashMenus()">Import List</button>
         <button onclick="resetDay();closeDashMenus()">Reset Day</button>
         <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
         <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
@@ -2652,7 +2660,7 @@
     <div class="modal-buttons" style="justify-content:space-between;">
       <button class="btn-small btn-danger" id="deletePersonBtn" onclick="deleteFromEditModal()" style="display:none">&#10005; Delete</button>
       <div style="display:flex;gap:6px;margin-left:auto;">
-        <button class="btn-small btn-danger" onclick="closeAddModal()">Cancel</button>
+        <button class="btn-small btn-cancel" onclick="closeAddModal()">Cancel</button>
         <button class="btn-small btn-add" id="savePersonBtn" onclick="savePerson()">Save</button>
       </div>
     </div>
@@ -2675,7 +2683,7 @@
       <table id="importPreviewTable"></table>
     </div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeImportModal()">Cancel</button>
+      <button class="btn-small btn-cancel" onclick="closeImportModal()">Cancel</button>
       <button class="btn-small btn-add" id="confirmImportBtn" onclick="confirmImport()" disabled>Add to Roster</button>
     </div>
   </div>
@@ -2745,7 +2753,7 @@
 
     <div class="modal-buttons">
       <button class="btn-small btn-danger" id="clearScheduleBtn" onclick="clearSchedule()" style="display:none">&#10005; Clear Scheduled</button>
-      <button class="btn-small btn-danger" onclick="closeTdyLeaveModal()">Cancel</button>
+      <button class="btn-small btn-cancel" onclick="closeTdyLeaveModal()">Cancel</button>
       <button class="btn-small btn-add" onclick="saveTdyLeave()">Save</button>
     </div>
   </div>
@@ -2759,8 +2767,8 @@
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
-      <button class="btn-small btn-import" onclick="downloadReport()">&#8595; Download .txt</button>
-      <button class="btn-small btn-danger" onclick="closeReport()">Close</button>
+      <button class="btn-small btn-import" onclick="downloadReport()">Download .txt</button>
+      <button class="btn-small btn-cancel" onclick="closeReport()">Close</button>
     </div>
   </div>
 </div>
@@ -2772,7 +2780,7 @@
     <h2>&#128337; Report History</h2>
     <div class="history-list" id="historyList"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeHistory()">Close</button>
+      <button class="btn-small btn-cancel" onclick="closeHistory()">Close</button>
     </div>
   </div>
 </div>
@@ -2784,7 +2792,7 @@
     <div class="report-text" id="historyViewText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyHistoryReport()">Copy</button>
-      <button class="btn-small btn-import" onclick="downloadHistoryReport()">&#8595; Download .txt</button>
+      <button class="btn-small btn-import" onclick="downloadHistoryReport()">Download .txt</button>
       <button class="btn-small btn-danger" onclick="backToHistory()">&#8592; Back</button>
     </div>
   </div>
@@ -2820,7 +2828,7 @@
     <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:12px;">Add Duty</button>
     <div class="duty-list" id="dutyList"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeDutyRoster()">Close</button>
+      <button class="btn-small btn-cancel" onclick="closeDutyRoster()">Close</button>
     </div>
   </div>
 </div>
@@ -2831,7 +2839,7 @@
     <h2>&#128269; Audit Log</h2>
     <div class="audit-list" id="auditList"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="document.getElementById('auditModal').classList.remove('active')">Close</button>
+      <button class="btn-small btn-cancel" onclick="document.getElementById('auditModal').classList.remove('active')">Close</button>
     </div>
   </div>
 </div>
@@ -3046,22 +3054,7 @@ function renderMetrics(counts, total, todayStr) {
     </div>
   </div>`;
 
-  const tiles = [
-    ['present', 'Present', counts.present || 0],
-    ['leave', 'Leave / Pass', (counts.leave || 0) + (counts.pass || 0)],
-    ['tdy', 'TDY / School', counts.tdy || 0],
-    ['loan', 'On Loan', counts.loan || 0],
-    ['other', 'Other', counts.other || 0],
-    ['other', 'FTR', counts.ftr || 0]
-  ];
-  if (counts.scheduled) tiles.push(['scheduled', 'Scheduled', counts.scheduled]);
-
-  const mini = `<div class="dash-metrics-mini">${tiles.map(([key, label, count, detail]) => key
-    ? `<button type="button" class="dash-mini-tile${activeQuickFilter === key ? ' active' : ''}" onclick="setQuickFilter('${key}')" aria-pressed="${activeQuickFilter === key}"><div class="dash-mini-num">${count}</div><div class="dash-mini-label">${label}</div></button>`
-    : `<button type="button" class="dash-mini-tile" disabled title="${escapeHtml(detail || '')}"><div class="dash-mini-num">${count}</div><div class="dash-mini-label">${label}</div></button>`
-  ).join('')}</div>`;
-
-  el.innerHTML = primary + mini;
+  el.innerHTML = primary;
 }
 
 function renderReportPreview(counts, total) {
@@ -3077,7 +3070,7 @@ function renderReportPreview(counts, total) {
     ['Present (PDY)', counts.present || 0, ''],
     ['Leave & Pass', (counts.leave || 0) + (counts.pass || 0), ''],
     ['TDY / School', counts.tdy || 0, ''],
-    ['Other / Not PDY', counts.other || 0, ''],
+    ['Other', counts.other || 0, ''],
     ['FTR', counts.ftr || 0, counts.ftr ? 'warn' : ''],
     ['On Loan (excluded)', counts.loan || 0, ''],
     ['Returning this week', returningSoon, '']
@@ -3418,7 +3411,7 @@ function renderSoldierPage() {
           <label>Notes</label>
           <input type="text" id="abs_notes" placeholder="Reason / course / details">
           <div class="modal-buttons">
-            <button class="btn-small btn-danger" onclick="toggleAddAbsence(false)">Cancel</button>
+            <button class="btn-small btn-cancel" onclick="toggleAddAbsence(false)">Cancel</button>
             <button class="btn-small btn-add" onclick="saveAbsence()">Save Absence</button>
           </div>
         </div>
@@ -3660,7 +3653,7 @@ function dashSection(key, title, secClass, rowsHtml, count, opts = {}) {
 }
 
 function dashPill(status) {
-  const labels = { present: '✓ Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
+  const labels = { present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
   return `<span class="dash-pill p-${status}">${labels[status] || escapeHtml(status)}</span>`;
 }
 
@@ -4311,7 +4304,7 @@ function generateReport() {
 
   if (other.length) {
     lines.push('');
-    lines.push(`OTHER/NOT PDY ${other.length}`);
+    lines.push(`OTHER ${other.length}`);
     other.forEach(p => {
       const parts = [];
       parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
@@ -4400,7 +4393,7 @@ function applyTheme(theme) {
   document.body.classList.toggle('dark-mode', isDark);
   document.body.classList.toggle('light-mode', !isDark);
   const item = document.getElementById('themeMenuItem');
-  if (item) item.innerHTML = isDark ? '&#9788; Light Mode' : '&#9790; Dark Mode';
+  if (item) item.innerHTML = isDark ? 'Light Mode' : 'Dark Mode';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', isDark ? '#101114' : '#ffffff');
 }
@@ -5648,7 +5641,7 @@ initApp();
     <h2>Manage Access</h2>
     <div id="userListWrap" style="max-height:320px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeUserMgmt()">Close</button>
+      <button class="btn-small btn-cancel" onclick="closeUserMgmt()">Close</button>
     </div>
   </div>
 </div>
@@ -5671,7 +5664,7 @@ initApp();
     </label>
     <div id="userEditError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeUserEdit()">Cancel</button>
+      <button class="btn-small btn-cancel" onclick="closeUserEdit()">Cancel</button>
       <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
     </div>
   </div>
@@ -5684,7 +5677,7 @@ initApp();
     <p style="font-size:0.9em;color:#b2bec3;margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
     <div id="resetSummary" style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;line-height:1.8;"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeResetConfirm()">Cancel</button>
+      <button class="btn-small btn-cancel" onclick="closeResetConfirm()">Cancel</button>
       <button class="btn-small btn-add" onclick="confirmReset()">Reset</button>
     </div>
   </div>
@@ -5699,7 +5692,7 @@ initApp();
     <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:#1a1a2e;border:1px solid #444;border-radius:5px;color:#e0e0e0;margin-bottom:12px;">
     <div id="restoreMsg" style="display:none;margin-bottom:10px;font-size:0.85em;"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-danger" onclick="closeRestoreModal()">Cancel</button>
+      <button class="btn-small btn-cancel" onclick="closeRestoreModal()">Cancel</button>
       <button class="btn-small btn-add" onclick="importBackup()">Restore</button>
     </div>
   </div>
