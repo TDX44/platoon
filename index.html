@@ -2889,9 +2889,47 @@ const API = '/api';
 async function api(method, path, body) {
   const opts = { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API + path, opts);
+  let res;
+  try {
+    res = await fetch(API + path, opts);
+  } catch (e) {
+    apiError('Network error — change may not be saved.', method);
+    return null;
+  }
   if (res.status === 401) { showLoginScreen(); return null; }
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
+    apiError(msg, method);
+    return null;
+  }
   return res.json();
+}
+
+let _toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('apiToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'apiToast';
+    el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#d63031;color:#fff;padding:10px 18px;border-radius:8px;font-size:0.9em;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);max-width:90vw;text-align:center;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+let _resyncing = false;
+function apiError(msg, method) {
+  showToast(msg);
+  // A failed write leaves optimistic local state out of sync — re-pull server
+  // truth. The flag stops a failing load() from re-triggering itself.
+  if (method !== 'GET' && currentPlatoon && !_resyncing) {
+    _resyncing = true;
+    Promise.resolve(load()).finally(() => { _resyncing = false; });
+  }
 }
 
 async function load() {
@@ -3801,19 +3839,6 @@ async function markPresent(i) {
   render();
 }
 
-async function resetDay() {
-  if (!confirm('Reset all present statuses? Everyone will need to be marked present again.')) return;
-  const updates = [];
-  personnel.forEach(p => {
-    if (p.status === 'present') {
-      p.present_date = '';
-      updates.push(apiUpdate(p));
-    }
-  });
-  await Promise.all(updates);
-  render();
-}
-
 async function removePerson(i) {
   const p = personnel[i];
   if (confirm(`Remove ${p.rank} ${p.last}, ${p.first}?`)) {
@@ -4151,6 +4176,7 @@ async function savePerson() {
     await apiUpdate(p);
   } else {
     const newPerson = await api('POST', '/personnel', { rank, last, first, platoon: currentPlatoon });
+    if (!newPerson || !newPerson.id) return;
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       status: newPerson.status, notes: newPerson.notes || '',
@@ -4206,7 +4232,7 @@ function previewImport() {
   errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
   table.innerHTML = parsed.length
     ? '<tr><th style="text-align:left;padding:3px 6px;color:#aaa">Rank</th><th style="text-align:left;padding:3px 6px;color:#aaa">Name</th></tr>'
-      + parsed.map(p => `<tr><td>${p.rank}</td><td>${p.last}, ${p.first}</td></tr>`).join('')
+      + parsed.map(p => `<tr><td>${escapeHtml(p.rank)}</td><td>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</td></tr>`).join('')
     : '';
   btn.disabled = parsed.length === 0;
   btn.textContent = `Add ${parsed.length} to Roster`;
@@ -4219,9 +4245,12 @@ async function confirmImport() {
     const r = parseImportLine(line);
     if (r) adds.push(r);
   });
+  const btn = document.getElementById('confirmImportBtn');
+  btn.disabled = true; // no double-click double import
   // Add sequentially to preserve order
   for (const r of adds) {
     const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first, platoon: currentPlatoon });
+    if (!newPerson || !newPerson.id) break;
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       status: newPerson.status, notes: '', from: '', to: '', present_date: '',
@@ -4533,7 +4562,7 @@ function openBulkStatusModal(status) {
 function downloadReport() {
   const text = document.getElementById('reportText').textContent;
   const unitName = (document.getElementById('unitName').value || 'report').replace(/[^a-z0-9]/gi, '_');
-  const filename = `${unitName}_${getTodayStr()}_${currentFormation}.txt`;
+  const filename = `${unitName}_${getTodayStr()}.txt`;
   const blob = new Blob([text], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -5375,9 +5404,18 @@ async function refreshUserList() {
       </div>
       <div class="user-row-badges">${badges}</div>
       <button class="btn-small btn-edit" onclick="openUserEditModal(${u.id})" title="Edit">&#9998;</button>
-      ${!isSelf ? `<button class="btn-small btn-danger" onclick='deleteUser(${u.id}, ${JSON.stringify(rawLabel)})' title="Remove access">&#10005;</button>` : ''}
+      ${!isSelf ? `<button class="btn-small btn-danger user-del-btn" data-uid="${u.id}" title="Remove access">&#10005;</button>` : ''}
     </div>`;
   }).join('');
+  // Attach delete handlers here instead of inline onclick — user display names
+  // must never be interpolated into executable attributes.
+  const byId = Object.fromEntries(users.map(u => [String(u.id), u]));
+  wrap.querySelectorAll('.user-del-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const u = byId[btn.dataset.uid];
+      if (u) deleteUser(u.id, u.full_name || u.username);
+    });
+  });
 }
 
 async function openUserEditModal(userId) {

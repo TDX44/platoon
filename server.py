@@ -60,6 +60,8 @@ PLATOONS = {
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # SQLite ignores ON DELETE CASCADE unless this is enabled per connection.
+    conn.execute('PRAGMA foreign_keys = ON')
     return conn
 
 
@@ -705,14 +707,22 @@ def update_person(person_id):
             values.append(data[col])
     if not fields:
         return jsonify({'error': 'No fields to update'}), 400
-    values.append(person_id)
     conn = get_db()
+    person = conn.execute('SELECT rank, last, first, status, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, person['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+    values.append(person_id)
     conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = ?', values)
     conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
     conn.close()
-    if row is None:
-        return jsonify({'error': 'Not found'}), 404
+    if 'status' in data and data['status'] != person['status']:
+        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['platoon'])
     return jsonify(dict(row))
 
 
@@ -895,9 +905,16 @@ def delete_scheduled_event(event_id):
 def delete_person(person_id):
     conn = get_db()
     row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
-    if row:
-        log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
+    if row is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, row['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+    log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
     conn.execute('DELETE FROM scheduled_events WHERE person_id = ?', (person_id,))
+    conn.execute('DELETE FROM personnel_profile WHERE person_id = ?', (person_id,))
     conn.execute('DELETE FROM personnel WHERE id = ?', (person_id,))
     conn.commit()
     conn.close()
@@ -941,7 +958,10 @@ def update_settings():
 @admin_required
 def get_audit():
     platoon = request.args.get('platoon', '')
-    limit = min(int(request.args.get('limit', 200)), 500)
+    try:
+        limit = min(int(request.args.get('limit', 200)), 500)
+    except ValueError:
+        limit = 200
     conn = get_db()
     if platoon:
         rows = conn.execute(
@@ -1041,6 +1061,9 @@ def export_backup():
         label = 'full'
     else:
         accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
+        if not accessible:
+            conn.close()
+            return jsonify({'error': 'No platoon access'}), 403
         placeholders = ','.join('?' * len(accessible))
         personnel = [dict(r) for r in conn.execute(
             f'SELECT * FROM personnel WHERE platoon IN ({placeholders})', accessible
@@ -1083,13 +1106,23 @@ def import_backup():
         return jsonify({'error': 'Invalid or unsupported backup file'}), 400
 
     conn = get_db()
+    accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
     try:
         restored_personnel = 0
+        # Non-admin restores re-insert personnel under fresh ids; map backup id -> new id
+        # so scheduled_events and profiles reattach to the right people.
+        person_id_map = {}
 
         if 'personnel' in payload:
             if user['is_admin']:
+                # FK cascade wipes profiles along with personnel; keep the current ones
+                # when the backup carries none of its own (ids survive a full restore).
+                preserved_profiles = []
+                if 'personnel_profile' not in payload:
+                    preserved_profiles = [dict(r) for r in conn.execute('SELECT * FROM personnel_profile').fetchall()]
                 conn.execute('DELETE FROM scheduled_events')
                 conn.execute('DELETE FROM personnel')
+                restored_ids = set()
                 for p in payload['personnel']:
                     conn.execute(
                         'INSERT INTO personnel (id, rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1098,9 +1131,17 @@ def import_backup():
                          p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
                          p.get('platoon','2nd'))
                     )
+                    restored_ids.add(p.get('id'))
                     restored_personnel += 1
+                cols = ('person_id', *PROFILE_FIELDS)
+                col_ph = ', '.join('?' * len(cols))
+                for pp in preserved_profiles:
+                    if pp['person_id'] in restored_ids:
+                        conn.execute(
+                            f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                            [pp.get(c, '') for c in cols]
+                        )
             else:
-                accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
                 for p in payload['personnel']:
                     if p.get('platoon') not in accessible:
                         continue
@@ -1114,44 +1155,66 @@ def import_backup():
                         'DELETE FROM personnel WHERE platoon = ? AND last = ? AND first = ?',
                         (p['platoon'], p.get('last',''), p.get('first',''))
                     )
-                    conn.execute(
+                    cur = conn.execute(
                         'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         (p.get('rank',''), p.get('last',''), p.get('first',''),
                          p.get('status','present'), p.get('notes',''),
                          p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
                          p.get('platoon','2nd'))
                     )
+                    if p.get('id') is not None:
+                        person_id_map[p['id']] = cur.lastrowid
                     restored_personnel += 1
 
         if 'scheduled_events' in payload:
-            accessible = ['*'] if user['is_admin'] else [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
             for s in payload['scheduled_events']:
-                if not user['is_admin'] and s.get('platoon') not in accessible:
-                    continue
+                if user['is_admin']:
+                    person_id = s.get('person_id')
+                else:
+                    if s.get('platoon') not in accessible:
+                        continue
+                    person_id = person_id_map.get(s.get('person_id'))
+                    if person_id is None:
+                        continue
                 conn.execute(
                     'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
                     'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    (s.get('id') if user['is_admin'] else None, s.get('person_id'), s.get('platoon', '2nd'),
+                    (s.get('id') if user['is_admin'] else None, person_id, s.get('platoon', '2nd'),
                      s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
                      s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
                      s.get('state', 'scheduled'))
                 )
 
-        # Profiles restore only on a full (admin) restore, where personnel ids are preserved.
-        if user['is_admin'] and 'personnel_profile' in payload:
-            conn.execute('DELETE FROM personnel_profile')
+        if 'personnel_profile' in payload:
             cols = ('person_id', *PROFILE_FIELDS)
-            placeholders = ', '.join('?' * len(cols))
-            for pp in payload['personnel_profile']:
-                conn.execute(
-                    f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({placeholders})',
-                    [pp.get(c, '') for c in cols]
-                )
+            col_ph = ', '.join('?' * len(cols))
+            if user['is_admin']:
+                conn.execute('DELETE FROM personnel_profile')
+                for pp in payload['personnel_profile']:
+                    conn.execute(
+                        f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                        [pp.get(c, '') for c in cols]
+                    )
+            else:
+                for pp in payload['personnel_profile']:
+                    new_id = person_id_map.get(pp.get('person_id'))
+                    if new_id is None:
+                        continue
+                    conn.execute(
+                        f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                        [new_id, *[pp.get(c, '') for c in PROFILE_FIELDS]]
+                    )
 
         if 'settings' in payload:
-            conn.execute('DELETE FROM settings')
-            for s in payload['settings']:
-                conn.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
+            if user['is_admin']:
+                conn.execute('DELETE FROM settings')
+                for s in payload['settings']:
+                    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
+            else:
+                allowed_keys = {f'unit_name_{p}' for p in accessible}
+                for s in payload['settings']:
+                    if s.get('key') in allowed_keys:
+                        conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
 
         restored_users = 0
         if user['is_admin'] and 'users' in payload:
@@ -1200,7 +1263,11 @@ def reset_day():
     data = request.get_json() or {}
     platoon = data.get('platoon', '')
     user = get_current_user()
-    if platoon and not has_platoon_access(user, platoon):
+    if platoon:
+        if not has_platoon_access(user, platoon):
+            return jsonify({'error': 'Forbidden'}), 403
+    elif not user['is_admin']:
+        # A company-wide reset touches every platoon; only admins may do it.
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
     if platoon:
