@@ -1031,7 +1031,7 @@ def update_settings():
 def get_audit():
     platoon = request.args.get('platoon', '')
     try:
-        limit = min(int(request.args.get('limit', 200)), 500)
+        limit = min(int(request.args.get('limit', 200)), 5000)
     except ValueError:
         limit = 200
     conn = get_db()

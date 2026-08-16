@@ -505,12 +505,6 @@
   .history-item-ts { font-size: 0.75em; color: #636e72; margin-bottom: 2px; }
   .history-item-summary { font-size: 0.85em; color: #e0e0e0; }
 
-  .audit-list { max-height: 420px; overflow-y: auto; font-size: 0.8em; }
-  .audit-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #3a3a55; }
-  .audit-ts { color: #636e72; white-space: nowrap; min-width: 130px; }
-  .audit-user { color: #74b9ff; min-width: 75px; font-weight: 600; }
-  .audit-action { color: #00d4ff; min-width: 115px; }
-  .audit-details { color: #b2bec3; flex: 1; }
 
 
   /* ─── Print styles ─── */
@@ -1260,11 +1254,8 @@
     font-weight: 700;
   }
   .away-notes,
-  .audit-details,
   .history-item-summary { color: var(--theme_text-muted); }
   .away-dates,
-  .audit-user,
-  .audit-action { color: var(--theme_action); }
   .away-status-action {
     display: flex;
     align-items: center;
@@ -1425,8 +1416,6 @@
   }
   .history-item:hover { background: var(--theme_surface-blue); }
   .history-item-ts,
-  .audit-ts { color: var(--theme_text-weak); }
-  .audit-row { border-bottom-color: var(--theme_border); }
   .duty-form {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1557,32 +1546,58 @@
   body.lists-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.lists-active .tdy-lists-view { display: block; }
 
-  .tdy-lists-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px; margin-top: 14px;
+  /* ── Audit log page ── */
+  .audit-view { display: none; }
+  body.audit-active #dashMetrics,
+  body.audit-active #bulkBar,
+  body.audit-active #personnelBody { display: none; }
+  body.audit-active .dash-rail { display: none; }
+  body.audit-active .dash-main { grid-column: 2 / 4; max-width: none; }
+  body.audit-active .audit-view { display: block; }
+  body.soldier-active .audit-view,
+  body.soldier-active .tdy-lists-view { display: none; }
+
+  .audit-filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+  .audit-filters select {
+    padding: 8px 12px; font-size: 0.88em;
+    background: var(--cp-input); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
   }
-  .tdy-list-card {
-    background: var(--cp-surface); border: 1px solid var(--cp-border);
-    border-radius: var(--cp-radius); padding: 16px 18px;
+  .audit-filters .directory-search { margin-left: 0; }
+  .audit-details-cell { white-space: normal; min-width: 260px; color: var(--cp-text-weak); }
+  .audit-pager {
+    display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+    padding: 12px 2px; font-size: 0.85em; color: var(--cp-muted);
   }
-  .tdy-list-card h3 { margin: 0 0 2px; font-size: 1rem; font-weight: 650; }
-  .tdy-list-card .tdy-list-hint { color: var(--cp-muted); font-size: 0.82rem; margin-bottom: 12px; }
-  .tdy-list-items { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-  .tdy-list-chip {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 6px 8px 6px 12px; font-size: 0.86rem;
-    background: var(--cp-input); border: 1px solid var(--cp-border);
-    border-radius: 999px;
+  .audit-pager button {
+    width: 34px; height: 34px; line-height: 1;
+    border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-text); border-radius: var(--cp-radius);
+    font-size: 1.1em; cursor: pointer;
   }
-  .tdy-list-chip button {
-    border: 0; background: none; cursor: pointer; padding: 0 2px;
-    color: var(--cp-muted); font-size: 1rem; line-height: 1;
+  .audit-pager button:hover:not(:disabled) { border-color: var(--cp-accent); color: var(--cp-accent); }
+  .audit-pager button:disabled { opacity: 0.4; cursor: default; }
+
+  .tdy-list-hint { color: var(--cp-muted); font-size: 0.85em; margin: -6px 0 12px; }
+  .list-sort-actions { display: flex; gap: 8px; margin-left: auto; }
+  .list-table td.list-order,
+  .list-table th.list-order { width: 1%; color: var(--cp-muted); text-align: right; }
+  .list-table td.list-actions,
+  .list-table th.list-actions { width: 1%; text-align: right; }
+  .list-table tbody tr { cursor: default; }
+  .list-actions button {
+    width: 30px; height: 30px; margin-left: 4px; line-height: 1;
+    border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-text-weak); border-radius: var(--cp-radius);
+    font-size: 0.75em; cursor: pointer;
   }
-  .tdy-list-chip button:hover { color: #d63031; }
-  .tdy-list-empty { color: var(--cp-muted); font-size: 0.86rem; margin-bottom: 14px; }
-  .tdy-list-add { display: flex; gap: 8px; }
+  .list-actions button:hover:not(:disabled) { border-color: var(--cp-accent); color: var(--cp-accent); }
+  .list-actions button:disabled { opacity: 0.3; cursor: default; }
+  .list-actions .list-remove { font-size: 1em; }
+  .list-actions .list-remove:hover { border-color: var(--cp-red); color: var(--cp-red); }
+  .tdy-list-add { display: flex; gap: 8px; margin-top: 12px; max-width: 520px; }
   .tdy-list-add input {
-    flex: 1; padding: 8px 12px; font-size: 0.88rem;
+    flex: 1; padding: 8px 12px; font-size: 0.88em;
     background: var(--cp-input); color: var(--cp-text);
     border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
   }
@@ -1600,11 +1615,11 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     margin: 4px 0 14px;
   }
-  .directory-head h2 { font-size: 1.15rem; font-weight: 650; margin: 0; }
-  .directory-head .directory-count { color: var(--cp-muted); font-size: 0.85rem; }
+  .directory-head h2 { font-size: 1.15em; font-weight: 650; margin: 0; }
+  .directory-head .directory-count { color: var(--cp-muted); font-size: 0.85em; }
   .directory-search {
-    margin-left: auto; width: min(300px, 100%);
-    padding: 8px 12px; font-size: 0.88rem;
+    margin-left: auto; width: min(320px, 100%);
+    padding: 8px 12px; font-size: 0.88em;
     background: var(--cp-input); color: var(--cp-text);
     border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
   }
@@ -1613,11 +1628,11 @@
     overflow-x: auto; background: var(--cp-surface);
     border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
   }
-  .directory-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .directory-table { width: 100%; border-collapse: collapse; font-size: 0.86em; }
   .directory-table th {
     position: sticky; top: 0; z-index: 1; text-align: left;
     background: var(--cp-subtle); color: var(--cp-muted);
-    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    font-size: 0.72em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
     padding: 10px 12px; border-bottom: 1px solid var(--cp-border); white-space: nowrap;
   }
   .directory-table td {
@@ -1629,6 +1644,26 @@
   .directory-table tbody tr:last-child td { border-bottom: none; }
   .directory-table .dir-name { font-weight: 600; color: var(--cp-text-strong); }
   .directory-table .dir-muted { color: var(--cp-muted); }
+
+  /* Sortable column headers (directory + audit log) */
+  .directory-table th.sortable { cursor: pointer; user-select: none; }
+  .directory-table th.sortable:hover { color: var(--cp-text); background: var(--cp-hover); }
+  .directory-table th .sort-caret { opacity: 0.35; margin-left: 5px; font-size: 0.9em; }
+  .directory-table th.sorted { color: var(--cp-accent); }
+  .directory-table th.sorted .sort-caret { opacity: 1; }
+
+  /* Status as a colored dot + plain text, not a pill */
+  .status-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .status-cell::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: var(--cp-muted);
+  }
+  .status-cell.s-present::before { background: var(--cp-green); }
+  .status-cell.s-tdy::before     { background: var(--cp-steel); }
+  .status-cell.s-leave::before,
+  .status-cell.s-pass::before    { background: var(--cp-amber); }
+  .status-cell.s-ftr::before     { background: var(--cp-red); }
+  .status-cell.s-loan::before    { background: var(--dash-purple); }
 
   /* ── Soldier detail page ── */
   .soldier-view { display: none; }
@@ -2533,7 +2568,7 @@
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-brand">
-      <img src="/images/company-logo.png" alt="Unit Logo" style="width:124px;height:124px;object-fit:contain;margin:0 auto 10px;display:block;">
+      <img src="/images/logo-duck.png" alt="Unit Logo" style="width:124px;height:124px;object-fit:contain;margin:0 auto 10px;display:block;">
       <div class="login-title">Platoon Accountability</div>
       <div class="login-subtitle" id="loginSubtitle">Sign in to continue</div>
       <div id="loginError" class="login-error" style="display:none"></div>
@@ -2572,7 +2607,7 @@
       <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
     </div>
   </div>
-  <img src="/images/company-logo.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
+  <img src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
   <div class="home-title">Platoon Accountability</div>
   <p class="home-subtitle">Select your platoon to begin</p>
   <div class="platoon-cards">
@@ -2600,7 +2635,7 @@
 
 <aside class="dash-sidebar">
   <div class="dash-brand">
-    <img src="/images/company-logo.png" alt="Unit logo">
+    <img src="/images/logo-duck.png" alt="Unit logo">
     <span class="dash-brand-name">Platoon<br>Accountability</span>
   </div>
   <nav class="dash-nav" aria-label="Main navigation">
@@ -2608,7 +2643,8 @@
     <button class="dash-nav-item" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
     <button class="dash-nav-item" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
-    <button class="dash-nav-item" onclick="openTdyLists()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>TDY Lists</button>
+    <button class="dash-nav-item" onclick="openTdyLists('schools')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg>Schools</button>
+    <button class="dash-nav-item" onclick="openTdyLists('locations')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Locations</button>
     <button class="dash-nav-item" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
     <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
     <button class="dash-nav-item" id="auditLogBtn" onclick="openAuditLog()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Audit Log</button>
@@ -2665,6 +2701,7 @@
   <div class="soldier-view" id="soldierView"></div>
   <div class="directory-view" id="directoryView"></div>
   <div class="tdy-lists-view" id="tdyListsView"></div>
+  <div class="audit-view" id="auditView"></div>
 </div>
 
 <aside class="dash-rail">
@@ -2733,7 +2770,8 @@
 <div class="more-sheet" id="moreSheet" role="menu" aria-label="More options">
   <div class="more-sheet-handle"></div>
   <button onclick="openDirectory();closeMoreSheet()">Directory</button>
-  <button onclick="openTdyLists();closeMoreSheet()">TDY Lists</button>
+  <button onclick="openTdyLists('schools');closeMoreSheet()">Schools</button>
+  <button onclick="openTdyLists('locations');closeMoreSheet()">Locations</button>
   <button onclick="openHistory();closeMoreSheet()">History</button>
   <button onclick="openDutyRoster();closeMoreSheet()">Duty Roster</button>
   <button onclick="openImportModal();closeMoreSheet()">Import List</button>
@@ -2951,15 +2989,6 @@
 </div>
 
 <!-- Audit Log Modal -->
-<div class="modal-overlay" id="auditModal">
-  <div class="modal" style="width:680px;max-width:95vw;">
-    <h2>&#128269; Audit Log</h2>
-    <div class="audit-list" id="auditList"></div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-cancel" onclick="document.getElementById('auditModal').classList.remove('active')">Close</button>
-    </div>
-  </div>
-</div>
 
 
 <script>
@@ -2998,6 +3027,10 @@ let currentDutyEntries = [];
 
 const PLATOONS = ['1st', '2nd', 'hq'];
 const PLATOON_PATHS = { '1st': '1stplatoon', '2nd': '2ndplatoon', hq: 'hq' };
+
+function platoonLabel(platoon) {
+  return platoon === 'hq' ? 'HQ Platoon' : `${platoon} Platoon`;
+}
 const PATH_TO_PLATOON = Object.fromEntries(Object.entries(PLATOON_PATHS).map(([key, value]) => [value, key]));
 
 // ─── API helpers ───
@@ -3332,6 +3365,13 @@ function formatDateShort(dateStr) {
   return `${d.getDate()}${MONTHS_UPPER[d.getMonth()]}`;
 }
 
+// Birth dates and anything else where the year carries meaning.
+function formatDateWithYear(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()}${MONTHS_UPPER[d.getMonth()]}${d.getFullYear()}`;
+}
+
 function statusBadge(status) {
   const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR', loan:'On Loan' };
   return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
@@ -3351,6 +3391,7 @@ let directoryRows = [];
 async function openDirectory(push = true) {
   closeSoldierPage(false);
   document.body.classList.remove('lists-active');
+  document.body.classList.remove('audit-active');
   document.body.classList.add('directory-active');
   if (push) pushAppRoute(currentPlatoon, 'directory');
   const view = document.getElementById('directoryView');
@@ -3371,13 +3412,25 @@ function closeDirectoryPage(push = true) {
   render();
 }
 
-// ─── TDY Lists page ────────────────────────────────────────────────────────
-// The per-platoon school/course and location picklists behind the TDY modal.
-function openTdyLists(push = true) {
+// ─── Schools / Locations pages ─────────────────────────────────────────────
+// Per-platoon picklists behind the TDY modal. Order is meaningful: the saved
+// order is exactly the dropdown order, so the sort buttons rewrite the list
+// rather than just changing how it is displayed.
+const LIST_PAGES = {
+  schools:   { title: 'Schools', noun: 'school or course',
+               hint: 'Shown in the School / Course dropdown, in this order.' },
+  locations: { title: 'Locations', noun: 'location',
+               hint: 'Shown in the Location dropdowns, in this order.' }
+};
+let listsKind = 'schools';
+
+function openTdyLists(kind = 'schools', push = true) {
   closeSoldierPage(false);
   closeDirectoryPage(false);
+  closeAuditLog(false);
+  listsKind = LIST_PAGES[kind] ? kind : 'schools';
   document.body.classList.add('lists-active');
-  if (push) pushAppRoute(currentPlatoon, 'tdy-lists');
+  if (push) pushAppRoute(currentPlatoon, listsKind);
   renderTdyLists();
 }
 
@@ -3388,37 +3441,46 @@ function closeTdyLists(push = true) {
   render();
 }
 
-function tdyListCard(kind, title, hint, placeholder) {
-  const items = tdyLists[kind] || [];
-  const chips = items.map((item, i) => `
-    <span class="tdy-list-chip">${escapeHtml(item)}
-      <button type="button" title="Remove" onclick="removeTdyListItem('${kind}', ${i})">&times;</button>
-    </span>`).join('');
-  return `<div class="tdy-list-card">
-    <h3>${title}</h3>
-    <div class="tdy-list-hint">${hint}</div>
-    ${items.length ? `<div class="tdy-list-items">${chips}</div>`
-                   : `<div class="tdy-list-empty">Nothing saved yet.</div>`}
-    <div class="tdy-list-add">
-      <input type="text" id="tdyListAdd_${kind}" placeholder="${placeholder}"
-             onkeydown="if (event.key === 'Enter') addTdyListItem('${kind}')">
-      <button class="btn-small btn-add" onclick="addTdyListItem('${kind}')">Add</button>
-    </div>
-  </div>`;
-}
-
 function renderTdyLists() {
   const view = document.getElementById('tdyListsView');
   if (!view) return;
+  const page = LIST_PAGES[listsKind];
+  const items = tdyLists[listsKind] || [];
+  const last = items.length - 1;
+  const rows = items.map((item, i) => `<tr>
+      <td class="list-order">${i + 1}</td>
+      <td class="dir-name">${escapeHtml(item)}</td>
+      <td class="list-actions">
+        <button type="button" title="Move up" aria-label="Move ${escapeHtml(item)} up"
+          onclick="moveTdyListItem(${i}, -1)" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+        <button type="button" title="Move down" aria-label="Move ${escapeHtml(item)} down"
+          onclick="moveTdyListItem(${i}, 1)" ${i === last ? 'disabled' : ''}>&#9660;</button>
+        <button type="button" class="list-remove" title="Remove" aria-label="Remove ${escapeHtml(item)}"
+          onclick="removeTdyListItem(${i})">&times;</button>
+      </td>
+    </tr>`).join('');
+
   view.innerHTML = `
     <button class="soldier-back" onclick="closeTdyLists()">&larr; Back to roster</button>
     <div class="directory-head">
-      <h2>TDY Lists — ${escapeHtml(currentPlatoon === 'hq' ? 'HQ Platoon' : `${currentPlatoon} Platoon`)}</h2>
-      <span class="directory-count">Used by the School / Course and Location pickers</span>
+      <h2>${page.title} — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+      <span class="directory-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
+      <div class="list-sort-actions">
+        <button class="btn-small btn-cancel" onclick="sortTdyList(1)">Sort A–Z</button>
+        <button class="btn-small btn-cancel" onclick="sortTdyList(-1)">Sort Z–A</button>
+      </div>
     </div>
-    <div class="tdy-lists-grid">
-      ${tdyListCard('schools', 'Schools / Courses', 'Options shown in the School / Course dropdown.', 'Add a school or course…')}
-      ${tdyListCard('locations', 'Locations', 'Options shown in the Location dropdowns.', 'Add a location…')}
+    <div class="tdy-list-hint">${page.hint}</div>
+    <div class="directory-table-wrap">
+      <table class="directory-table list-table">
+        <thead><tr><th class="list-order">#</th><th>${page.title}</th><th class="list-actions">Order</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="3" class="dir-muted">Nothing saved yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div class="tdy-list-add">
+      <input type="text" id="tdyListAdd" placeholder="Add a ${page.noun}…"
+             onkeydown="if (event.key === 'Enter') addTdyListItem()">
+      <button class="btn-small btn-add" onclick="addTdyListItem()">Add</button>
     </div>`;
 }
 
@@ -3432,23 +3494,94 @@ async function saveTdyLists() {
   ['awaySchool', 'awayLocation', 'abs_location'].forEach(base => pickRender(base));
 }
 
-async function addTdyListItem(kind) {
-  const input = document.getElementById(`tdyListAdd_${kind}`);
-  const value = input.value.trim();
+async function addTdyListItem() {
+  const input = document.getElementById('tdyListAdd');
+  const value = input.value.trim().replace(/\s+/g, ' ');   // match the server's normalisation
   if (!value) return;
-  if ((tdyLists[kind] || []).some(i => i.toLowerCase() === value.toLowerCase())) {
+  if ((tdyLists[listsKind] || []).some(i => i.toLowerCase() === value.toLowerCase())) {
     showToast('That entry is already on the list.');
     return;
   }
-  tdyLists[kind] = [...tdyLists[kind], value].sort((a, b) => a.localeCompare(b));
+  tdyLists[listsKind] = [...tdyLists[listsKind], value];   // append; order is the user's
   await saveTdyLists();
 }
 
-async function removeTdyListItem(kind, index) {
-  const item = tdyLists[kind][index];
+async function removeTdyListItem(index) {
+  const item = tdyLists[listsKind][index];
   if (!confirm(`Remove "${item}" from the list?`)) return;
-  tdyLists[kind] = tdyLists[kind].filter((_, i) => i !== index);
+  tdyLists[listsKind] = tdyLists[listsKind].filter((_, i) => i !== index);
   await saveTdyLists();
+}
+
+async function moveTdyListItem(index, delta) {
+  const items = [...tdyLists[listsKind]];
+  const target = index + delta;
+  if (target < 0 || target >= items.length) return;
+  [items[index], items[target]] = [items[target], items[index]];
+  tdyLists[listsKind] = items;
+  await saveTdyLists();
+}
+
+async function sortTdyList(dir) {
+  tdyLists[listsKind] = [...tdyLists[listsKind]].sort((a, b) => a.localeCompare(b) * dir);
+  await saveTdyLists();
+}
+
+// ─── Sortable tables (directory + audit log) ───────────────────────────────
+// Each table keeps {key, dir} state and hands rows through sortRows().
+function sortHeaders(columns, state, onSort) {
+  return columns.map(c => {
+    const sorted = state.key === c.key;
+    const caret = sorted ? (state.dir === 1 ? '▲' : '▼') : '↕';
+    return `<th class="sortable${sorted ? ' sorted' : ''}" onclick="${onSort}('${c.key}')" title="Sort by ${c.label}">`
+      + `${c.label}<span class="sort-caret">${caret}</span></th>`;
+  }).join('');
+}
+
+// Toggle direction on the same column, otherwise switch column and start ascending.
+function toggleSort(state, key) {
+  if (state.key === key) state.dir = -state.dir;
+  else { state.key = key; state.dir = 1; }
+}
+
+function sortRows(rows, state, valueOf) {
+  return [...rows].sort((a, b) => {
+    const av = valueOf(a, state.key), bv = valueOf(b, state.key);
+    // Blanks always sink, whichever way the column is pointing.
+    if (av === '' && bv === '') return 0;
+    if (av === '') return 1;
+    if (bv === '') return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * state.dir;
+    return String(av).localeCompare(String(bv), undefined, { numeric: true }) * state.dir;
+  });
+}
+
+// ─── Directory page ───
+const DIRECTORY_COLUMNS = [
+  { key: 'name',   label: 'Name' },
+  { key: 'status', label: 'Status' },
+  { key: 'return', label: 'Return' },
+  { key: 'next',   label: 'Next Scheduled' },
+  { key: 'dod_id', label: 'DOD ID' },
+  { key: 'dob',    label: 'DOB' },
+  { key: 'mos',    label: 'MOS' },
+  { key: 'phone',  label: 'Phone' }
+];
+let directorySort = { key: 'name', dir: 1 };
+
+function directoryValue(r, key) {
+  switch (key) {
+    case 'name':   return `${r.last} ${r.first}`.toLowerCase();
+    case 'status': return STATUS_LABELS[r.status] || r.status || '';
+    case 'return': return (r.status !== 'present' && r.to_date) ? r.to_date : '';
+    case 'next':   return r.next_absence ? r.next_absence.from_date : '';
+    default:       return r[key] || '';
+  }
+}
+
+function sortDirectory(key) {
+  toggleSort(directorySort, key);
+  renderDirectory();
 }
 
 function renderDirectory() {
@@ -3456,24 +3589,23 @@ function renderDirectory() {
   if (!view) return;
   const searchEl = document.getElementById('directorySearch');
   const term = (searchEl ? searchEl.value : '').toLowerCase().trim();
-  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR' };
-  const rows = directoryRows.filter(r =>
-    !term || `${r.rank} ${r.last} ${r.first} ${r.mos || ''} ${r.section || ''}`.toLowerCase().includes(term)
+  const filtered = directoryRows.filter(r =>
+    !term || `${r.rank} ${r.last} ${r.first} ${r.mos || ''}`.toLowerCase().includes(term)
   );
+  const rows = sortRows(filtered, directorySort, directoryValue);
   const body = rows.map(r => {
     const ret = (r.status !== 'present' && r.to_date) ? formatDateShort(r.to_date) : '—';
     const nxt = r.next_absence
-      ? `${labels[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
+      ? `${STATUS_LABELS[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
       : '—';
     return `<tr onclick="openSoldierPage(${r.id})">
       <td class="dir-name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
-      <td>${dashPill(r.status)}</td>
+      <td>${statusText(r.status)}</td>
       <td>${ret}</td>
       <td>${r.next_absence ? escapeHtml(nxt) : '<span class="dir-muted">—</span>'}</td>
       <td>${escapeHtml(r.dod_id || '') || '<span class="dir-muted">—</span>'}</td>
-      <td>${r.dob ? formatDateShort(r.dob) : '<span class="dir-muted">—</span>'}</td>
+      <td>${r.dob ? formatDateWithYear(r.dob) : '<span class="dir-muted">—</span>'}</td>
       <td>${escapeHtml(r.mos || '') || '<span class="dir-muted">—</span>'}</td>
-      <td>${escapeHtml(r.section || '') || '<span class="dir-muted">—</span>'}</td>
       <td>${escapeHtml(r.phone || '') || '<span class="dir-muted">—</span>'}</td>
     </tr>`;
   }).join('');
@@ -3482,16 +3614,13 @@ function renderDirectory() {
     <div class="directory-head">
       <h2>Personnel Directory</h2>
       <span class="directory-count">${rows.length} of ${directoryRows.length}</span>
-      <input type="text" class="directory-search" id="directorySearch" placeholder="Search name, MOS, section…"
+      <input type="text" class="directory-search" id="directorySearch" placeholder="Search name or MOS…"
         value="${escapeHtml(term)}" oninput="renderDirectory()">
     </div>
     <div class="directory-table-wrap">
       <table class="directory-table">
-        <thead><tr>
-          <th>Name</th><th>Status</th><th>Return</th><th>Next Scheduled</th>
-          <th>DOD ID</th><th>DOB</th><th>MOS</th><th>Section</th><th>Phone</th>
-        </tr></thead>
-        <tbody>${body || '<tr><td colspan="9" class="dir-muted">No personnel found.</td></tr>'}</tbody>
+        <thead><tr>${sortHeaders(DIRECTORY_COLUMNS, directorySort, 'sortDirectory')}</tr></thead>
+        <tbody>${body || `<tr><td colspan="${DIRECTORY_COLUMNS.length}" class="dir-muted">No personnel found.</td></tr>`}</tbody>
       </table>
     </div>`;
   const search = document.getElementById('directorySearch');
@@ -3526,6 +3655,7 @@ function openSoldierPage(id, push = true) {
   soldierTab = 'overview';
   document.body.classList.remove('directory-active');
   document.body.classList.remove('lists-active');
+  document.body.classList.remove('audit-active');
   if (push) pushAppRoute(currentPlatoon, 'soldier', id);
   document.body.classList.add('soldier-active');
   renderSoldierPage();
@@ -3904,9 +4034,15 @@ function dashSection(key, title, secClass, rowsHtml, count, opts = {}) {
   </section>`;
 }
 
+const STATUS_LABELS = { present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
+
 function dashPill(status) {
-  const labels = { present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
-  return `<span class="dash-pill p-${status}">${labels[status] || escapeHtml(status)}</span>`;
+  return `<span class="dash-pill p-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
+}
+
+// Flat variant for dense tables: colored dot + plain text, no pill.
+function statusText(status) {
+  return `<span class="status-cell s-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
 }
 
 function dashCheckbox(p) {
@@ -5142,23 +5278,129 @@ async function deleteDutyEntry(id) {
 }
 
 // ─── Audit log ───
-async function openAuditLog() {
-  document.getElementById('auditModal').classList.add('active');
-  const list = document.getElementById('auditList');
-  list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:8px 0">Loading…</p>';
-  const data = await api('GET', `/audit?platoon=${currentPlatoon}&limit=200`);
-  if (!data || !data.length) {
-    list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:8px 0">No audit entries.</p>'; return;
+// ─── Audit log page ────────────────────────────────────────────────────────
+const AUDIT_COLUMNS = [
+  { key: 'timestamp', label: 'Time' },
+  { key: 'username',  label: 'User' },
+  { key: 'action',    label: 'Action' },
+  { key: 'details',   label: 'Details' }
+];
+const AUDIT_PAGE_SIZE = 50;
+let auditRows = [];
+let auditSort = { key: 'timestamp', dir: -1 };   // newest first
+let auditPage = 0;
+let auditFilters = { search: '', username: '', action: '' };
+
+async function openAuditLog(push = true) {
+  closeSoldierPage(false);
+  closeDirectoryPage(false);
+  closeTdyLists(false);
+  document.body.classList.add('audit-active');
+  if (push) pushAppRoute(currentPlatoon, 'audit');
+  const view = document.getElementById('auditView');
+  view.innerHTML = '<div class="dash-section-empty">Loading audit log…</div>';
+  // Small table (hundreds of rows) — pull it all once, then sort/filter/page
+  // in the browser so those act on the whole log, not just the current page.
+  const data = await api('GET', `/audit?platoon=${currentPlatoon}&limit=5000`);
+  if (!data || data.error) {
+    view.innerHTML = '<div class="dash-section-empty">Could not load the audit log.</div>';
+    return;
   }
-  list.innerHTML = data.map(r => {
-    const ts = (r.timestamp || '').replace('T',' ').slice(0,16);
-    return `<div class="audit-row">
-      <div class="audit-ts">${ts}</div>
-      <div class="audit-user">${escapeHtml(r.username||'')}</div>
-      <div class="audit-action">${escapeHtml(r.action||'')}</div>
-      <div class="audit-details">${escapeHtml(r.details||'')}</div>
+  auditRows = data;
+  auditPage = 0;
+  auditFilters = { search: '', username: '', action: '' };
+  renderAuditLog();
+}
+
+function closeAuditLog(push = true) {
+  if (!document.body.classList.contains('audit-active')) return;
+  document.body.classList.remove('audit-active');
+  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  render();
+}
+
+function sortAudit(key) {
+  toggleSort(auditSort, key);
+  auditPage = 0;
+  renderAuditLog();
+}
+
+function setAuditFilter(field, value) {
+  auditFilters[field] = value;
+  auditPage = 0;
+  renderAuditLog();
+}
+
+function auditPageStep(delta) {
+  auditPage += delta;
+  renderAuditLog();
+  document.getElementById('auditView').scrollIntoView({ block: 'start' });
+}
+
+function filteredAuditRows() {
+  const term = auditFilters.search.toLowerCase().trim();
+  return auditRows.filter(r =>
+    (!auditFilters.username || r.username === auditFilters.username) &&
+    (!auditFilters.action || r.action === auditFilters.action) &&
+    (!term || `${r.username || ''} ${r.action || ''} ${r.details || ''}`.toLowerCase().includes(term))
+  );
+}
+
+function auditOptions(field, selected) {
+  const values = [...new Set(auditRows.map(r => r[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return values.map(v =>
+    `<option value="${escapeHtml(v)}"${v === selected ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('');
+}
+
+function renderAuditLog() {
+  const view = document.getElementById('auditView');
+  if (!view) return;
+  const matched = sortRows(filteredAuditRows(), auditSort, (r, k) => r[k] || '');
+  const pages = Math.max(1, Math.ceil(matched.length / AUDIT_PAGE_SIZE));
+  auditPage = Math.min(Math.max(auditPage, 0), pages - 1);
+  const start = auditPage * AUDIT_PAGE_SIZE;
+  const pageRows = matched.slice(start, start + AUDIT_PAGE_SIZE);
+
+  const body = pageRows.map(r => `<tr>
+      <td>${escapeHtml((r.timestamp || '').replace('T', ' ').slice(0, 19))}</td>
+      <td class="dir-name">${escapeHtml(r.username || '')}</td>
+      <td>${escapeHtml(r.action || '')}</td>
+      <td class="audit-details-cell">${escapeHtml(r.details || '') || '<span class="dir-muted">—</span>'}</td>
+    </tr>`).join('');
+
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeAuditLog()">&larr; Back to roster</button>
+    <div class="directory-head">
+      <h2>Audit Log — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+      <span class="directory-count">${matched.length} of ${auditRows.length}</span>
+    </div>
+    <div class="audit-filters">
+      <input type="text" class="directory-search" id="auditSearch" placeholder="Search user, action, details…"
+        value="${escapeHtml(auditFilters.search)}" oninput="setAuditFilter('search', this.value)">
+      <select onchange="setAuditFilter('username', this.value)">
+        <option value="">All users</option>${auditOptions('username', auditFilters.username)}
+      </select>
+      <select onchange="setAuditFilter('action', this.value)">
+        <option value="">All actions</option>${auditOptions('action', auditFilters.action)}
+      </select>
+    </div>
+    <div class="directory-table-wrap">
+      <table class="directory-table">
+        <thead><tr>${sortHeaders(AUDIT_COLUMNS, auditSort, 'sortAudit')}</tr></thead>
+        <tbody>${body || `<tr><td colspan="${AUDIT_COLUMNS.length}" class="dir-muted">No audit entries.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div class="audit-pager">
+      <span>${matched.length ? `${start + 1}–${start + pageRows.length} of ${matched.length}` : '0 entries'}</span>
+      <button type="button" onclick="auditPageStep(-1)" ${auditPage === 0 ? 'disabled' : ''} title="Previous page" aria-label="Previous page">&#8249;</button>
+      <span>Page ${auditPage + 1} of ${pages}</span>
+      <button type="button" onclick="auditPageStep(1)" ${auditPage >= pages - 1 ? 'disabled' : ''} title="Next page" aria-label="Next page">&#8250;</button>
     </div>`;
-  }).join('');
+  const search = document.getElementById('auditSearch');
+  if (auditFilters.search && search) {
+    search.focus();
+    search.setSelectionRange(auditFilters.search.length, auditFilters.search.length);
+  }
 }
 
 // ─── Event Listeners ───
@@ -5181,6 +5423,7 @@ function showAppScreen(screen) {
     document.body.classList.remove('soldier-active');
     document.body.classList.remove('directory-active');
     document.body.classList.remove('lists-active');
+    document.body.classList.remove('audit-active');
     currentSoldierId = null;
   }
   document.getElementById('loginScreen').style.display = 'none';
@@ -5669,7 +5912,9 @@ function parseAppRoute() {
     if (parts[1] === 'soldier' && parts[2]) {
       return { platoon, section: 'soldier', soldierId: parseInt(parts[2], 10) };
     }
-    return { platoon, section: parts[1] || 'accountability' };
+    // /tdy-lists shipped briefly before the split into Schools + Locations.
+    const section = parts[1] === 'tdy-lists' ? 'schools' : (parts[1] || 'accountability');
+    return { platoon, section };
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -5690,7 +5935,8 @@ function routeAfterLogin() {
   if (route.platoon) {
     selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
     if (route.section === 'directory') openDirectory(false);
-    else if (route.section === 'tdy-lists') openTdyLists(false);
+    else if (route.section === 'audit') openAuditLog(false);
+    else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
   } else {
     loadHome();
   }
@@ -5762,6 +6008,7 @@ function selectPlatoon(platoon, push = true, pendingSoldier = null) {
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
   document.body.classList.remove('directory-active');
   document.body.classList.remove('lists-active');
+  document.body.classList.remove('audit-active');
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
   const isAdmin = currentUser && currentUser.is_admin;
@@ -5931,17 +6178,21 @@ window.addEventListener('popstate', () => {
     if (route.platoon !== currentPlatoon) {
       selectPlatoon(route.platoon, false, wantSoldier);
       if (route.section === 'directory') openDirectory(false);
-      else if (route.section === 'tdy-lists') openTdyLists(false);
+      else if (route.section === 'audit') openAuditLog(false);
+      else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
     } else if (wantSoldier != null) {
       openSoldierPage(wantSoldier, false);
     } else if (route.section === 'directory') {
       openDirectory(false);
-    } else if (route.section === 'tdy-lists') {
-      openTdyLists(false);
+    } else if (route.section === 'audit') {
+      openAuditLog(false);
+    } else if (LIST_PAGES[route.section]) {
+      openTdyLists(route.section, false);
     } else {
       closeSoldierPage(false);
       closeDirectoryPage(false);
       closeTdyLists(false);
+      closeAuditLog(false);
     }
   } else { loadHome(); }
 });

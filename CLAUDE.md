@@ -37,6 +37,17 @@ Two files hold essentially the entire app:
 `index.html` for any non-`api/`, non-static path so client-side routes survive a
 hard reload (this is the "SPA reload 404" fix).
 
+Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
+`soldier/<id>`, `schools`, `locations`, `audit`). Each is a hidden container in
+`.dash-main` revealed by a `body.<name>-active` class, with matching
+`open*()` / `close*()` / `render*()` functions — copy the directory page when
+adding another. Every new section needs a branch in `routeAfterLogin()` and the
+`popstate` handler, plus a class-clearing line wherever the other pages clear
+theirs.
+
+Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
+`sortRows()`; reuse those rather than writing per-table sort code.
+
 ### Data layer
 
 SQLite at `DB_PATH` = `${DATA_DIR}/accountability.db` (`DATA_DIR` defaults to the
@@ -53,8 +64,10 @@ Tables: `personnel`, `personnel_profile`, `settings`, `users`, `audit_log`,
 
 `settings` is a key/value bag, all keys platoon-suffixed: `unit_name_<platoon>`
 and the TDY picklists `tdy_schools_<platoon>` / `tdy_locations_<platoon>` (JSON
-arrays, seeded once from `DEFAULT_TDY_*` by `init_db()`, then owned by the TDY
-Lists page). Both are read and written through `/api/settings`.
+arrays, seeded once from `DEFAULT_TDY_*` by `init_db()`, then owned by the
+Schools and Locations pages). Both are read and written through `/api/settings`.
+**Array order is significant** — it is exactly the order the TDY modal's
+dropdowns render, so nothing on either side may re-sort these lists.
 
 ### Absence lifecycle (single source of truth)
 
@@ -108,6 +121,10 @@ conventions: brand blue `#146bc5`, neutral surfaces, 4–8px radii, borders over
 shadows, tabular numerals. Legacy `--theme_*`/`--dash-*` variable names are
 aliases onto `--cp-*` — the aliases live on `body` (NOT `:root`) so dark-mode
 overrides resolve correctly; keep new aliases there.
+
+**Size type in `em`, never `rem`.** The desktop scale comes from
+`body { font-size: 21px }` above 900px, so `rem` values stay pinned to the 16px
+root and render visibly smaller than the rest of the UI.
 
 ## Deployment
 
