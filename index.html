@@ -204,6 +204,58 @@
   .date-input:focus { border-color: var(--cp-accent); outline: none; }
   body.dark-mode .date-input { color-scheme: dark; }
 
+  /* Two-month range calendar popover (replaces the native picker on From/To pairs) */
+  .rp-field { cursor: pointer; }
+  .rp-field::-webkit-calendar-picker-indicator { display: none; }
+  .rp-pop {
+    position: fixed; z-index: 4000;
+    background: var(--cp-surface); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+    box-shadow: 0 16px 40px rgba(16,24,40,0.20);
+    padding: 18px 20px 0; font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .rp-months { display: flex; gap: 34px; }
+  .rp-month { flex: 1; min-width: 250px; }
+  .rp-title { text-align: center; font-weight: 600; margin-bottom: 14px; }
+  .rp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+  .rp-dow { text-align: center; color: var(--cp-muted); padding: 4px 0 8px; font-weight: 500; }
+  .rp-d {
+    height: 36px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; border: 0; background: none;
+    color: inherit; font: inherit; padding: 0;
+  }
+  .rp-d.empty { cursor: default; }
+  .rp-d:not(.empty):not(.sel):hover { background: var(--cp-hover, rgba(20,107,197,0.10)); border-radius: 4px; }
+  .rp-d.in { background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
+  .rp-d.sel { background: var(--cp-accent); color: #fff; border-radius: 4px; font-weight: 600; }
+  .rp-d.today:not(.sel) { font-weight: 700; text-decoration: underline; }
+  .rp-nav {
+    position: absolute; top: 14px; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border: 0; background: none; cursor: pointer;
+    color: var(--cp-accent); font-size: 1.4rem; line-height: 1; border-radius: 4px;
+  }
+  .rp-nav:hover { background: color-mix(in srgb, var(--cp-accent) 12%, transparent); }
+  .rp-nav.prev { left: 12px; }
+  .rp-nav.next { right: 12px; }
+  .rp-foot {
+    display: flex; justify-content: flex-end; align-items: center; gap: 18px;
+    margin: 14px -20px 0; padding: 12px 20px;
+    border-top: 1px solid var(--cp-border);
+  }
+  .rp-reset { border: 0; background: none; color: var(--cp-accent); font: inherit; cursor: pointer; }
+  .rp-reset:hover { text-decoration: underline; }
+  .rp-done {
+    border: 1px solid var(--cp-accent); background: var(--cp-accent); color: #fff;
+    font: inherit; font-weight: 600; padding: 9px 26px;
+    border-radius: var(--cp-radius); cursor: pointer;
+  }
+  @media (max-width: 700px) {
+    .rp-pop { max-height: 80vh; overflow-y: auto; }
+    .rp-months { flex-direction: column; gap: 18px; }
+  }
+
   /* ─── Login screen ─── */
   #loginScreen {
     display: none; align-items: center; justify-content: center; min-height: 100vh;
@@ -2733,11 +2785,13 @@
     <div class="date-pick-row">
       <div class="date-pick-col">
         <label style="font-size:0.8em;" for="awayFromInput">From</label>
-        <input type="date" class="date-input" id="awayFromInput" onchange="onAwayDateChange()" />
+        <input type="date" class="date-input rp-field" id="awayFromInput" onchange="onAwayDateChange()"
+               onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'from')" />
       </div>
       <div class="date-pick-col">
         <label style="font-size:0.8em;" for="awayToInput">To</label>
-        <input type="date" class="date-input" id="awayToInput" onchange="onAwayDateChange()" />
+        <input type="date" class="date-input rp-field" id="awayToInput" onchange="onAwayDateChange()"
+               onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'to')" />
       </div>
     </div>
 
@@ -3442,8 +3496,10 @@ function renderSoldierPage() {
                 <option value="other">Other</option>
               </select>
             </div>
-            <div><label>From</label><input type="date" id="abs_from"></div>
-            <div><label>To</label><input type="date" id="abs_to"></div>
+            <div><label>From</label><input type="date" class="rp-field" id="abs_from"
+                 onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'from')"></div>
+            <div><label>To</label><input type="date" class="rp-field" id="abs_to"
+                 onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'to')"></div>
             <div><label>Location</label><input type="text" id="abs_location" placeholder="e.g. Fort Knox KY"></div>
           </div>
           <label>Notes</label>
@@ -3854,7 +3910,139 @@ async function deleteFromEditModal() {
   closeAddModal();
 }
 
-// ─── Absence dates (native pickers) ───
+// ─── Two-month range picker ───────────────────────────────────────────────
+// Drives the existing <input type="date"> pairs: values stay ISO, change events
+// still fire, so every caller of .value keeps working unchanged.
+const RP_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const RP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let rp = null;
+
+function rpISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function rpParse(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+
+// Bound to onmousedown so the native calendar never gets a chance to open.
+function rpOpen(event, fromId, toId, which) {
+  event.preventDefault();
+  const input = event.currentTarget;
+  input.focus();
+  rpClose();
+  const fromEl = document.getElementById(fromId);
+  const toEl = document.getElementById(toId);
+  const anchor = input.closest('.date-pick-row') || input.closest('.abs-form-grid') || input;
+  const start = rpParse(fromEl.value) || new Date();
+  rp = {
+    fromEl, toEl, anchor,
+    view: new Date(start.getFullYear(), start.getMonth(), 1),
+    next: which === 'to' && fromEl.value ? 'to' : 'from',
+    pop: document.createElement('div')
+  };
+  rp.pop.className = 'rp-pop';
+  rp.pop.addEventListener('mousedown', e => e.preventDefault());
+  rp.pop.addEventListener('click', rpOnClick);
+  document.body.appendChild(rp.pop);
+  rpRender();
+  document.addEventListener('mousedown', rpOutside, true);
+  document.addEventListener('scroll', rpClose, true);
+  window.addEventListener('resize', rpClose);
+}
+
+function rpClose() {
+  if (!rp) return;
+  rp.pop.remove();
+  rp = null;
+  document.removeEventListener('mousedown', rpOutside, true);
+  document.removeEventListener('scroll', rpClose, true);
+  window.removeEventListener('resize', rpClose);
+}
+
+function rpOutside(e) {
+  if (rp && !rp.pop.contains(e.target)) rpClose();
+}
+
+function rpMonthHTML(base, offset) {
+  const view = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+  const from = rp.fromEl.value, to = rp.toEl.value, today = rpISO(new Date());
+  const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < view.getDay(); i++) cells.push('<div class="rp-d empty"></div>');
+  for (let d = 1; d <= days; d++) {
+    const iso = rpISO(new Date(view.getFullYear(), view.getMonth(), d));
+    const cls = ['rp-d'];
+    if (iso === from || iso === to) cls.push('sel');
+    else if (from && to && iso > from && iso < to) cls.push('in');
+    if (iso === today) cls.push('today');
+    cells.push(`<button type="button" class="${cls.join(' ')}" data-d="${iso}">${d}</button>`);
+  }
+  return `<div class="rp-month">
+    <div class="rp-title">${RP_MON[view.getMonth()]} ${view.getFullYear()}</div>
+    <div class="rp-grid">
+      ${RP_DOW.map(d => `<div class="rp-dow">${d}</div>`).join('')}
+      ${cells.join('')}
+    </div>
+  </div>`;
+}
+
+function rpRender() {
+  rp.pop.innerHTML = `
+    <button type="button" class="rp-nav prev" data-act="prev" aria-label="Previous month">&#8249;</button>
+    <button type="button" class="rp-nav next" data-act="next" aria-label="Next month">&#8250;</button>
+    <div class="rp-months">${rpMonthHTML(rp.view, 0)}${rpMonthHTML(rp.view, 1)}</div>
+    <div class="rp-foot">
+      <button type="button" class="rp-reset" data-act="reset">Reset Dates</button>
+      <button type="button" class="rp-done" data-act="done">Done</button>
+    </div>`;
+  rpPosition();
+}
+
+function rpPosition() {
+  const r = rp.anchor.getBoundingClientRect();
+  const w = rp.pop.offsetWidth, h = rp.pop.offsetHeight;
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  const below = r.bottom + 6;
+  rp.pop.style.left = `${left}px`;
+  rp.pop.style.top = `${below + h > window.innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : below}px`;
+}
+
+function rpSet(el, value) {
+  el.value = value;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function rpOnClick(e) {
+  const btn = e.target.closest('[data-act], [data-d]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === 'prev' || act === 'next') {
+    rp.view.setMonth(rp.view.getMonth() + (act === 'prev' ? -1 : 1));
+    return rpRender();
+  }
+  if (act === 'reset') {
+    rpSet(rp.fromEl, '');
+    rpSet(rp.toEl, '');
+    rp.next = 'from';
+    return rpRender();
+  }
+  if (act === 'done') return rpClose();
+
+  const iso = btn.dataset.d;
+  if (rp.next === 'to' && rp.fromEl.value && iso >= rp.fromEl.value) {
+    rpSet(rp.toEl, iso);
+    rp.next = 'from';
+  } else {
+    // First click, or a click before the current start — restart the range.
+    rpSet(rp.fromEl, iso);
+    rpSet(rp.toEl, '');
+    rp.next = 'to';
+  }
+  rpRender();
+}
+
+// ─── Absence dates ───
 function onAwayDateChange() {
   const fromEl = document.getElementById('awayFromInput');
   const toEl = document.getElementById('awayToInput');
