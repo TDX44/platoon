@@ -51,6 +51,11 @@ Tables: `personnel`, `personnel_profile`, `settings`, `users`, `audit_log`,
 `duty_roster`, `scheduled_events`. (Legacy `training_*` tables from the removed
 350-1 tracker feature may still exist in older database files; they are unused.)
 
+`settings` is a key/value bag, all keys platoon-suffixed: `unit_name_<platoon>`
+and the TDY picklists `tdy_schools_<platoon>` / `tdy_locations_<platoon>` (JSON
+arrays, seeded once from `DEFAULT_TDY_*` by `init_db()`, then owned by the TDY
+Lists page). Both are read and written through `/api/settings`.
+
 ### Absence lifecycle (single source of truth)
 
 All TDY/leave/pass/other/FTR absences live in `scheduled_events` with a `state`

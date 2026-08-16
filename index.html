@@ -8,7 +8,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Accountability">
-<link rel="apple-touch-icon" href="/images/company-logo.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/images/icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/images/icon-180.png">
 <meta name="theme-color" content="#ffffff">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,10 +58,11 @@
   .modal-overlay.active { display: flex; }
   .modal { background: #2d2d44; border-radius: 10px; padding: 25px; width: 420px; max-width: 95vw; }
   .modal-wide { width: 520px; }
+  .modal-xl { width: 620px; }
   /* Phone: modals become bottom sheets that fit the viewport */
   @media (max-width: 480px) {
     .modal-overlay.active { align-items: flex-end; padding: 0; }
-    .modal, .modal-wide {
+    .modal, .modal-wide, .modal-xl {
       width: 100%; max-width: 100%;
       border-radius: 14px 14px 0 0;
       max-height: 92dvh; overflow-y: auto;
@@ -68,6 +70,7 @@
     }
     .modal-buttons { position: sticky; bottom: 0; background: inherit; padding-top: 10px; }
     .status-toggle { padding: 10px 14px; }
+    .status-toggle-group { grid-template-columns: repeat(2, 1fr); }
   }
   .modal h2 { color: #00d4ff; margin-bottom: 15px; }
   .modal label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
@@ -172,7 +175,10 @@
   .report-buttons { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
 
   /* Status type toggle buttons */
-  .status-toggle-group { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .status-toggle-group {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 14px;
+  }
   .status-toggle {
     padding: 8px 16px; border: 2px solid #444; border-radius: 6px; cursor: pointer;
     font-weight: 600; font-size: 0.9em; color: #aaa; background: transparent;
@@ -1354,15 +1360,13 @@
     border-color: rgba(27,97,201,0.32);
     color: var(--theme_action);
   }
-  .status-toggle.active-tdy,
-  .status-toggle.active-leave,
-  .status-toggle.active-pass,
-  .status-toggle.active-other,
-  .status-toggle.active-ftr,
-  .status-toggle.active-loan {
+  /* Prefixed with body so these beat the body.light-mode / body.dark-mode
+     base rules above — without it the selected status has no highlight. */
+  body .status-toggle[class*="active-"] {
     border-color: var(--theme_action);
-    background: #eaf2ff;
+    background: var(--cp-accent-soft, #eaf2ff);
     color: var(--theme_action);
+    font-weight: 700;
   }
   .date-display,
   body.light-mode .date-display,
@@ -1543,6 +1547,54 @@
   body.directory-active .dash-rail { display: none; }
   body.directory-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.directory-active .directory-view { display: block; }
+
+  /* ── TDY Lists page (same full-width treatment as the directory) ── */
+  .tdy-lists-view { display: none; }
+  body.lists-active #dashMetrics,
+  body.lists-active #bulkBar,
+  body.lists-active #personnelBody { display: none; }
+  body.lists-active .dash-rail { display: none; }
+  body.lists-active .dash-main { grid-column: 2 / 4; max-width: none; }
+  body.lists-active .tdy-lists-view { display: block; }
+
+  .tdy-lists-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px; margin-top: 14px;
+  }
+  .tdy-list-card {
+    background: var(--cp-surface); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius); padding: 16px 18px;
+  }
+  .tdy-list-card h3 { margin: 0 0 2px; font-size: 1rem; font-weight: 650; }
+  .tdy-list-card .tdy-list-hint { color: var(--cp-muted); font-size: 0.82rem; margin-bottom: 12px; }
+  .tdy-list-items { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tdy-list-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 8px 6px 12px; font-size: 0.86rem;
+    background: var(--cp-input); border: 1px solid var(--cp-border);
+    border-radius: 999px;
+  }
+  .tdy-list-chip button {
+    border: 0; background: none; cursor: pointer; padding: 0 2px;
+    color: var(--cp-muted); font-size: 1rem; line-height: 1;
+  }
+  .tdy-list-chip button:hover { color: #d63031; }
+  .tdy-list-empty { color: var(--cp-muted); font-size: 0.86rem; margin-bottom: 14px; }
+  .tdy-list-add { display: flex; gap: 8px; }
+  .tdy-list-add input {
+    flex: 1; padding: 8px 12px; font-size: 0.88rem;
+    background: var(--cp-input); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+  }
+  .tdy-list-add input:focus { border-color: var(--cp-accent); outline: none; }
+
+  /* ── Picklist fields (School / Course, Location) ── */
+  .pick-custom { margin-top: 8px; margin-bottom: 12px; }
+  .pick-save {
+    display: flex; align-items: center; gap: 6px;
+    margin: 8px 0 0; font-size: 0.82em; color: var(--cp-muted);
+  }
+  .pick-save input { width: auto; margin: 0; }
 
   .directory-head {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -2556,6 +2608,7 @@
     <button class="dash-nav-item" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
     <button class="dash-nav-item" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
+    <button class="dash-nav-item" onclick="openTdyLists()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>TDY Lists</button>
     <button class="dash-nav-item" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
     <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
     <button class="dash-nav-item" id="auditLogBtn" onclick="openAuditLog()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Audit Log</button>
@@ -2611,6 +2664,7 @@
   <div class="dash-sections" id="personnelBody"></div>
   <div class="soldier-view" id="soldierView"></div>
   <div class="directory-view" id="directoryView"></div>
+  <div class="tdy-lists-view" id="tdyListsView"></div>
 </div>
 
 <aside class="dash-rail">
@@ -2679,6 +2733,7 @@
 <div class="more-sheet" id="moreSheet" role="menu" aria-label="More options">
   <div class="more-sheet-handle"></div>
   <button onclick="openDirectory();closeMoreSheet()">Directory</button>
+  <button onclick="openTdyLists();closeMoreSheet()">TDY Lists</button>
   <button onclick="openHistory();closeMoreSheet()">History</button>
   <button onclick="openDutyRoster();closeMoreSheet()">Duty Roster</button>
   <button onclick="openImportModal();closeMoreSheet()">Import List</button>
@@ -2743,7 +2798,7 @@
 
 <!-- TDY / Leave Modal -->
 <div class="modal-overlay" id="tdyLeaveModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-xl">
     <h2 id="tdyLeaveTitle">TDY / Leave</h2>
 
     <label>Status Type</label>
@@ -2776,9 +2831,17 @@
 
     <div class="tdy-school-row" id="tdySchoolRow">
       <label>School / Course</label>
-      <input type="text" id="awaySchool" placeholder="e.g. IPC, SERE 220, Phase 1 WOBC" oninput="updateNotesPreview()" />
+      <select id="awaySchool_sel" onchange="pickOnChange('awaySchool')"></select>
+      <div class="pick-custom" id="awaySchool_custom" style="display:none">
+        <input type="text" id="awaySchool_txt" placeholder="e.g. IPC, SERE 220, Phase 1 WOBC" oninput="updateNotesPreview()" />
+        <label class="pick-save"><input type="checkbox" id="awaySchool_save" checked> Save to list</label>
+      </div>
       <div class="tdy-field-separator"><span>Location</span></div>
-      <input type="text" id="awayLocation" placeholder="e.g. Dothan AL, Fort Knox KY" oninput="updateNotesPreview()" />
+      <select id="awayLocation_sel" onchange="pickOnChange('awayLocation')"></select>
+      <div class="pick-custom" id="awayLocation_custom" style="display:none">
+        <input type="text" id="awayLocation_txt" placeholder="e.g. Dothan AL, Fort Knox KY" oninput="updateNotesPreview()" />
+        <label class="pick-save"><input type="checkbox" id="awayLocation_save" checked> Save to list</label>
+      </div>
     </div>
 
     <label>Date Range</label>
@@ -3006,6 +3069,10 @@ async function load() {
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
+    applyTdyLists(settings);
+    // A failed list write resyncs through here — redraw so the page can't keep
+    // showing an entry the server rejected.
+    if (document.body.classList.contains('lists-active')) renderTdyLists();
     render();
     updateAsOf();
     if (pendingSoldierId != null) {
@@ -3283,6 +3350,7 @@ let directoryRows = [];
 
 async function openDirectory(push = true) {
   closeSoldierPage(false);
+  document.body.classList.remove('lists-active');
   document.body.classList.add('directory-active');
   if (push) pushAppRoute(currentPlatoon, 'directory');
   const view = document.getElementById('directoryView');
@@ -3301,6 +3369,86 @@ function closeDirectoryPage(push = true) {
   document.body.classList.remove('directory-active');
   if (push) pushAppRoute(currentPlatoon, 'accountability');
   render();
+}
+
+// ─── TDY Lists page ────────────────────────────────────────────────────────
+// The per-platoon school/course and location picklists behind the TDY modal.
+function openTdyLists(push = true) {
+  closeSoldierPage(false);
+  closeDirectoryPage(false);
+  document.body.classList.add('lists-active');
+  if (push) pushAppRoute(currentPlatoon, 'tdy-lists');
+  renderTdyLists();
+}
+
+function closeTdyLists(push = true) {
+  if (!document.body.classList.contains('lists-active')) return;
+  document.body.classList.remove('lists-active');
+  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  render();
+}
+
+function tdyListCard(kind, title, hint, placeholder) {
+  const items = tdyLists[kind] || [];
+  const chips = items.map((item, i) => `
+    <span class="tdy-list-chip">${escapeHtml(item)}
+      <button type="button" title="Remove" onclick="removeTdyListItem('${kind}', ${i})">&times;</button>
+    </span>`).join('');
+  return `<div class="tdy-list-card">
+    <h3>${title}</h3>
+    <div class="tdy-list-hint">${hint}</div>
+    ${items.length ? `<div class="tdy-list-items">${chips}</div>`
+                   : `<div class="tdy-list-empty">Nothing saved yet.</div>`}
+    <div class="tdy-list-add">
+      <input type="text" id="tdyListAdd_${kind}" placeholder="${placeholder}"
+             onkeydown="if (event.key === 'Enter') addTdyListItem('${kind}')">
+      <button class="btn-small btn-add" onclick="addTdyListItem('${kind}')">Add</button>
+    </div>
+  </div>`;
+}
+
+function renderTdyLists() {
+  const view = document.getElementById('tdyListsView');
+  if (!view) return;
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeTdyLists()">&larr; Back to roster</button>
+    <div class="directory-head">
+      <h2>TDY Lists — ${escapeHtml(currentPlatoon === 'hq' ? 'HQ Platoon' : `${currentPlatoon} Platoon`)}</h2>
+      <span class="directory-count">Used by the School / Course and Location pickers</span>
+    </div>
+    <div class="tdy-lists-grid">
+      ${tdyListCard('schools', 'Schools / Courses', 'Options shown in the School / Course dropdown.', 'Add a school or course…')}
+      ${tdyListCard('locations', 'Locations', 'Options shown in the Location dropdowns.', 'Add a location…')}
+    </div>`;
+}
+
+async function saveTdyLists() {
+  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, {
+    tdy_schools: tdyLists.schools,
+    tdy_locations: tdyLists.locations
+  });
+  if (saved) applyTdyLists(saved);
+  renderTdyLists();
+  ['awaySchool', 'awayLocation', 'abs_location'].forEach(base => pickRender(base));
+}
+
+async function addTdyListItem(kind) {
+  const input = document.getElementById(`tdyListAdd_${kind}`);
+  const value = input.value.trim();
+  if (!value) return;
+  if ((tdyLists[kind] || []).some(i => i.toLowerCase() === value.toLowerCase())) {
+    showToast('That entry is already on the list.');
+    return;
+  }
+  tdyLists[kind] = [...tdyLists[kind], value].sort((a, b) => a.localeCompare(b));
+  await saveTdyLists();
+}
+
+async function removeTdyListItem(kind, index) {
+  const item = tdyLists[kind][index];
+  if (!confirm(`Remove "${item}" from the list?`)) return;
+  tdyLists[kind] = tdyLists[kind].filter((_, i) => i !== index);
+  await saveTdyLists();
 }
 
 function renderDirectory() {
@@ -3377,6 +3525,7 @@ function openSoldierPage(id, push = true) {
   currentSoldierId = id;
   soldierTab = 'overview';
   document.body.classList.remove('directory-active');
+  document.body.classList.remove('lists-active');
   if (push) pushAppRoute(currentPlatoon, 'soldier', id);
   document.body.classList.add('soldier-active');
   renderSoldierPage();
@@ -3500,7 +3649,14 @@ function renderSoldierPage() {
                  onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'from')"></div>
             <div><label>To</label><input type="date" class="rp-field" id="abs_to"
                  onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'to')"></div>
-            <div><label>Location</label><input type="text" id="abs_location" placeholder="e.g. Fort Knox KY"></div>
+            <div>
+              <label>Location</label>
+              <select id="abs_location_sel" onchange="pickOnChange('abs_location')"></select>
+              <div class="pick-custom" id="abs_location_custom" style="display:none">
+                <input type="text" id="abs_location_txt" placeholder="e.g. Fort Knox KY">
+                <label class="pick-save"><input type="checkbox" id="abs_location_save" checked> Save to list</label>
+              </div>
+            </div>
           </div>
           <label>Notes</label>
           <input type="text" id="abs_notes" placeholder="Reason / course / details">
@@ -3548,20 +3704,22 @@ function toggleAddAbsence(show) {
   form.style.display = willShow ? 'block' : 'none';
   if (willShow) {
     document.getElementById('abs_status').value = 'tdy';
-    ['abs_from', 'abs_to', 'abs_location', 'abs_notes'].forEach(id => {
+    ['abs_from', 'abs_to', 'abs_notes'].forEach(id => {
       document.getElementById(id).value = '';
     });
+    pickSet('abs_location', '');
   }
 }
 
 async function saveAbsence() {
   const p = currentSoldierPerson();
   if (!p) return;
+  await pickSaveCustoms(['abs_location']);
   const payload = {
     status: document.getElementById('abs_status').value,
     from_date: document.getElementById('abs_from').value,
     to_date: document.getElementById('abs_to').value,
-    location: document.getElementById('abs_location').value,
+    location: pickValue('abs_location'),
     notes: document.getElementById('abs_notes').value
   };
   if (!payload.from_date) { alert('Enter a start date for the absence.'); return; }
@@ -4075,14 +4233,80 @@ function setAwayStatus(status) {
   updateNotesPreview();
 }
 
+// ─── School / location picklists ───────────────────────────────────────────
+// Per-platoon lists live in settings (see the TDY Lists page). A field is a
+// <select> plus a hidden "Other" text box; pickValue() is the single reader.
+let tdyLists = { schools: [], locations: [] };
+const PICK_KIND = { awaySchool: 'schools', awayLocation: 'locations', abs_location: 'locations' };
+
+function pickValue(base) {
+  const sel = document.getElementById(`${base}_sel`);
+  if (!sel) return '';
+  if (sel.value !== '__other__') return sel.value;
+  return document.getElementById(`${base}_txt`).value.trim();
+}
+
+function pickOnChange(base) {
+  const isOther = document.getElementById(`${base}_sel`).value === '__other__';
+  document.getElementById(`${base}_custom`).style.display = isOther ? 'block' : 'none';
+  if (isOther) document.getElementById(`${base}_txt`).focus();
+  updateNotesPreview();
+}
+
+// Rebuild the options, keeping whatever is currently entered.
+function pickRender(base, keepValue) {
+  const sel = document.getElementById(`${base}_sel`);
+  if (!sel) return;
+  const value = keepValue !== undefined ? keepValue : pickValue(base);
+  const list = tdyLists[PICK_KIND[base]] || [];
+  const known = list.some(item => item === value);
+  sel.innerHTML = [
+    '<option value="">— None —</option>',
+    ...list.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`),
+    '<option value="__other__">Other…</option>'
+  ].join('');
+  sel.value = value && !known ? '__other__' : value;
+  document.getElementById(`${base}_txt`).value = value && !known ? value : '';
+  document.getElementById(`${base}_custom`).style.display = sel.value === '__other__' ? 'block' : 'none';
+}
+
+function pickSet(base, value) { pickRender(base, value || ''); }
+
+// Persist any "Other" value the user ticked "Save to list" for.
+async function pickSaveCustoms(bases) {
+  const additions = {};
+  bases.forEach(base => {
+    const sel = document.getElementById(`${base}_sel`);
+    const save = document.getElementById(`${base}_save`);
+    if (!sel || sel.value !== '__other__' || !save || !save.checked) return;
+    const value = document.getElementById(`${base}_txt`).value.trim();
+    const kind = PICK_KIND[base];
+    if (!value || (tdyLists[kind] || []).some(i => i.toLowerCase() === value.toLowerCase())) return;
+    (additions[kind] = additions[kind] || []).push(value);
+  });
+  const kinds = Object.keys(additions);
+  if (!kinds.length) return;
+  const payload = {};
+  kinds.forEach(kind => {
+    tdyLists[kind] = [...tdyLists[kind], ...additions[kind]].sort((a, b) => a.localeCompare(b));
+    payload[`tdy_${kind}`] = tdyLists[kind];
+  });
+  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, payload);
+  if (saved) applyTdyLists(saved);
+}
+
+function applyTdyLists(settings) {
+  tdyLists = { schools: settings.tdy_schools || [], locations: settings.tdy_locations || [] };
+}
+
 // ─── Notes preview ───
 function updateNotesPreview() {
   const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR', loan:'On Loan' };
   const parts = [statusLabels[awayStatus] || awayStatus];
 
   if (awayStatus === 'tdy') {
-    const school = document.getElementById('awaySchool').value.trim();
-    const location = document.getElementById('awayLocation').value.trim();
+    const school = pickValue('awaySchool');
+    const location = pickValue('awayLocation');
     if (school) parts.push(school);
     if (location) parts.push(location);
   } else if (awayStatus === 'other') {
@@ -4111,17 +4335,17 @@ function openTdyLeave(i) {
   setAwayStatus(status);
 
   // Restore school/location, position, or category from notes
-  document.getElementById('awaySchool').value = '';
-  document.getElementById('awayLocation').value = '';
+  pickSet('awaySchool', '');
+  pickSet('awayLocation', '');
   document.getElementById('loanPosition').value = '';
   document.getElementById('otherCategory').value = '';
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
-      document.getElementById('awaySchool').value = p.notes.slice(0, idx);
-      document.getElementById('awayLocation').value = p.notes.slice(idx + 3);
+      pickSet('awaySchool', p.notes.slice(0, idx));
+      pickSet('awayLocation', p.notes.slice(idx + 3));
     } else {
-      document.getElementById('awaySchool').value = p.notes;
+      pickSet('awaySchool', p.notes);
     }
   } else if (status === 'loan' && p.notes) {
     document.getElementById('loanPosition').value = p.notes;
@@ -4151,8 +4375,8 @@ function closeTdyLeaveModal() {
 
 function bulkAbsenceNotes() {
   if (awayStatus === 'tdy') {
-    const school = document.getElementById('awaySchool').value.trim();
-    const location = document.getElementById('awayLocation').value.trim();
+    const school = pickValue('awaySchool');
+    const location = pickValue('awayLocation');
     return [school, location].filter(Boolean).join(' - ');
   }
   if (awayStatus === 'loan') return document.getElementById('loanPosition').value.trim();
@@ -4188,6 +4412,7 @@ async function saveBulkTdyLeave() {
 }
 
 async function saveTdyLeave() {
+  if (awayStatus === 'tdy') await pickSaveCustoms(['awaySchool', 'awayLocation']);
   if (bulkTdyIds.length) { await saveBulkTdyLeave(); return; }
   if (tdyLeaveIndex < 0) return;
   const p = personnel[tdyLeaveIndex];
@@ -4195,8 +4420,8 @@ async function saveTdyLeave() {
   // Build notes string
   let notesVal = '';
   if (awayStatus === 'tdy') {
-    const school = document.getElementById('awaySchool').value.trim();
-    const location = document.getElementById('awayLocation').value.trim();
+    const school = pickValue('awaySchool');
+    const location = pickValue('awayLocation');
     notesVal = [school, location].filter(Boolean).join(' - ');
   } else if (awayStatus === 'loan') {
     notesVal = document.getElementById('loanPosition').value.trim();
@@ -4731,7 +4956,9 @@ function openBulkStatusModal(status) {
   document.getElementById('tdyLeaveTitle').textContent =
     `${bulkTdyIds.length} selected personnel`;
   setAwayStatus(status);
-  ['awaySchool', 'awayLocation', 'loanPosition', 'otherCategory'].forEach(id => {
+  pickSet('awaySchool', '');
+  pickSet('awayLocation', '');
+  ['loanPosition', 'otherCategory'].forEach(id => {
     document.getElementById(id).value = '';
   });
   awayFrom = ''; awayTo = '';
@@ -4953,6 +5180,7 @@ function showAppScreen(screen) {
   if (screen !== 'platoon') {
     document.body.classList.remove('soldier-active');
     document.body.classList.remove('directory-active');
+    document.body.classList.remove('lists-active');
     currentSoldierId = null;
   }
   document.getElementById('loginScreen').style.display = 'none';
@@ -5462,6 +5690,7 @@ function routeAfterLogin() {
   if (route.platoon) {
     selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
     if (route.section === 'directory') openDirectory(false);
+    else if (route.section === 'tdy-lists') openTdyLists(false);
   } else {
     loadHome();
   }
@@ -5532,6 +5761,7 @@ function selectPlatoon(platoon, push = true, pendingSoldier = null) {
   pendingSoldierId = pendingSoldier;
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
   document.body.classList.remove('directory-active');
+  document.body.classList.remove('lists-active');
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
   const isAdmin = currentUser && currentUser.is_admin;
@@ -5701,13 +5931,17 @@ window.addEventListener('popstate', () => {
     if (route.platoon !== currentPlatoon) {
       selectPlatoon(route.platoon, false, wantSoldier);
       if (route.section === 'directory') openDirectory(false);
+      else if (route.section === 'tdy-lists') openTdyLists(false);
     } else if (wantSoldier != null) {
       openSoldierPage(wantSoldier, false);
     } else if (route.section === 'directory') {
       openDirectory(false);
+    } else if (route.section === 'tdy-lists') {
+      openTdyLists(false);
     } else {
       closeSoldierPage(false);
       closeDirectoryPage(false);
+      closeTdyLists(false);
     }
   } else { loadHome(); }
 });

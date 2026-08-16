@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import os
 import secrets
 import string
@@ -55,6 +56,51 @@ PLATOONS = {
     '2nd': '2nd Platoon Accountability',
     'hq':  'HQ Platoon Accountability'
 }
+
+# ── TDY picklists ──────────────────────────────────────────────────────────
+# Seeded once per platoon into `settings` (keys tdy_schools_<platoon> /
+# tdy_locations_<platoon>) as JSON arrays, then owned by the TDY Lists page.
+# These starting values are the deduplicated schools/locations already entered
+# by each platoon before the picklists existed.
+DEFAULT_TDY_SCHOOLS = {
+    '1st': ['CCNA', 'CLS', 'R&U'],
+    '2nd': ['ATM', 'ATM Flight', 'AWOIC', 'C3', 'FFI', 'Global MX', 'IO', 'IPC',
+            'Phase 2', 'Recurrent', 'Sim', 'Sim Progression', 'TF Hunter', 'Wet Sim'],
+    'hq':  [],
+}
+DEFAULT_TDY_LOCATIONS = {
+    '1st': [],
+    '2nd': ['Bliss', 'Burnett', 'Dothan, AL', 'El Paso', 'Frankfurt',
+            'Grapevine', 'Kadena, Japan', 'Wilcox'],
+    'hq':  [],
+}
+TDY_LIST_MAX_ITEMS = 300
+TDY_LIST_MAX_LEN = 80
+
+
+def _clean_tdy_list(values):
+    """Trim, drop blanks, cap length, and dedupe case-insensitively."""
+    if not isinstance(values, list):
+        raise ValueError('Expected a list of strings.')
+    seen, out = set(), []
+    for value in values[:TDY_LIST_MAX_ITEMS]:
+        if not isinstance(value, str):
+            raise ValueError('List entries must be strings.')
+        item = ' '.join(value.split())[:TDY_LIST_MAX_LEN]
+        if item and item.lower() not in seen:
+            seen.add(item.lower())
+            out.append(item)
+    return out
+
+
+def _get_tdy_list(conn, kind, platoon):
+    row = conn.execute('SELECT value FROM settings WHERE key = ?', (f'tdy_{kind}_{platoon}',)).fetchone()
+    if not row:
+        return []
+    try:
+        return _clean_tdy_list(json.loads(row['value']))
+    except (ValueError, TypeError):
+        return []
 
 
 def get_db():
@@ -232,6 +278,14 @@ def init_db():
         "  SELECT 1 FROM scheduled_events s WHERE s.person_id = p.id AND s.state = 'active'"
         ")"
     )
+
+    # ── Seed the TDY picklists once per platoon; the TDY Lists page owns them after that ──
+    for platoon in PLATOONS:
+        for kind, defaults in (('schools', DEFAULT_TDY_SCHOOLS), ('locations', DEFAULT_TDY_LOCATIONS)):
+            cur.execute(
+                'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+                (f'tdy_{kind}_{platoon}', json.dumps(defaults.get(platoon, [])))
+            )
 
     # ── Seed legacy admin user only when Clerk is not configured ──
     cur.execute('SELECT COUNT(*) FROM users')
@@ -928,8 +982,13 @@ def get_settings():
     key = f'unit_name_{platoon}'
     conn = get_db()
     row = conn.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
+    payload = {
+        'unit_name': row['value'] if row else PLATOONS.get(platoon, f'{platoon} Platoon'),
+        'tdy_schools': _get_tdy_list(conn, 'schools', platoon),
+        'tdy_locations': _get_tdy_list(conn, 'locations', platoon),
+    }
     conn.close()
-    return jsonify({'unit_name': row['value'] if row else PLATOONS.get(platoon, f'{platoon} Platoon')})
+    return jsonify(payload)
 
 
 @app.route('/api/settings', methods=['PUT'])
@@ -947,6 +1006,19 @@ def update_settings():
             'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
             (key, data['unit_name'], data['unit_name'])
         )
+    for field, kind in (('tdy_schools', 'schools'), ('tdy_locations', 'locations')):
+        if field not in data:
+            continue
+        try:
+            value = json.dumps(_clean_tdy_list(data[field]))
+        except ValueError as exc:
+            conn.close()
+            return jsonify({'error': str(exc)}), 400
+        conn.execute(
+            'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+            (f'tdy_{kind}_{platoon}', value, value)
+        )
+        log_action(f'Updated TDY {kind} list', f'{len(json.loads(value))} entries', platoon)
     conn.commit()
     conn.close()
     return get_settings()
