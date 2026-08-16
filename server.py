@@ -330,6 +330,14 @@ init_db()
 # ── Audit log helper ──
 
 def log_action(action, details='', platoon=''):
+    """Write one audit row.
+
+    Opens its own connection, so callers MUST close theirs first. Calling this
+    while holding an open write transaction self-deadlocks: this connection
+    waits out the busy timeout, and the caller's next statement then fails with
+    "database is locked". Errors here are swallowed, so the stall is the only
+    symptom you get.
+    """
     try:
         conn = get_db()
         user_id, username = 0, 'system'
@@ -1006,21 +1014,28 @@ def update_settings():
             'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
             (key, data['unit_name'], data['unit_name'])
         )
+    logs = []
     for field, kind in (('tdy_schools', 'schools'), ('tdy_locations', 'locations')):
         if field not in data:
             continue
         try:
-            value = json.dumps(_clean_tdy_list(data[field]))
+            cleaned = _clean_tdy_list(data[field])
         except ValueError as exc:
             conn.close()
             return jsonify({'error': str(exc)}), 400
+        value = json.dumps(cleaned)
         conn.execute(
             'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
             (f'tdy_{kind}_{platoon}', value, value)
         )
-        log_action(f'Updated TDY {kind} list', f'{len(json.loads(value))} entries', platoon)
+        logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
     conn.commit()
     conn.close()
+    # log_action opens its own connection — it must run only after ours is
+    # closed, or it blocks on our write lock for the full busy timeout and the
+    # next statement here dies with "database is locked".
+    for action, details in logs:
+        log_action(action, details, platoon)
     return get_settings()
 
 

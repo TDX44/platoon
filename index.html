@@ -1580,11 +1580,30 @@
 
   .tdy-list-hint { color: var(--cp-muted); font-size: 0.85em; margin: -6px 0 12px; }
   .list-sort-actions { display: flex; gap: 8px; margin-left: auto; }
+  .list-table td.list-check,
+  .list-table th.list-check { width: 1%; padding-right: 0; }
+  .list-table td.list-check input,
+  .list-table th.list-check input { width: auto; margin: 0; cursor: pointer; }
   .list-table td.list-order,
-  .list-table th.list-order { width: 1%; color: var(--cp-muted); text-align: right; }
+  .list-table th.list-order { width: 1%; color: var(--cp-muted); text-align: right; white-space: nowrap; }
+  .list-grip { cursor: grab; color: var(--cp-faint); margin-right: 4px; letter-spacing: -2px; }
+  .list-table tbody tr.dragging { opacity: 0.4; }
+  .list-table tbody tr.drop-above td { box-shadow: inset 0 2px 0 var(--cp-accent); }
+  .list-table tbody tr.drop-below td { box-shadow: inset 0 -2px 0 var(--cp-accent); }
+  .list-confirm-lead { color: var(--cp-text-weak); font-size: 0.9em; margin: 0 0 10px; }
+  .list-confirm-names {
+    margin: 0 0 4px; padding: 8px 12px 8px 28px; max-height: 220px; overflow-y: auto;
+    background: var(--cp-subtle); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius); font-size: 0.9em;
+  }
+  .list-confirm-names li { margin: 2px 0; }
   .list-table td.list-actions,
   .list-table th.list-actions { width: 1%; text-align: right; }
   .list-table tbody tr { cursor: default; }
+  /* Keep the row controls next to the names instead of stranded across a wide screen. */
+  body.lists-active .directory-table-wrap,
+  body.lists-active .directory-head,
+  body.lists-active .tdy-list-hint { max-width: 780px; }
   .list-actions button {
     width: 30px; height: 30px; margin-left: 4px; line-height: 1;
     border: 1px solid var(--cp-border); background: var(--cp-surface);
@@ -2991,6 +3010,30 @@
 <!-- Audit Log Modal -->
 
 
+<div class="modal-overlay" id="listEditModal">
+  <div class="modal">
+    <h2 id="listEditTitle">Rename</h2>
+    <label for="listEditInput">Name</label>
+    <input type="text" id="listEditInput" onkeydown="if (event.key === 'Enter') saveListEdit()">
+    <div class="import-error" id="listEditError" style="display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeListEdit()">Cancel</button>
+      <button class="btn-small btn-add" onclick="saveListEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="listConfirmModal">
+  <div class="modal">
+    <h2 id="listConfirmTitle">Remove entry?</h2>
+    <div id="listConfirmBody"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeListConfirm()">Cancel</button>
+      <button class="btn-small btn-danger" onclick="applyListRemoval()">Remove</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const RANK_ORDER = [
   'COL','LTC','MAJ','CPT','1LT','2LT',
@@ -3414,21 +3457,24 @@ function closeDirectoryPage(push = true) {
 
 // ─── Schools / Locations pages ─────────────────────────────────────────────
 // Per-platoon picklists behind the TDY modal. Order is meaningful: the saved
-// order is exactly the dropdown order, so the sort buttons rewrite the list
-// rather than just changing how it is displayed.
+// order is exactly the dropdown order, so the sort buttons and drag-to-reorder
+// rewrite the list rather than just changing how it is displayed.
 const LIST_PAGES = {
   schools:   { title: 'Schools', noun: 'school or course',
-               hint: 'Shown in the School / Course dropdown, in this order.' },
+               hint: 'Shown in the School / Course dropdown, in this order. Drag a row to reorder.' },
   locations: { title: 'Locations', noun: 'location',
-               hint: 'Shown in the Location dropdowns, in this order.' }
+               hint: 'Shown in the Location dropdowns, in this order. Drag a row to reorder.' }
 };
 let listsKind = 'schools';
+let listSelected = new Set();
+let listDragFrom = null;
 
 function openTdyLists(kind = 'schools', push = true) {
   closeSoldierPage(false);
   closeDirectoryPage(false);
   closeAuditLog(false);
   listsKind = LIST_PAGES[kind] ? kind : 'schools';
+  listSelected = new Set();
   document.body.classList.add('lists-active');
   if (push) pushAppRoute(currentPlatoon, listsKind);
   renderTdyLists();
@@ -3447,18 +3493,30 @@ function renderTdyLists() {
   const page = LIST_PAGES[listsKind];
   const items = tdyLists[listsKind] || [];
   const last = items.length - 1;
-  const rows = items.map((item, i) => `<tr>
-      <td class="list-order">${i + 1}</td>
-      <td class="dir-name">${escapeHtml(item)}</td>
+  // Drop selections that no longer exist (rename/remove elsewhere).
+  listSelected = new Set([...listSelected].filter(v => items.includes(v)));
+  const allChecked = items.length > 0 && listSelected.size === items.length;
+
+  const rows = items.map((item, i) => {
+    const esc = escapeHtml(item);
+    return `<tr draggable="true" data-index="${i}"
+        ondragstart="listDragStart(event, ${i})" ondragover="listDragOver(event, ${i})"
+        ondragleave="listDragLeave(event)" ondrop="listDrop(event, ${i})" ondragend="listDragEnd(event)">
+      <td class="list-check"><input type="checkbox" ${listSelected.has(item) ? 'checked' : ''}
+        onchange="toggleListSelect(${i})" aria-label="Select ${esc}"></td>
+      <td class="list-order"><span class="list-grip" title="Drag to reorder">⠿</span> ${i + 1}</td>
+      <td class="dir-name">${esc}</td>
       <td class="list-actions">
-        <button type="button" title="Move up" aria-label="Move ${escapeHtml(item)} up"
+        <button type="button" title="Rename" aria-label="Rename ${esc}" onclick="openListEdit(${i})">&#9998;</button>
+        <button type="button" title="Move up" aria-label="Move ${esc} up"
           onclick="moveTdyListItem(${i}, -1)" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
-        <button type="button" title="Move down" aria-label="Move ${escapeHtml(item)} down"
+        <button type="button" title="Move down" aria-label="Move ${esc} down"
           onclick="moveTdyListItem(${i}, 1)" ${i === last ? 'disabled' : ''}>&#9660;</button>
-        <button type="button" class="list-remove" title="Remove" aria-label="Remove ${escapeHtml(item)}"
-          onclick="removeTdyListItem(${i})">&times;</button>
+        <button type="button" class="list-remove" title="Remove" aria-label="Remove ${esc}"
+          onclick="confirmRemoveList([${i}])">&times;</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   view.innerHTML = `
     <button class="soldier-back" onclick="closeTdyLists()">&larr; Back to roster</button>
@@ -3466,6 +3524,9 @@ function renderTdyLists() {
       <h2>${page.title} — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
       <span class="directory-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
       <div class="list-sort-actions">
+        ${listSelected.size
+          ? `<button class="btn-small btn-danger" onclick="confirmRemoveSelected()">Delete ${listSelected.size} selected</button>`
+          : ''}
         <button class="btn-small btn-cancel" onclick="sortTdyList(1)">Sort A–Z</button>
         <button class="btn-small btn-cancel" onclick="sortTdyList(-1)">Sort Z–A</button>
       </div>
@@ -3473,8 +3534,14 @@ function renderTdyLists() {
     <div class="tdy-list-hint">${page.hint}</div>
     <div class="directory-table-wrap">
       <table class="directory-table list-table">
-        <thead><tr><th class="list-order">#</th><th>${page.title}</th><th class="list-actions">Order</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="3" class="dir-muted">Nothing saved yet.</td></tr>`}</tbody>
+        <thead><tr>
+          <th class="list-check"><input type="checkbox" ${allChecked ? 'checked' : ''}
+            onchange="toggleListSelectAll(this.checked)" aria-label="Select all"></th>
+          <th class="list-order">#</th>
+          <th>${page.title}</th>
+          <th class="list-actions">Actions</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" class="dir-muted">Nothing saved yet.</td></tr>`}</tbody>
       </table>
     </div>
     <div class="tdy-list-add">
@@ -3484,11 +3551,9 @@ function renderTdyLists() {
     </div>`;
 }
 
-async function saveTdyLists() {
-  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, {
-    tdy_schools: tdyLists.schools,
-    tdy_locations: tdyLists.locations
-  });
+// Only the edited list is sent — halves the writes and the audit noise.
+async function saveTdyLists(kind = listsKind) {
+  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, { [`tdy_${kind}`]: tdyLists[kind] });
   if (saved) applyTdyLists(saved);
   renderTdyLists();
   ['awaySchool', 'awayLocation', 'abs_location'].forEach(base => pickRender(base));
@@ -3498,32 +3563,149 @@ async function addTdyListItem() {
   const input = document.getElementById('tdyListAdd');
   const value = input.value.trim().replace(/\s+/g, ' ');   // match the server's normalisation
   if (!value) return;
-  if ((tdyLists[listsKind] || []).some(i => i.toLowerCase() === value.toLowerCase())) {
-    showToast('That entry is already on the list.');
-    return;
-  }
+  if (listHasValue(value)) { showToast('That entry is already on the list.'); return; }
   tdyLists[listsKind] = [...tdyLists[listsKind], value];   // append; order is the user's
   await saveTdyLists();
 }
 
-async function removeTdyListItem(index) {
-  const item = tdyLists[listsKind][index];
-  if (!confirm(`Remove "${item}" from the list?`)) return;
-  tdyLists[listsKind] = tdyLists[listsKind].filter((_, i) => i !== index);
-  await saveTdyLists();
+function listHasValue(value, exceptIndex = -1) {
+  return (tdyLists[listsKind] || []).some((item, i) =>
+    i !== exceptIndex && item.toLowerCase() === value.toLowerCase());
 }
 
 async function moveTdyListItem(index, delta) {
+  await reorderList(index, index + delta);
+}
+
+async function reorderList(from, to) {
   const items = [...tdyLists[listsKind]];
-  const target = index + delta;
-  if (target < 0 || target >= items.length) return;
-  [items[index], items[target]] = [items[target], items[index]];
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
+  items.splice(to, 0, items.splice(from, 1)[0]);
   tdyLists[listsKind] = items;
   await saveTdyLists();
 }
 
 async function sortTdyList(dir) {
   tdyLists[listsKind] = [...tdyLists[listsKind]].sort((a, b) => a.localeCompare(b) * dir);
+  await saveTdyLists();
+}
+
+// ── Selection ──
+// Selection is tracked by value, not index, so it survives reordering.
+function toggleListSelect(index) {
+  const value = tdyLists[listsKind][index];
+  if (listSelected.has(value)) listSelected.delete(value);
+  else listSelected.add(value);
+  renderTdyLists();
+}
+
+function toggleListSelectAll(checked) {
+  listSelected = checked ? new Set(tdyLists[listsKind]) : new Set();
+  renderTdyLists();
+}
+
+// ── Drag to reorder ──
+function listDragStart(event, index) {
+  listDragFrom = index;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', String(index));   // Firefox needs a payload
+  event.currentTarget.classList.add('dragging');
+}
+
+function listDragOver(event, index) {
+  if (listDragFrom === null) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  const row = event.currentTarget;
+  row.classList.toggle('drop-above', index < listDragFrom);
+  row.classList.toggle('drop-below', index > listDragFrom);
+}
+
+function listDragLeave(event) {
+  event.currentTarget.classList.remove('drop-above', 'drop-below');
+}
+
+function listDragEnd() {
+  listDragFrom = null;
+  document.querySelectorAll('#tdyListsView tr').forEach(r =>
+    r.classList.remove('dragging', 'drop-above', 'drop-below'));
+}
+
+async function listDrop(event, index) {
+  event.preventDefault();
+  const from = listDragFrom;
+  listDragEnd();
+  if (from !== null) await reorderList(from, index);
+}
+
+// ── Rename ──
+let listEditIndex = -1;
+
+function openListEdit(index) {
+  listEditIndex = index;
+  document.getElementById('listEditTitle').textContent = `Rename ${LIST_PAGES[listsKind].noun}`;
+  const input = document.getElementById('listEditInput');
+  input.value = tdyLists[listsKind][index];
+  document.getElementById('listEditError').style.display = 'none';
+  document.getElementById('listEditModal').classList.add('active');
+  input.focus();
+  input.select();
+}
+
+function closeListEdit() {
+  document.getElementById('listEditModal').classList.remove('active');
+  listEditIndex = -1;
+}
+
+async function saveListEdit() {
+  if (listEditIndex < 0) return;
+  const value = document.getElementById('listEditInput').value.trim().replace(/\s+/g, ' ');
+  const err = document.getElementById('listEditError');
+  if (!value) { err.textContent = 'Enter a name.'; err.style.display = 'block'; return; }
+  if (listHasValue(value, listEditIndex)) {
+    err.textContent = 'That entry is already on the list.';
+    err.style.display = 'block';
+    return;
+  }
+  const items = [...tdyLists[listsKind]];
+  items[listEditIndex] = value;          // rename in place; position is preserved
+  tdyLists[listsKind] = items;
+  closeListEdit();
+  await saveTdyLists();
+}
+
+// ── Delete (single or selected) ──
+let listPendingRemoval = [];
+
+function confirmRemoveList(indexes) {
+  listPendingRemoval = indexes;
+  const names = indexes.map(i => tdyLists[listsKind][i]);
+  const noun = LIST_PAGES[listsKind].noun;
+  document.getElementById('listConfirmTitle').textContent =
+    names.length === 1 ? `Remove ${noun}?` : `Remove ${names.length} entries?`;
+  document.getElementById('listConfirmBody').innerHTML =
+    `<p class="list-confirm-lead">This only removes ${names.length === 1 ? 'it' : 'them'} from the
+      ${LIST_PAGES[listsKind].title} list. Absences already recorded keep their text.</p>
+     <ul class="list-confirm-names">${names.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`;
+  document.getElementById('listConfirmModal').classList.add('active');
+}
+
+function confirmRemoveSelected() {
+  const items = tdyLists[listsKind];
+  confirmRemoveList(items.map((v, i) => listSelected.has(v) ? i : -1).filter(i => i >= 0));
+}
+
+function closeListConfirm() {
+  document.getElementById('listConfirmModal').classList.remove('active');
+  listPendingRemoval = [];
+}
+
+async function applyListRemoval() {
+  const drop = new Set(listPendingRemoval);
+  const removed = tdyLists[listsKind].filter((_, i) => drop.has(i));
+  tdyLists[listsKind] = tdyLists[listsKind].filter((_, i) => !drop.has(i));
+  removed.forEach(v => listSelected.delete(v));
+  closeListConfirm();
   await saveTdyLists();
 }
 
@@ -5414,6 +5596,8 @@ document.getElementById('importModal').addEventListener('click', function(e) { i
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
+document.getElementById('listEditModal').addEventListener('click', function(e) { if (e.target === this) closeListEdit(); });
+document.getElementById('listConfirmModal').addEventListener('click', function(e) { if (e.target === this) closeListConfirm(); });
 
 // ─── Auth ───
 function showAppScreen(screen) {
