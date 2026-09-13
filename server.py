@@ -215,6 +215,20 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS invites (
+            token       TEXT PRIMARY KEY,
+            label       TEXT DEFAULT '',
+            platoons    TEXT DEFAULT '',
+            is_admin    INTEGER DEFAULT 0,
+            created_by  TEXT DEFAULT '',
+            created_at  TEXT DEFAULT (datetime('now')),
+            expires_at  TEXT DEFAULT '',
+            accepted_at TEXT DEFAULT '',
+            accepted_by TEXT DEFAULT ''
+        )
+    ''')
+
     # ── Migrations ──
     cols = [row[1] for row in cur.execute('PRAGMA table_info(personnel)').fetchall()]
     if 'present_date' not in cols:
@@ -441,6 +455,32 @@ def get_current_user():
     return g.current_user
 
 
+# ── Invitations ──
+# Sign-up is invite-only: a Clerk account that has never synced here is turned
+# away unless it presents a live invite token (or qualifies for the admin
+# bootstrap below, which is how the first/CLERK_ADMIN_EMAILS accounts get in).
+INVITE_EXPIRY_DAYS = 7
+INVITE_REQUIRED = 'This app is invite-only. Ask an admin for an invite link.'
+
+
+def _clean_platoons(value, is_admin):
+    if is_admin:
+        return '*'
+    keys = [p.strip() for p in (value or '').split(',') if p.strip() in PLATOONS]
+    return ','.join(dict.fromkeys(keys))
+
+
+def _valid_invite(conn, token):
+    """The invite row if the token exists, is unused and unexpired, else None."""
+    if not token:
+        return None
+    return conn.execute(
+        "SELECT * FROM invites WHERE token = ? AND accepted_at = '' "
+        "AND expires_at > datetime('now')",
+        (token,)
+    ).fetchone()
+
+
 def _display_name_for_user(payload):
     for key in ('full_name', 'username', 'email'):
         value = (payload.get(key) or '').strip()
@@ -484,6 +524,7 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
+    invite = None
     try:
         existing = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
         username_conflict = conn.execute(
@@ -509,9 +550,16 @@ def sync_clerk_user(payload):
                     legacy = candidate
                     break
 
+            invite = _valid_invite(conn, (payload.get('invite_token') or '').strip())
+            if not invite and not is_admin and not legacy:
+                return None, INVITE_REQUIRED
+            if invite:
+                is_admin = 1 if (invite['is_admin'] or is_admin) else 0
+
             if legacy:
-                platoons = legacy['platoons']
-                should_be_admin = bool(legacy['is_admin']) or is_admin
+                platoons = invite['platoons'] if invite else legacy['platoons']
+                should_be_admin = bool(invite['is_admin']) if invite else bool(legacy['is_admin'])
+                should_be_admin = should_be_admin or bool(is_admin)
                 if should_be_admin and not platoons:
                     platoons = '*'
                 conn.execute(
@@ -523,12 +571,17 @@ def sync_clerk_user(payload):
             else:
                 if username_conflict and username_conflict['clerk_user_id'] and username_conflict['clerk_user_id'] != clerk_user_id:
                     username = email or f'user-{clerk_user_id[:8]}'
-                platoons = '*' if is_admin else ''
+                platoons = '*' if is_admin else (invite['platoons'] if invite else '')
                 conn.execute(
                     'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
                     'VALUES (?, ?, ?, ?, ?, ?, ?)',
                     (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
                 )
+        if invite:
+            conn.execute(
+                "UPDATE invites SET accepted_at = datetime('now'), accepted_by = ? WHERE token = ?",
+                (clerk_user_id, invite['token'])
+            )
         conn.commit()
         row = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
         g.current_user = dict(row) if row else None
@@ -601,7 +654,7 @@ def auth_sync():
     payload = request.get_json() or {}
     user, error = sync_clerk_user(payload)
     if error:
-        return jsonify({'error': error}), 409
+        return jsonify({'error': error}), 403 if error == INVITE_REQUIRED else 409
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
     return jsonify({
         'id': user['id'],
@@ -688,6 +741,77 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+
+# ── Invitations ──
+
+@app.route('/api/invites', methods=['GET'])
+@admin_required
+def get_invites():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM invites ORDER BY created_at DESC LIMIT 50').fetchall()
+    now = conn.execute("SELECT datetime('now')").fetchone()[0]
+    conn.close()
+    return jsonify([{
+        'token': r['token'],
+        'label': r['label'],
+        'platoons': r['platoons'],
+        'is_admin': bool(r['is_admin']),
+        'created_by': r['created_by'],
+        'expires_at': r['expires_at'],
+        'status': 'accepted' if r['accepted_at'] else ('expired' if r['expires_at'] <= now else 'pending'),
+    } for r in rows])
+
+
+@app.route('/api/invites', methods=['POST'])
+@admin_required
+def create_invite():
+    data = request.get_json() or {}
+    label = ' '.join((data.get('label') or '').split())[:80]
+    is_admin = 1 if data.get('is_admin') else 0
+    platoons = _clean_platoons(data.get('platoons'), is_admin)
+    if not platoons:
+        return jsonify({'error': 'Pick at least one platoon, or make the invite an administrator.'}), 400
+
+    token = secrets.token_urlsafe(24)
+    conn = get_db()
+    conn.execute(
+        'INSERT INTO invites (token, label, platoons, is_admin, created_by, expires_at) '
+        "VALUES (?, ?, ?, ?, ?, datetime('now', ?))",
+        (token, label, platoons, is_admin, g.current_user['username'], f'+{INVITE_EXPIRY_DAYS} days')
+    )
+    conn.commit()
+    conn.close()
+    log_action('INVITE_CREATE', f'Invited {label or "(unnamed)"} — {"administrator" if is_admin else platoons}')
+    return jsonify({'token': token, 'url': f'{_get_request_origin()}/invite/{token}'})
+
+
+@app.route('/api/invites/<token>', methods=['DELETE'])
+@admin_required
+def revoke_invite(token):
+    conn = get_db()
+    row = conn.execute('SELECT label FROM invites WHERE token = ?', (token,)).fetchone()
+    conn.execute('DELETE FROM invites WHERE token = ?', (token,))
+    conn.commit()
+    conn.close()
+    if row:
+        log_action('INVITE_REVOKE', f'Revoked invite for {row["label"] or "(unnamed)"}')
+    return jsonify({'success': True})
+
+
+@app.route('/api/invites/<token>/preview', methods=['GET'])
+def preview_invite(token):
+    """Unauthenticated — the token itself is the secret. Lets the sign-up page
+    tell an invitee what they were invited to before they create an account."""
+    conn = get_db()
+    row = _valid_invite(conn, token)
+    conn.close()
+    if not row:
+        return jsonify({'valid': False}), 404
+    access = 'all platoons (administrator)' if row['is_admin'] else ' + '.join(
+        PLATOONS[p].replace(' Accountability', '') for p in row['platoons'].split(',') if p in PLATOONS
+    )
+    return jsonify({'valid': True, 'label': row['label'], 'access': access})
 
 
 # ── Platoon & Personnel routes ──

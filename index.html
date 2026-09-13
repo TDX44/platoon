@@ -313,7 +313,10 @@
   .btn-login:disabled { background: #555; cursor: default; }
   .login-card label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
   .login-card input { width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid #444; border-radius: 5px; background: #1a1a2e; color: #e0e0e0; font-size: 0.95em; }
-  .login-note { display: none; }
+  .login-note { display: none; width: 100%; margin-top: 10px; padding: 9px 12px; border-radius: 10px;
+    background: var(--cp-accent-soft); border: 1px solid var(--cp-border); color: var(--cp-text-weak);
+    font-size: 0.85em; line-height: 1.45; text-align: center; }
+  .login-note.show { display: block; }
   #clerkAuthMount { width: 100%; }
   /* native auth form */
   .auth-form { width: 100%; display: flex; flex-direction: column; }
@@ -2619,10 +2622,10 @@
       <div class="login-title">Platoon Accountability</div>
       <div class="login-subtitle" id="loginSubtitle">Sign in to continue</div>
       <div id="loginError" class="login-error" style="display:none"></div>
+      <div class="login-note" id="loginNote"></div>
     </div>
     <div id="clerkAuthMount"></div>
     <div class="login-status" id="loginStatus"></div>
-    <div class="login-note" id="loginNote"></div>
   </div>
 </div>
 
@@ -2722,6 +2725,7 @@
       </div>
     </details>
     <button class="dash-btn dash-btn-secondary" onclick="openAddModal()">+ Add Person</button>
+    <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
     <button class="dash-btn dash-btn-primary" onclick="generateReport()">Generate Report</button>
   </div>
 </header>
@@ -2759,6 +2763,7 @@
     <div class="dash-preview-actions">
       <button class="dash-btn dash-btn-primary" id="dashCopyBtn" onclick="dashCopyReport()">Copy Report</button>
       <button class="dash-btn dash-btn-secondary" onclick="generateReport()">View Full Report</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
       <button class="dash-btn dash-btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
     <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
@@ -2820,6 +2825,7 @@
   <button onclick="openDirectory();closeMoreSheet()">Directory</button>
   <button onclick="openTdyLists('schools');closeMoreSheet()">Schools</button>
   <button onclick="openTdyLists('locations');closeMoreSheet()">Locations</button>
+  <button onclick="generateStrengthReport();closeMoreSheet()">Strength Report</button>
   <button onclick="openHistory();closeMoreSheet()">History</button>
   <button onclick="openDutyRoster();closeMoreSheet()">Duty Roster</button>
   <button onclick="openImportModal();closeMoreSheet()">Import List</button>
@@ -2966,7 +2972,7 @@
 <!-- Report Modal -->
 <div class="report-overlay" id="reportModal">
   <div class="report-box">
-    <h2>Accountability Report</h2>
+    <h2 id="reportTitle">Accountability Report</h2>
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
@@ -5047,14 +5053,46 @@ function formatDate(d) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function generateReport() {
-  // Check for unaccounted personnel (loan excluded)
+// Both reports refuse to render while anyone is unaccounted — the PDY count
+// would be wrong. Loan is excluded from accountability entirely.
+function reportBlockedByUnaccounted() {
   const unaccounted = personnel.filter(p => p.status !== 'loan' && isUnaccounted(p));
-  if (unaccounted.length > 0) {
-    const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
-    alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
-    return;
-  }
+  if (!unaccounted.length) return false;
+  const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
+  alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
+  return true;
+}
+
+function showReportModal(title, text, historyUnitName) {
+  document.getElementById('reportTitle').textContent = title;
+  document.getElementById('reportText').textContent = text;
+  document.getElementById('reportModal').classList.add('active');
+  if (historyUnitName) saveToHistory(text, historyUnitName);
+}
+
+// Count-only callout for formation: "25 Assigned, 18 PDY, 4 TDY, 3 Leave…"
+function generateStrengthReport() {
+  if (reportBlockedByUnaccounted()) return;
+
+  const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
+  const roster = personnel.filter(p => p.status !== 'loan');
+  const onLoan = personnel.length - roster.length;
+  const byStatus = [
+    ['TDY',   roster.filter(p => p.status === 'tdy').length],
+    ['Leave', roster.filter(p => p.status === 'leave').length],
+    ['Pass',  roster.filter(p => p.status === 'pass').length],
+    ['Other', roster.filter(p => p.status === 'other').length],
+    ['FTR',   roster.filter(p => p.status === 'ftr').length],
+  ];
+  const parts = [`${roster.length} Assigned`, `${roster.filter(isPresentToday).length} PDY`]
+    .concat(byStatus.filter(([, n]) => n > 0).map(([label, n]) => `${n} ${label}`));
+  if (onLoan) parts.push(`${onLoan} on Loan (not assigned)`);
+
+  showReportModal('Strength Report', [unitName, formatDate(new Date()), '', parts.join(', ')].join('\n'));
+}
+
+function generateReport() {
+  if (reportBlockedByUnaccounted()) return;
 
   const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
   const today = formatDate(new Date());
@@ -5133,28 +5171,27 @@ function generateReport() {
     });
   }
 
-  const reportText = lines.join('\n');
-  document.getElementById('reportText').textContent = reportText;
-  document.getElementById('reportModal').classList.add('active');
-  saveToHistory(reportText, unitName);
+  showReportModal('Accountability Report', lines.join('\n'), unitName);
 }
 
 function copyReport() {
-  const text = document.getElementById('reportText').textContent;
-  const btn = document.querySelector('.report-buttons .btn-generate');
+  copyWithFeedback(document.getElementById('reportText').textContent,
+                   document.querySelector('.report-buttons .btn-generate'), 'Copy to Clipboard');
+}
 
-  // Try modern clipboard API first, fallback for Firefox / non-HTTPS
+// Try modern clipboard API first, fallback for Firefox / non-HTTPS
+function copyWithFeedback(text, btn, idleLabel) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(() => {
       btn.textContent = 'Copied!';
-      setTimeout(() => btn.textContent = 'Copy to Clipboard', 1500);
-    }).catch(() => fallbackCopy(text, btn));
+      setTimeout(() => btn.textContent = idleLabel, 1500);
+    }).catch(() => fallbackCopy(text, btn, idleLabel));
   } else {
-    fallbackCopy(text, btn);
+    fallbackCopy(text, btn, idleLabel);
   }
 }
 
-function fallbackCopy(text, btn) {
+function fallbackCopy(text, btn, idleLabel = 'Copy to Clipboard') {
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.style.position = 'fixed';
@@ -5168,7 +5205,7 @@ function fallbackCopy(text, btn) {
     btn.textContent = 'Select All + Ctrl-C';
   }
   document.body.removeChild(ta);
-  setTimeout(() => btn.textContent = 'Copy to Clipboard', 1500);
+  setTimeout(() => btn.textContent = idleLabel, 1500);
 }
 function closeReport() { document.getElementById('reportModal').classList.remove('active'); }
 
@@ -5673,6 +5710,7 @@ function showLoginScreen() {
   document.getElementById('platoonScreen').style.display = 'none';
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
+  showInviteNote();
   ensureClerk()
     .then(() => renderAuthForm())
     .catch(err => {
@@ -6076,6 +6114,46 @@ function renderAuthForm() {
   }
 }
 
+// ─── Invite links ───
+// /invite/<token> is stashed in sessionStorage so it survives the Clerk email
+// verification / OAuth redirect round-trip, then handed to /api/auth/sync.
+function captureInviteToken() {
+  const match = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]{8,})\/?$/);
+  if (!match) return;
+  try { sessionStorage.setItem('inviteToken', match[1]); } catch (e) {}
+  history.replaceState({}, '', '/');
+}
+
+function getInviteToken() {
+  try { return sessionStorage.getItem('inviteToken') || ''; } catch (e) { return ''; }
+}
+
+function clearInviteToken() {
+  try { sessionStorage.removeItem('inviteToken'); } catch (e) {}
+}
+
+async function showInviteNote() {
+  const noteEl = document.getElementById('loginNote');
+  const token = getInviteToken();
+  if (!noteEl || !token) return;
+  try {
+    const res = await fetch(`/api/invites/${encodeURIComponent(token)}/preview`);
+    const data = await res.json();
+    noteEl.classList.add('show');
+    if (!data.valid) {
+      clearInviteToken();
+      noteEl.textContent = 'That invite link is no longer valid. Ask an admin for a new one.';
+      return;
+    }
+    const who = data.label ? `${data.label} — ` : '';
+    noteEl.textContent = `${who}invited to ${data.access}. Create an account below to accept.`;
+    setAuthView('signup');
+  } catch (e) {
+    noteEl.textContent = '';
+    noteEl.classList.remove('show');
+  }
+}
+
 async function syncClerkUser() {
   const activeClerk = await ensureClerk();
   if (!activeClerk.user) return null;
@@ -6087,12 +6165,19 @@ async function syncClerkUser() {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email: primaryEmail, full_name }),
+    body: JSON.stringify({ username, email: primaryEmail, full_name, invite_token: getInviteToken() }),
   });
   const data = await res.json();
   if (!res.ok) {
+    // 403 = invite-only rejection. Their Clerk account exists but has no app
+    // account, so sign them back out instead of looping on every reload.
+    if (res.status === 403 && clerk) {
+      clearInviteToken();
+      await clerk.signOut().catch(() => {});
+    }
     throw new Error(data.error || 'Unable to sync the Clerk user with the app.');
   }
+  clearInviteToken();
   return data;
 }
 
@@ -6178,6 +6263,7 @@ function routeAfterLogin() {
 
 async function initApp() {
   try {
+    captureInviteToken();
     await ensureClerk();
     if (!clerk.user) {
       const params = new URLSearchParams(window.location.search);
@@ -6275,6 +6361,7 @@ let editingUserId = null;
 async function openUserMgmt() {
   document.getElementById('userMgmtModal').classList.add('active');
   await refreshUserList();
+  await refreshInviteList();
 }
 function closeUserMgmt() { document.getElementById('userMgmtModal').classList.remove('active'); }
 
@@ -6283,7 +6370,7 @@ async function refreshUserList() {
   if (!users) return;
   const wrap = document.getElementById('userListWrap');
   if (!users.length) {
-    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No synced users yet. Have someone sign in with Clerk first, then grant access here.</p>';
+    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No users yet. Create an invite link below to add someone.</p>';
     return;
   }
   wrap.innerHTML = users.map(u => {
@@ -6315,6 +6402,92 @@ async function refreshUserList() {
       if (u) deleteUser(u.id, u.full_name || u.username);
     });
   });
+}
+
+// ─── Invite links (admin) ───
+const INVITE_PLATOON_CHECKS = { '1st': 'invChk1st', '2nd': 'invChk2nd', hq: 'invChkHq' };
+
+async function refreshInviteList() {
+  const invites = await api('GET', '/invites');
+  const wrap = document.getElementById('inviteListWrap');
+  if (!invites) return;
+  const pending = invites.filter(i => i.status === 'pending');
+  if (!pending.length) {
+    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No open invites. Create one to let someone sign up.</p>';
+    return;
+  }
+  wrap.innerHTML = pending.map(i => {
+    const badges = i.is_admin
+      ? '<span class="platoon-badge admin-badge">Admin</span>'
+      : (i.platoons || '').split(',').filter(p => p.trim())
+          .map(p => `<span class="platoon-badge">${p.trim().toUpperCase()}</span>`).join('');
+    return `<div class="user-row">
+      <div class="user-row-name-block">
+        <div class="user-row-name">${escapeHtml(i.label || 'Unnamed invite')}</div>
+        <div class="user-row-meta">Invited by ${escapeHtml(i.created_by || '\u2014')}</div>
+      </div>
+      <div class="user-row-badges">${badges}</div>
+      <button class="btn-small btn-edit invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy Link</button>
+      <button class="btn-small btn-danger invite-del-btn" data-token="${escapeHtml(i.token)}" title="Revoke">&#10005;</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.invite-copy-btn').forEach(btn => {
+    btn.addEventListener('click', () =>
+      copyWithFeedback(`${window.location.origin}/invite/${btn.dataset.token}`, btn, 'Copy Link'));
+  });
+  wrap.querySelectorAll('.invite-del-btn').forEach(btn => {
+    btn.addEventListener('click', () => revokeInvite(btn.dataset.token));
+  });
+}
+
+function openInviteModal() {
+  document.getElementById('inviteLabel').value = '';
+  document.getElementById('inviteAdmin').checked = false;
+  Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
+    document.getElementById(id).checked = false;
+    document.getElementById(id).disabled = false;
+  });
+  document.getElementById('inviteError').style.display = 'none';
+  document.getElementById('userMgmtModal').classList.remove('active');
+  document.getElementById('inviteModal').classList.add('active');
+}
+
+function closeInviteModal() {
+  document.getElementById('inviteModal').classList.remove('active');
+  document.getElementById('userMgmtModal').classList.add('active');
+}
+
+function toggleInviteAdminCheck() {
+  const isAdmin = document.getElementById('inviteAdmin').checked;
+  Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
+    document.getElementById(id).disabled = isAdmin;
+    if (isAdmin) document.getElementById(id).checked = false;
+  });
+}
+
+async function createInvite() {
+  const is_admin = document.getElementById('inviteAdmin').checked;
+  const platoons = Object.entries(INVITE_PLATOON_CHECKS)
+    .filter(([, id]) => document.getElementById(id).checked).map(([p]) => p).join(',');
+  const errEl = document.getElementById('inviteError');
+  if (!is_admin && !platoons) {
+    errEl.textContent = 'Pick at least one platoon.'; errEl.style.display = 'block'; return;
+  }
+  const label = document.getElementById('inviteLabel').value.trim();
+  const result = await api('POST', '/invites', { label, platoons, is_admin });
+  if (!result || result.error) {
+    errEl.textContent = (result && result.error) || 'Error creating invite.'; errEl.style.display = 'block'; return;
+  }
+  closeInviteModal();
+  await refreshInviteList();
+  alert(`Invite link (valid 7 days, single use):\n\n${result.url}\n\nUse "Copy Link" in Manage Access to copy it again.`);
+}
+
+async function revokeInvite(token) {
+  if (!confirm('Revoke this invite link? Anyone holding it will no longer be able to sign up.')) return;
+  const result = await api('DELETE', `/invites/${token}`);
+  if (result && result.error) { alert(result.error); return; }
+  await refreshInviteList();
 }
 
 async function openUserEditModal(userId) {
@@ -6399,6 +6572,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // These modals are defined after this script tag, so wait for the DOM.
   document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
   document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
+  document.getElementById('inviteModal').addEventListener('click', function(e) { if (e.target === this) closeInviteModal(); });
 });
 
 window.addEventListener('popstate', () => {
@@ -6584,9 +6758,41 @@ initApp();
 <div class="modal-overlay" id="userMgmtModal">
   <div class="modal modal-wide">
     <h2>Manage Access</h2>
-    <div id="userListWrap" style="max-height:320px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
+    <div id="userListWrap" style="max-height:260px;overflow-y:auto;margin-bottom:16px;min-height:60px;"></div>
+    <div style="border-top:1px solid var(--cp-border);padding-top:12px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+        <strong style="font-size:0.92em;">Invite Links</strong>
+        <button class="btn-small btn-add" onclick="openInviteModal()">+ New Invite</button>
+      </div>
+      <div id="inviteListWrap" style="max-height:220px;overflow-y:auto;min-height:40px;"></div>
+    </div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeUserMgmt()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Invite Modal (global) -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal">
+    <h2>New Invite Link</h2>
+    <label>Who is it for? (optional)</label>
+    <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
+    <label>Platoon Access</label>
+    <div class="platoon-checks">
+      <label><input type="checkbox" id="invChk1st" /> 1st Platoon</label>
+      <label><input type="checkbox" id="invChk2nd" /> 2nd Platoon</label>
+      <label><input type="checkbox" id="invChkHq"  /> HQ Platoon</label>
+    </div>
+    <label class="admin-check-label">
+      <input type="checkbox" id="inviteAdmin" onchange="toggleInviteAdminCheck()" />
+      Administrator (all platoons + user management)
+    </label>
+    <p style="font-size:0.8em;color:#636e72;margin:-4px 0 10px;">The link works once and expires in 7 days. Send it to them however you like — they create their own account with it.</p>
+    <div id="inviteError" class="login-error" style="display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeInviteModal()">Cancel</button>
+      <button class="btn-small btn-add" onclick="createInvite()">Create Link</button>
     </div>
   </div>
 </div>

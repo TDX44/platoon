@@ -18,7 +18,12 @@ python server.py
 docker compose up -d --build      # needs a .env file (see .env.example)
 ```
 
-There are no tests and no lint config — do not invent commands for them.
+There is no lint config and no test framework — do not invent commands for them.
+The one self-check that exists runs standalone:
+
+```bash
+python tests/test_invites.py   # invite expiry / single-use / platoon validation
+```
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
 
@@ -59,8 +64,9 @@ made by editing the `CREATE TABLE` statements and adding ad-hoc `ALTER`/backfill
 logic in `init_db()`.
 
 Tables: `personnel`, `personnel_profile`, `settings`, `users`, `audit_log`,
-`duty_roster`, `scheduled_events`. (Legacy `training_*` tables from the removed
-350-1 tracker feature may still exist in older database files; they are unused.)
+`duty_roster`, `scheduled_events`, `invites`. (Legacy `training_*` tables from the
+removed 350-1 tracker feature may still exist in older database files; they are
+unused.)
 
 `settings` is a key/value bag, all keys platoon-suffixed: `unit_name_<platoon>`
 and the TDY picklists `tdy_schools_<platoon>` / `tdy_locations_<platoon>` (JSON
@@ -96,6 +102,16 @@ the session token), `login_required`, and `admin_required`. `sync_clerk_user()`
 mirrors a Clerk identity into the local `users` table; emails in
 `CLERK_ADMIN_EMAILS` are auto-granted admin. `ProxyFix` is applied because the app
 runs behind the Cloudflare tunnel.
+
+Sign-up is **invite-only**: a Clerk account that has never synced here is rejected
+by `sync_clerk_user()` with a 403 unless it presents a live `invite_token`, matches
+a pre-existing local row, or qualifies for the admin bootstrap (`CLERK_ADMIN_EMAILS`,
+or the very first user when that list is unset). Admins mint single-use
+`/invite/<token>` links from Manage Access; each carries the platoons/admin grant
+and expires after `INVITE_EXPIRY_DAYS`. The frontend stashes the token in
+`sessionStorage` so it survives Clerk's email-verification and OAuth redirects.
+Invites are deliberately left out of backup/restore — they are short-lived
+credentials, not data.
 
 ### Background reset (important gotcha)
 
