@@ -36,14 +36,14 @@ and takes an integrity-checked SQLite snapshot to `backups/`, keeping 30 days an
 rsyncing each one to prodsrv04 over Tailscale. `backups/LAST_BACKUP` records the
 outcome.
 
-`scripts/nas-sync.sh` is a *third* copy onto the NAS
-(`\\10.10.50.2\home`, mounted on the Windows workstation as `H:` -> `/mnt/h`),
-run there under WSL by the Scheduled Task "Platoon DB backup to NAS". It does NOT
-run on prodsrv02 even though the NAS is on the same LAN: the server cannot reach
-it (SSH closed, SMB guest disabled, and the NFS exports are IP-restricted to
-hosts not including 10.10.50.200). So this copy refreshes only while that PC is
-on; prodsrv02 + prodsrv04 remain authoritative. Adding 10.10.50.200 to the NAS
-NFS export would let the server write directly and retire this script.
+`scripts/backup-copy.sh` is a *third* copy into personal Google Drive
+(`/mnt/e/My Drive/platoon db backup`), run on the Windows workstation under WSL
+by the Scheduled Task "Platoon DB backup to Drive". `E:` is jcarr2006@gmail.com;
+`G:` is the business account and must not be used. It does NOT run on prodsrv02,
+because Drive is only authenticated on that PC and rclone's fixed OAuth redirect
+port 53682 falls inside that machine's reserved range 53613-53712. So this copy
+refreshes only while that PC is on; prodsrv02 + prodsrv04 remain authoritative.
+The destination is one variable (`PLATOON_BACKUP_DEST`) if it ever moves.
 
 ## Architecture
 
