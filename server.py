@@ -13,6 +13,7 @@ from urllib.error import URLError
 from flask import Flask, request, jsonify, send_from_directory, session, g
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import HTTPException
 import jwt
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientConnectionError
@@ -673,6 +674,29 @@ def admin_required(f):
             return jsonify({'error': 'Forbidden'}), 403
         return f(*args, **kwargs)
     return decorated
+
+
+# ── Error handling ──
+# Without this an unhandled exception is a bare 500 that nobody ever sees: the
+# traceback goes nowhere useful and an /api/ caller gets an HTML error page it
+# cannot parse. Log it with enough context to find the request, and keep the
+# JSON contract.
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    # 404/401/405 and friends are deliberate answers, not faults — let them be.
+    if isinstance(exc, HTTPException):
+        return exc
+
+    user = 'anonymous'
+    current = getattr(g, 'current_user', None)
+    if current:
+        user = current.get('username') or f'user {current.get("id")}'
+    app.logger.exception('Unhandled error: %s %s (user=%s)', request.method, request.path, user)
+
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Something went wrong on the server.'}), 500
+    return 'Something went wrong on the server.', 500
 
 
 # ── Auth routes ──
