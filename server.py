@@ -1165,6 +1165,128 @@ def get_directory():
     return jsonify(result)
 
 
+# A planning question, not a logbook question: a year is plenty and it keeps
+# the day-by-day loop below bounded whatever arrives in the query string.
+MAX_AVAILABILITY_DAYS = 366
+
+
+def _absence_covers(row, day_str):
+    """Does this absence window cover `day_str`?
+
+    Same open-ended semantics as _derive_state(): an empty from_date means
+    "already started", an empty to_date means "open-ended".
+    """
+    if row['from_date'] and row['from_date'] > day_str:
+        return False
+    if row['to_date'] and row['to_date'] < day_str:
+        return False
+    return True
+
+
+def _covered_days(row, start_str, end_str):
+    """Which days of [start, end] this absence covers, as ISO strings."""
+    day, end = date.fromisoformat(start_str), date.fromisoformat(end_str)
+    days = []
+    while day <= end:
+        iso = day.isoformat()
+        if _absence_covers(row, iso):
+            days.append(iso)
+        day += timedelta(days=1)
+    return days
+
+
+@app.route('/api/availability', methods=['GET'])
+@login_required
+def get_availability():
+    """Who is free on a date (or across a range), and who is not, and why.
+
+    Derived from scheduled_events, never from personnel.status: that column is
+    only a display cache of *today*, so it cannot answer a question about next
+    Tuesday.
+
+    The rule on state: the dates decide, whatever the state says. 'completed'
+    is a statement about today — _derive_state() completes a row the day after
+    its to_date — so it is not evidence about the day being asked about. A row
+    can be completed while its to_date is still in the future in exactly two
+    ways: _sync_person_status() files a losing overlapping window as history,
+    and a v1 backup restores everything unreconciled. In both the window itself
+    was never cancelled, so the soldier really is spoken for and calling them
+    available is the dangerous error. A soldier who genuinely came back early
+    has their to_date rewritten to yesterday by _end_running_absence(), so that
+    row can never cover a future day and drops out on the dates alone. One rule
+    covers all of it, and nothing silently vanishes.
+    """
+    platoon = request.args.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    start = (request.args.get('date') or '').strip() or date.today().isoformat()
+    end = (request.args.get('to') or '').strip() or start
+    try:
+        span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    except ValueError:
+        return jsonify({'error': 'Dates must be YYYY-MM-DD'}), 400
+    if span < 1:
+        return jsonify({'error': 'The end of the range is before the start'}), 400
+    if span > MAX_AVAILABILITY_DAYS:
+        return jsonify({'error': f'Ask about {MAX_AVAILABILITY_DAYS} days or fewer'}), 400
+
+    conn = get_db()
+    people = conn.execute(
+        'SELECT id, rank, last, first, status FROM personnel WHERE platoon = ? '
+        'ORDER BY rank, last, first', (platoon,)
+    ).fetchall()
+    # Windows that overlap the question at all; _covered_days works out which
+    # days exactly. Open bounds are stored as '' and must not be compared.
+    events = conn.execute(
+        'SELECT * FROM scheduled_events WHERE platoon = ? '
+        "AND (from_date = '' OR from_date <= ?) AND (to_date = '' OR to_date >= ?) "
+        'ORDER BY from_date, id', (platoon, end, start)
+    ).fetchall()
+    conn.close()
+
+    by_person = {}
+    for e in events:
+        by_person.setdefault(e['person_id'], []).append(e)
+
+    available, unavailable, on_loan = [], [], []
+    for p in people:
+        who = {'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']}
+        # Loaned soldiers are not assigned to this platoon. The strength report
+        # counts them separately (generateStrengthReport) and so does this.
+        if p['status'] == 'loan':
+            on_loan.append(who)
+            continue
+        covering = []
+        for e in by_person.get(p['id'], []):
+            hit = _covered_days(e, start, end)
+            if hit:
+                covering.append((e, hit))
+        if not covering:
+            available.append(who)
+            continue
+        # The newest window supplies the reason — the same tie-break
+        # _sync_person_status() uses to pick the one current absence.
+        primary = covering[-1][0]
+        days = sorted({d for _, hit in covering for d in hit})
+        unavailable.append({
+            **who,
+            'status': primary['status'],
+            'from_date': primary['from_date'],
+            'to_date': primary['to_date'],
+            'notes': primary['notes'] or '',
+            'location': primary['location'] or '',
+            'days': days,
+            'whole_range': len(days) == span,
+        })
+
+    return jsonify({
+        'platoon': platoon, 'date': start, 'to': end, 'span': span,
+        'available': available, 'unavailable': unavailable, 'on_loan': on_loan,
+    })
+
+
 @app.route('/api/personnel/<int:person_id>/absences', methods=['GET'])
 @login_required
 def get_absences(person_id):

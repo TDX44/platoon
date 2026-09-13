@@ -25,6 +25,7 @@ The one self-check that exists runs standalone:
 python tests/test_invites.py          # invite expiry / single-use / platoon validation
 python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
 python tests/test_schedule_edit.py    # absence edit + state re-derivation
+python tests/test_availability.py     # who is free on date X (date-window rules)
 ```
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
@@ -61,7 +62,7 @@ Two files hold essentially the entire app:
 hard reload (this is the "SPA reload 404" fix).
 
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
-`soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
+`availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
 `.dash-main` revealed by a `body.<name>-active` class, with matching
 `open*()` / `close*()` / `render*()` functions — copy the directory page when
 adding another. The sidebar highlight is derived from those body classes by
@@ -130,6 +131,17 @@ resurrected), and the cache is only overwritten when it already holds an absence
 or when an absence has just activated — which is what keeps `loan` (no dates,
 never a scheduled event) and a hand-set "present" from being reconciled away.
 Completed absences reject edits. Tests: `tests/test_schedule_edit.py`.
+
+**Planning off the same table**: `GET /api/availability?platoon=&date=[&to=]`
+answers "who is free on date X" (the Availability page, `openAvailability()` /
+`renderAvailability()`). It reads `scheduled_events` directly and never
+`personnel.status`, which is only today's cache. A row covers a day when
+`from_date <= D` and (`to_date = '' or to_date >= D`) — the same open-ended
+bounds `_derive_state()` uses — and the dates decide regardless of `state`,
+because `completed` is a claim about today, not about the day being asked
+about. `loan` is reported separately, as in `generateStrengthReport()`. Range
+mode means "unavailable on any day of the range" and each person carries the
+`days` they are out. Tests: `tests/test_availability.py`.
 
 ### Multi-platoon model
 
