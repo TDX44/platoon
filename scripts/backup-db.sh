@@ -29,8 +29,8 @@ fail() {
   exit 1
 }
 
+mkdir -p "$DEST" 2>/dev/null || { echo "cannot create $DEST" >&2; exit 1; }
 [ -f "$DB" ] || fail "no database at $DB"
-mkdir -p "$DEST"
 
 # Serialise with any still-running previous snapshot.
 exec 9>"$DEST/.lock"
