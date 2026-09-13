@@ -1567,6 +1567,93 @@
   body.directory-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.directory-active .directory-view { display: block; }
 
+  /* ── Formation mode ──────────────────────────────────────────────────────
+     Standing in front of the platoon, one hand, gloves, cold, in a hurry.
+     Everything here is sized for a thumb and readable at arm's length. */
+  .formation { display: none; }
+  body.formation-active { overflow: hidden; }
+  body.formation-active .formation {
+    display: flex; flex-direction: column;
+    position: fixed; inset: 0; z-index: 5000;
+    background: var(--cp-bg); color: var(--cp-text);
+    padding: max(10px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+    box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .fm-top { display: flex; align-items: center; gap: 12px; flex: none; }
+  .fm-progress-text {
+    font-weight: 700; font-size: 1.05em; font-variant-numeric: tabular-nums;
+    color: var(--cp-text-strong);
+  }
+  .fm-exit {
+    margin-left: auto; border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-text-weak); border-radius: var(--cp-radius);
+    padding: 10px 16px; font-size: 0.9em; cursor: pointer; min-height: 44px;
+  }
+  .fm-bar {
+    flex: none; height: 8px; margin: 10px 0 0; border-radius: 4px;
+    background: var(--cp-hairline); overflow: hidden;
+  }
+  .fm-bar span { display: block; height: 100%; background: var(--cp-accent); transition: width 0.18s ease-out; }
+  .fm-body { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+  .fm-name {
+    text-align: center; font-weight: 800; line-height: 1.05;
+    font-size: clamp(1.9em, 11vw, 3.4em); color: var(--cp-text-strong);
+    word-break: break-word;
+  }
+  .fm-rank {
+    text-align: center; font-size: 1.2em; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--cp-muted); margin-bottom: 2px;
+  }
+  .fm-sub { text-align: center; color: var(--cp-text-weak); font-size: 0.95em; }
+  .fm-actions { display: flex; flex-direction: column; gap: 14px; }
+  .fm-btn {
+    width: 100%; box-sizing: border-box; min-height: 19vh;
+    border-radius: var(--cp-radius-lg); border: 2px solid var(--cp-border);
+    background: var(--cp-surface); color: var(--cp-text-strong);
+    font-size: 1.45em; font-weight: 700; cursor: pointer; padding: 18px;
+  }
+  .fm-btn:active { transform: scale(0.985); }
+  .fm-btn-present { border-color: var(--cp-green); background: var(--cp-green-bg); color: var(--cp-green); }
+  .fm-btn-away { border-color: var(--cp-amber); background: var(--cp-amber-bg); color: var(--cp-amber); }
+  .fm-reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .fm-reasons .fm-btn { min-height: 13vh; font-size: 1.2em; }
+  .fm-back {
+    flex: none; min-height: 52px; width: 100%; box-sizing: border-box;
+    border: 1px solid var(--cp-border); background: none; color: var(--cp-text-weak);
+    border-radius: var(--cp-radius); font-size: 1em; cursor: pointer; margin-top: 14px;
+  }
+  .fm-done-head { text-align: center; }
+  .fm-done-head h2 { margin: 0 0 6px; font-size: 1.8em; }
+  .fm-tally {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 14px 0;
+  }
+  .fm-tally span {
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+    padding: 8px 14px; font-size: 0.95em; background: var(--cp-surface);
+    font-variant-numeric: tabular-nums;
+  }
+  .fm-known { margin-top: 8px; }
+  .fm-known h3 {
+    font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--cp-muted); margin: 0 0 6px;
+  }
+  .fm-known-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 0; border-top: 1px solid var(--cp-hairline);
+  }
+  .fm-known-row .fm-known-name { font-weight: 600; color: var(--cp-text-strong); }
+  .fm-known-row button {
+    margin-left: auto; min-height: 44px; padding: 8px 14px;
+    border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-accent); border-radius: var(--cp-radius); font-size: 0.9em; cursor: pointer;
+  }
+  @media (min-width: 901px) {
+    .fm-body { max-width: 640px; width: 100%; margin: 0 auto; }
+    .fm-top, .fm-bar, .fm-back { max-width: 640px; width: 100%; margin-left: auto; margin-right: auto; }
+    .fm-btn { min-height: 130px; }
+    .fm-reasons .fm-btn { min-height: 96px; }
+  }
+
   /* ── Availability page (same full-width treatment as the directory) ── */
   .availability-view { display: none; }
   body.availability-active #dashMetrics,
@@ -2890,6 +2977,7 @@
         <button onclick="openHistory();closeDashMenus()">History</button>
       </div>
     </details>
+    <button class="dash-btn dash-btn-secondary" onclick="startFormation()">Formation Mode</button>
     <button class="dash-btn dash-btn-secondary" id="dashAddPersonBtn" onclick="openAddModal()">+ Add Person</button>
     <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
     <button class="dash-btn dash-btn-primary" onclick="generateReport()">Generate Report</button>
@@ -2982,6 +3070,7 @@
 <div class="more-sheet-scrim" id="moreSheetScrim" onclick="closeMoreSheet()"></div>
 <div class="more-sheet" id="moreSheet" role="menu" aria-label="More options">
   <div class="more-sheet-handle"></div>
+  <button onclick="closeMoreSheet();startFormation()">Formation Mode</button>
   <button onclick="openAvailability();closeMoreSheet()">Who's Available</button>
   <button onclick="openTdyLists('schools');closeMoreSheet()">Schools</button>
   <button onclick="openTdyLists('locations');closeMoreSheet()">Locations</button>
@@ -2993,6 +3082,12 @@
   <button onclick="resetDay();closeMoreSheet()">Reset Day</button>
   <button onclick="openSettings();closeMoreSheet()">Settings</button>
 </div>
+
+<!-- Formation mode: one soldier at a time, thumb-sized targets. Built for
+     0630 in the dark with gloves on, so it owns the whole screen and the
+     page underneath is untouched (no routing, no sidebar, nothing to hit by
+     accident). Exit is deliberate, not a stray tap. -->
+<div class="formation" id="formationOverlay" aria-live="polite"></div>
 
 </div>
 
@@ -3366,7 +3461,7 @@ async function saveUnit() {
 }
 
 async function apiUpdate(p) {
-  await api('PUT', `/personnel/${p.id}`, {
+  return api('PUT', `/personnel/${p.id}`, {
     rank: p.rank, last: p.last, first: p.first,
     status: p.status, notes: p.notes,
     from_date: p.from, to_date: p.to,
@@ -3908,6 +4003,206 @@ function renderAvailabilityResults() {
           [...d.on_loan].sort(rankSort).map(availabilityNameRow).join('') : ''}
       </section>
     </div>`;
+}
+
+// ─── Formation mode ────────────────────────────────────────────────────────
+// 0630, phone in one hand, platoon standing in front of you. Scrolling a list
+// and picking from a row menu is the wrong interaction for that, so this is one
+// soldier at a time with two thumb-sized answers and no way to lose your place.
+let formation = { ids: [], known: [], i: 0, asking: false, busy: false };
+
+const FORMATION_REASONS = ['ftr', 'leave', 'pass', 'tdy', 'other'];
+
+// Pure, and the only rule about who gets asked and in what order.
+// tests/test_formation_order.py runs this function directly.
+function formationQueue(people, todayStr) {
+  const queue = [], known = [];
+  for (const p of people) {
+    // On loan: not assigned to this platoon. The strength report and the
+    // standard report both leave them out, and so does formation.
+    if (p.status === 'loan') continue;
+    // Already away on a current absence: the app knows where they are, and
+    // asking about someone who is on leave in front of the platoon is pure
+    // tax. Skipped from the queue, NOT dropped — the finish screen lists them
+    // with one tap to correct the one who is actually standing there.
+    if (p.status !== 'present') { known.push(p); continue; }
+    // Already accounted for today — the same rule isUnaccounted() uses.
+    if (p.present_date === todayStr) continue;
+    queue.push(p);
+  }
+  return { queue: queue.sort(rankSort), known: known.sort(rankSort) };
+}
+
+function startFormation() {
+  if (!currentPlatoon) return;
+  const split = formationQueue(personnel, getTodayStr());
+  formation = {
+    ids: split.queue.map(p => p.id),
+    known: split.known.map(p => p.id),
+    i: 0, asking: false, busy: false
+  };
+  closeDashMenus();
+  document.body.classList.add('formation-active');
+  renderFormation();
+}
+
+function exitFormation() {
+  if (!document.body.classList.contains('formation-active')) return;
+  document.body.classList.remove('formation-active');
+  document.getElementById('formationOverlay').innerHTML = '';
+  load();   // one pull of server truth on the way out, not once per soldier
+}
+
+function formationAsk() {
+  formation.asking = true;
+  renderFormation();
+}
+
+// Back re-asks the previous soldier; there is no undo bookkeeping because
+// every answer is a full write. Answering Present over an absence booked a
+// minute ago makes the server delete that row (it never started), and booking
+// an absence over a Present overwrites the roster line the same way.
+function formationBack() {
+  if (formation.asking) formation.asking = false;
+  else if (formation.i > 0) formation.i--;
+  renderFormation();
+}
+
+function formationPerson(index) {
+  return personnel.find(p => p.id === formation.ids[index]);
+}
+
+async function formationMark(status) {
+  if (formation.busy) return;          // a double-tap must not skip a soldier
+  const p = formationPerson(formation.i);
+  if (!p) return;
+  formation.busy = true;
+  if (status === 'present') {
+    const before = { status: p.status, notes: p.notes, from: p.from, to: p.to,
+                     present_date: p.present_date };
+    Object.assign(p, { status: 'present', notes: '', from: '', to: '', present_date: getTodayStr() });
+    const res = await apiUpdate(p);
+    if (!res || res.error) { Object.assign(p, before); return formationFailed(); }
+  } else {
+    // Today only. A snap count is evidence about this morning, not about next
+    // week — a real multi-day absence gets booked properly with its dates.
+    // POST .../schedule is idempotent on (person, status, from, to).
+    const today = getTodayStr();
+    const res = await api('POST', `/personnel/${p.id}/schedule`,
+                          { status, from_date: today, to_date: today });
+    if (!res || res.error) return formationFailed();
+    // Mirror the row the server actually wrote rather than guessing at it.
+    Object.assign(p, { status: res.status, from: res.from_date, to: res.to_date,
+                       notes: res.notes || '' });
+  }
+  formation.busy = false;
+  formation.asking = false;
+  formation.i++;
+  renderFormation();
+}
+
+// api() has already put the reason on screen; stay on this soldier so nobody
+// is silently skipped by a failed save.
+function formationFailed() {
+  formation.busy = false;
+  renderFormation();
+}
+
+async function formationKnownPresent(id) {
+  const p = personnel.find(x => x.id === id);
+  if (!p || formation.busy) return;
+  formation.busy = true;
+  const before = { status: p.status, notes: p.notes, from: p.from, to: p.to,
+                   present_date: p.present_date };
+  // The server ends whatever absence was running on this transition.
+  Object.assign(p, { status: 'present', notes: '', from: '', to: '', present_date: getTodayStr() });
+  const res = await apiUpdate(p);
+  if (!res || res.error) Object.assign(p, before);
+  formation.busy = false;
+  renderFormation();
+}
+
+function formationTally() {
+  const roster = personnel.filter(p => p.status !== 'loan');
+  const present = roster.filter(isPresentToday).length;
+  const away = roster.filter(p => p.status !== 'present').length;
+  return { total: roster.length, present, away, left: roster.length - present - away };
+}
+
+function formationName(p) {
+  return `${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
+}
+
+function renderFormation() {
+  const el = document.getElementById('formationOverlay');
+  if (!el) return;
+  const total = formation.ids.length;
+  if (formation.i >= total) { el.innerHTML = formationDoneHTML(); return; }
+  const p = formationPerson(formation.i);
+  if (!p) { formation.i++; renderFormation(); return; }   // removed mid-formation
+  const prev = formation.i > 0 ? formationPerson(formation.i - 1) : null;
+  const back = formation.asking
+    ? '<button class="fm-back" onclick="formationBack()">Cancel</button>'
+    : (prev ? `<button class="fm-back" onclick="formationBack()">&larr; Back to ${formationName(prev)}</button>` : '');
+  el.innerHTML = `
+    <div class="fm-top">
+      <span class="fm-progress-text">${formation.i + 1} of ${total}</span>
+      <button class="fm-exit" onclick="exitFormation()">Exit</button>
+    </div>
+    <div class="fm-bar"><span style="width:${Math.round(formation.i / total * 100)}%"></span></div>
+    <div class="fm-body">
+      <div>
+        <div class="fm-rank">${escapeHtml(p.rank)}</div>
+        <div class="fm-name">${escapeHtml(p.last)}, ${escapeHtml(p.first)}</div>
+        ${formation.asking ? '<div class="fm-sub">Why are they not here?</div>' : ''}
+      </div>
+      ${formation.asking
+        ? `<div class="fm-reasons">${FORMATION_REASONS.map(s =>
+             `<button class="fm-btn" onclick="formationMark('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
+        : `<div class="fm-actions">
+             <button class="fm-btn fm-btn-present" onclick="formationMark('present')">Present</button>
+             <button class="fm-btn fm-btn-away" onclick="formationAsk()">Not here</button>
+           </div>`}
+    </div>
+    ${back}`;
+}
+
+function formationDoneHTML() {
+  const t = formationTally();
+  const known = formation.known
+    .map(id => personnel.find(p => p.id === id))
+    .filter(p => p && p.status !== 'present' && p.status !== 'loan');
+  const counted = formation.ids.length;
+  return `
+    <div class="fm-top">
+      <span class="fm-progress-text">${counted} of ${counted}</span>
+      <button class="fm-exit" onclick="exitFormation()">Close</button>
+    </div>
+    <div class="fm-bar"><span style="width:100%"></span></div>
+    <div class="fm-body">
+      <div class="fm-done-head">
+        <h2>${t.left ? `${t.left} still unaccounted` : 'Accountability complete'}</h2>
+        <div class="fm-sub">${counted ? `${counted} soldier${counted === 1 ? '' : 's'} counted just now.`
+                                      : 'Everyone was already accounted for.'}</div>
+      </div>
+      <div class="fm-tally">
+        <span>${t.present} present</span>
+        <span>${t.away} away</span>
+        <span>${t.total} assigned</span>
+      </div>
+      ${known.length ? `<div class="fm-known">
+        <h3>Already on the books &mdash; not asked</h3>
+        ${known.map(p => `<div class="fm-known-row">
+            <span class="fm-known-name">${formationName(p)}</span>
+            <span class="avail-meta">${STATUS_LABELS[p.status] || escapeHtml(p.status)}</span>
+            <button onclick="formationKnownPresent(${p.id})">Actually here</button>
+          </div>`).join('')}
+      </div>` : ''}
+      <div class="fm-actions">
+        <button class="fm-btn fm-btn-present" onclick="exitFormation();dashCopyReport()">Copy report</button>
+      </div>
+    </div>
+    <button class="fm-back" onclick="exitFormation()">Back to roster</button>`;
 }
 
 // ─── Schools / Locations pages ─────────────────────────────────────────────
@@ -7144,6 +7439,9 @@ async function deleteUser(userId, username) {
 }
 
 // ─── Init ───
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') exitFormation();
+});
 document.addEventListener('click', e => {
   if (!e.target.closest('.hamburger-wrap')) closeHamburger();
   if (!e.target.closest('details.dash-more')) {

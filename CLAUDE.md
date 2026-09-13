@@ -26,6 +26,7 @@ python tests/test_invites.py          # invite expiry / single-use / platoon val
 python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
 python tests/test_schedule_edit.py    # absence edit + state re-derivation
 python tests/test_availability.py     # who is free on date X (date-window rules)
+python tests/test_formation_order.py  # formation queue rule (runs the JS under node)
 ```
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
@@ -69,6 +70,20 @@ adding another. The sidebar highlight is derived from those body classes by
 `syncNavActive()`; each `open*()` calls it, and `render()` covers the rest. Every new section needs a branch in `routeAfterLogin()` and the
 `popstate` handler, plus a class-clearing line wherever the other pages clear
 theirs.
+
+**Formation mode** is the exception to the full-page pattern: a fixed
+full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
+route, because it is a transient task and there must be nothing behind it to
+hit by accident at 0630. `formationQueue(people, todayStr)` is a pure function
+and the whole rule about who gets asked — unaccounted only, sorted by
+`rankSort()`; `loan` is dropped, and anyone already away on a current absence
+is skipped but handed back as `known` so the finish screen can show them and
+let a wrong one be corrected. It writes only through the existing APIs (`PUT
+/api/personnel/<id>` with `status: 'present'`, `POST
+/api/personnel/<id>/schedule` for an absence, today→today) and so inherits the
+absence lifecycle rather than duplicating it. Tests:
+`tests/test_formation_order.py`, which lifts the function out of `index.html`
+and runs it under node.
 
 Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
 `sortRows()`; reuse those rather than writing per-table sort code.
