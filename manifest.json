@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "Platoon Accountability",
   "short_name": "Accountability",
   "description": "Platoon accountability tracker for A Co. 15th MI BN (AE)",
@@ -26,5 +27,6 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "scope": "/"
 }

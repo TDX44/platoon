@@ -10,6 +10,10 @@
 <meta name="apple-mobile-web-app-title" content="Accountability">
 <link rel="icon" type="image/png" sizes="32x32" href="/images/icon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/images/icon-180.png">
+<!-- Unsized fallback: older iOS ignores the sized link and silently falls back
+     to a screenshot of the page, which is how a home-screen shortcut ends up
+     showing something other than the unit crest. -->
+<link rel="apple-touch-icon" href="/images/icon-180.png">
 <meta name="theme-color" content="#ffffff">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1066,6 +1070,30 @@
   .platoon-card-name {
     color: var(--theme_text);
     font-size: 1.65rem;
+  }
+  .home-install {
+    /* Block-level with a fitted width, so `margin: auto` actually centres it:
+       loadHome() sets #homeScreen to display:block inline, which beats the
+       stylesheet's flex column and makes align-self inert. */
+    display: flex; width: fit-content; align-items: center; gap: 10px; margin: 22px auto 0;
+    padding: 10px 18px 10px 10px; min-height: 52px; cursor: pointer;
+    background: var(--theme_surface); color: var(--theme_text);
+    border: 1px solid var(--theme_border); border-radius: 999px;
+    box-shadow: var(--theme_shadow-soft); font-size: 0.95em; font-weight: 600;
+    font-family: inherit;
+  }
+  .home-install[hidden] { display: none; }
+  .home-install img { border-radius: 9px; flex: none; }
+  .home-install:hover { border-color: rgba(27, 97, 201, 0.38); background: var(--theme_surface-blue); }
+  .home-install:active { transform: scale(0.98); }
+  .home-install-hint {
+    margin: 12px auto 0; max-width: 420px; text-align: center; line-height: 1.5;
+    font-size: 0.86em; color: var(--theme_text-weak);
+  }
+  .home-install-hint[hidden] { display: none; }
+  .ios-share {
+    display: inline-block; padding: 0 5px; border: 1px solid currentColor;
+    border-radius: 4px; font-weight: 700;
   }
 
   #platoonScreen {
@@ -2994,6 +3022,18 @@
       <div class="platoon-card-name">HQ</div>
       <div class="platoon-card-count" id="count-hq">— personnel</div>
     </button>
+  </div>
+
+  <!-- Only rendered when the browser says it can install, or on iOS where it
+       never can and has to be talked through it. Hidden once installed. -->
+  <button class="home-install" id="installAppBtn" onclick="installApp()" hidden>
+    <img src="/images/icon-180.png" alt="" width="34" height="34">
+    <span>Add to Home Screen</span>
+  </button>
+  <div class="home-install-hint" id="installHint" hidden>
+    <strong>iPhone / iPad:</strong> tap the Share button
+    <span class="ios-share">&#8593;</span> at the bottom of Safari, then
+    <strong>Add to Home Screen</strong>.
   </div>
 </div>
 
@@ -7253,6 +7293,8 @@ async function loadHome() {
   document.getElementById('manageUsersMenuItem').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('backupGroupHeader').style.display = 'flex';
 
+  syncInstallButton();
+
   // Filter platoon cards by access
   PLATOONS.forEach(p => {
     const card = document.getElementById(`card-${p}`);
@@ -7290,6 +7332,57 @@ function selectPlatoon(platoon, push = true, pendingSoldier = null) {
     sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(platoonLabel)}`;
   }
   load();
+}
+
+// ─── Add to Home Screen ───
+// Chrome/Edge/Android fire beforeinstallprompt and let us call prompt() from a
+// user gesture. iOS Safari never fires it and has no programmatic install, so
+// there the button exists only to show the two taps Apple requires.
+let deferredInstall = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();          // keep Chrome's own mini-infobar out of the way
+  deferredInstall = e;
+  syncInstallButton();
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstall = null;
+  syncInstallButton();
+});
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.navigator.standalone === true;
+}
+
+function isIosSafari() {
+  const ua = navigator.userAgent;
+  // iPadOS 13+ reports itself as a Mac, so the touch check is what catches it.
+  const ios = /iPad|iPhone|iPod/.test(ua) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return ios && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+}
+
+function syncInstallButton() {
+  const btn = document.getElementById('installAppBtn');
+  const hint = document.getElementById('installHint');
+  if (!btn) return;
+  // Already running from the home screen: there is nothing left to offer.
+  const offer = !isStandalone() && (deferredInstall !== null || isIosSafari());
+  btn.hidden = !offer;
+  if (!offer && hint) hint.hidden = true;
+}
+
+async function installApp() {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    await deferredInstall.userChoice;   // accepted or dismissed, the event is spent
+    deferredInstall = null;
+    syncInstallButton();
+    return;
+  }
+  const hint = document.getElementById('installHint');
+  if (hint) hint.hidden = !hint.hidden;
 }
 
 function goHome() {
