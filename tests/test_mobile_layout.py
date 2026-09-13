@@ -221,11 +221,12 @@ def check_no_horizontal_overflow(page, width, view_label):
 
 def check_no_duplicate_meta(page, width):
     """The real bug: a base rule after its media query left both the desktop
-    .dash-row-meta and the mobile .dash-row-mobilemeta visible together."""
+    .dash-row-meta and the phone lines visible together, so every row showed
+    its status twice."""
     results = page.evaluate("""
     () => Array.from(document.querySelectorAll('.dash-row')).map(row => {
       const meta = row.querySelector('.dash-row-meta');
-      const mobile = row.querySelector('.dash-row-mobilemeta');
+      const mobile = row.querySelector('.dash-row-mobiletop');
       const visible = el => !!el && getComputedStyle(el).display !== 'none';
       return { meta: visible(meta), mobile: visible(mobile) };
     })
@@ -234,7 +235,29 @@ def check_no_duplicate_meta(page, width):
     for i, r in enumerate(results):
         assert r['meta'] != r['mobile'], (
             f'.dash-row[{i}] @ {width}px: .dash-row-meta visible={r["meta"]} and '
-            f'.dash-row-mobilemeta visible={r["mobile"]} — exactly one must be visible'
+            f'.dash-row-mobiletop visible={r["mobile"]} — exactly one must be visible'
+        )
+
+
+def check_rows_are_one_height(page, width):
+    """The phone layout is two fixed lines, so within a section every row must
+    be exactly the same height — that is what stopped the list jittering when a
+    long location wrapped. Needs Action is measured separately: it gets a
+    full-width second line for its two buttons, so it is legitimately taller."""
+    groups = page.evaluate("""
+    () => {
+      const g = {};
+      document.querySelectorAll('.dash-row').forEach(r => {
+        const kind = r.classList.contains('dash-row-needs') ? 'needs' : 'standard';
+        (g[kind] = g[kind] || []).push(Math.round(r.getBoundingClientRect().height));
+      });
+      return g;
+    }
+    """)
+    for kind, heights in groups.items():
+        distinct = sorted(set(heights))
+        assert len(distinct) == 1, (
+            f'{kind} rows @ {width}px are not a single height: {distinct}'
         )
 
 
@@ -310,6 +333,8 @@ def run_checks(page, base_url):
 
         check_no_horizontal_overflow(page, width, 'accountability')
         check_no_duplicate_meta(page, width)
+        if width < 900:
+            check_rows_are_one_height(page, width)
         check_modal_controls_fit(page, width)
         if width < 900:
             check_tap_targets(page, width)

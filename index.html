@@ -2731,7 +2731,7 @@
   .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
   .dash-pill.p-loan { background: var(--dash-purple-bg); color: var(--dash-purple); }
   .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
-  .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; }
+  .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; white-space: nowrap; }
   .dash-badge-returned { font-size: 0.7em; font-weight: 800; color: var(--dash-blue); letter-spacing: 0.04em; margin-left: 6px; }
 
   .dash-row-menu { position: relative; }
@@ -2845,6 +2845,7 @@
     body .dash-header .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
     .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
+    .dash-row-needs .dash-row-mobiledetail { grid-column: 3 / -1; }
     .dash-main { display: contents; }
     .dash-rail { display: contents; }
     .dash-metrics { order: 1; margin: 6px 14px 0; }
@@ -2865,7 +2866,22 @@
     .metric-label-long { display: none; }
     .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
     .dash-row-meta { display: none; }
-    .dash-row-mobilemeta { display: block !important; }
+    /* Two fixed lines per row: the status pill under the name, then the
+       location and dates spanning the full width beneath. Heights are fixed
+       rather than min- so the taller line box of the RETURNING TODAY badge
+       cannot make one row 2px taller than its neighbours. */
+    .dash-row-mobiletop {
+      display: flex !important; align-items: center; gap: 6px; height: 1.6em;
+      margin-top: 2px; overflow: hidden;
+    }
+    .dash-row-mobiledetail {
+      display: block !important; grid-column: 3 / -1; height: 1.35em; margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* The chevron alone is enough on a phone; the word costs the name column
+       60px it needs more, and the menu still says what each item does. */
+    .dash-row-menu-label { display: none; }
+    .dash-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dash-header-actions { width: 100%; justify-content: flex-end; }
     /* Three controls is all that fits across a phone, which is why the header
        is exactly More / Formation Mode / Reports at every width. */
@@ -2879,9 +2895,14 @@
        flex: 1 1 300px would force a 300px height on them in the column layout. */
     .dash-rail > .dash-card { flex: none; }
   }
-  .dash-row-mobilemeta { display: none; font-size: 0.78em; color: var(--dash-muted); margin-top: 2px; }
+  .dash-row-mobiletop,
+  .dash-row-mobiledetail { display: none; font-size: 0.78em; color: var(--dash-muted); }
 
   @media (max-width: 380px) {
+    /* On the narrowest phones the detail line gives up its indent and starts
+       at the rank column instead — 50px is the difference between showing the
+       return date and ellipsising it. */
+    .dash-row-mobiledetail { grid-column: 2 / -1; }
     .btn-small { font-size: 0.74rem; }
     /* Labels are nowrap, so on the narrowest phones they have to shrink or
        they bleed into the neighbouring tab. */
@@ -5103,20 +5124,36 @@ function dashName(p, i, extra = '') {
 
 function dashRowMenu(items) {
   const buttons = items.map(([label, fn]) => `<button onclick="${fn};closeDashMenus()">${label}</button>`).join('');
-  return `<details class="dash-row-menu"><summary>Update &#9662;</summary><div class="dash-more-menu">${buttons}</div></details>`;
+  return `<details class="dash-row-menu"><summary><span class="dash-row-menu-label">Update</span>&#9662;</summary><div class="dash-more-menu">${buttons}</div></details>`;
 }
+
+// Phone layout is two lines: the status pill under the name, then the
+// location/dates on their own full-width line beneath the whole row — which is
+// why the detail is a direct grid child of .dash-row and not nested in the name
+// column, where it had to wrap or be truncated. Both are always emitted, even
+// empty, so every row is exactly the same height whatever the status.
+// Arguments are already-escaped HTML, same contract as the row builders.
+function dashMobileTop(top) {
+  return `<div class="dash-row-mobiletop">${top}</div>`;
+}
+function dashMobileDetail(parts) {
+  const detail = (Array.isArray(parts) ? parts : [parts]).filter(Boolean).join(' &middot; ');
+  return `<div class="dash-row-mobiledetail">${detail}</div>`;
+}
+
 
 function dashNeedsRow(p) {
   const i = personnel.indexOf(p);
   return `<div class="dash-row dash-row-needs">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">Not yet accounted for</div></div>
+    <div>${dashName(p, i)}${dashMobileTop('Not yet accounted for')}</div>
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
       <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
       <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
     </div>
+    ${dashMobileDetail('')}
   </div>`;
 }
 
@@ -5125,7 +5162,7 @@ function dashPresentRow(p) {
   return `<div class="dash-row">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill('present')}</div></div>
+    <div>${dashName(p, i)}${dashMobileTop(dashPill('present'))}</div>
     <div class="dash-row-meta"><span>${dashPill('present')}</span></div>
     <div class="dash-row-actions">${dashRowMenu([
       ['View profile', `openProfile(${i})`],
@@ -5133,6 +5170,7 @@ function dashPresentRow(p) {
       ['Set status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
+    ${dashMobileDetail('')}
   </div>`;
 }
 
@@ -5150,7 +5188,7 @@ function dashAwayRow(p, todayStr) {
   return `<div class="dash-row">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill(p.status)}${returning}${mobileMeta ? ' ' + mobileMeta : ''}</div></div>
+    <div>${dashName(p, i)}${dashMobileTop(dashPill(p.status) + returning)}</div>
     <div class="dash-row-meta">${meta}</div>
     <div class="dash-row-actions">${dashRowMenu([
       ['View profile', `openProfile(${i})`],
@@ -5158,6 +5196,7 @@ function dashAwayRow(p, todayStr) {
       ['Update status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
+    ${dashMobileDetail([escapeHtml(p.notes || ''), dateRange])}
   </div>`;
 }
 
@@ -5166,7 +5205,7 @@ function dashLoanRow(p) {
   return `<div class="dash-row">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}<div class="dash-row-mobilemeta">${dashPill('loan')}${p.notes ? ' ' + escapeHtml(p.notes) : ''}</div></div>
+    <div>${dashName(p, i)}${dashMobileTop(dashPill('loan'))}</div>
     <div class="dash-row-meta">
       <span>${dashPill('loan')}</span>
       ${p.notes ? `<span title="${escapeHtml(p.notes)}">${escapeHtml(p.notes)}</span>` : ''}
@@ -5176,6 +5215,7 @@ function dashLoanRow(p) {
       ['Update status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
+    ${dashMobileDetail(escapeHtml(p.notes || ''))}
   </div>`;
 }
 
@@ -5192,7 +5232,7 @@ function dashSchedRow(p) {
   return `<div class="dash-row">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}<div class="dash-row-mobilemeta"><span class="dash-pill p-sched">${events.length} Scheduled</span> · now ${escapeHtml(p.status)}</div></div>
+    <div>${dashName(p, i)}${dashMobileTop(`<span class="dash-pill p-sched">${events.length} Scheduled</span>`)}</div>
     <div class="dash-row-meta">
       <span><span class="dash-pill p-sched">${events.length} Scheduled</span> <span style="font-style:italic;">Now: ${escapeHtml(p.status)}</span></span>
       ${eventLines}
@@ -5202,6 +5242,7 @@ function dashSchedRow(p) {
       ['Edit schedule…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
+    ${dashMobileDetail(`Now: ${STATUS_LABELS[p.status] || escapeHtml(p.status)}`)}
   </div>`;
 }
 
