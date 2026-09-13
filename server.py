@@ -90,6 +90,10 @@ DEFAULT_TDY_LOCATIONS = {
 TDY_LIST_MAX_ITEMS = 300
 TDY_LIST_MAX_LEN = 80
 
+# Report history: generated reports were per-device localStorage; now server-side
+# so every device sees the same record. Capped per platoon so it cannot grow forever.
+REPORT_HISTORY_MAX = 200
+
 
 def _clean_tdy_list(values):
     """Trim, drop blanks, cap length, and dedupe case-insensitively."""
@@ -240,6 +244,17 @@ def init_db():
             expires_at  TEXT DEFAULT '',
             accepted_at TEXT DEFAULT '',
             accepted_by TEXT DEFAULT ''
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS report_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            platoon    TEXT NOT NULL,
+            unit_name  TEXT DEFAULT '',
+            text       TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            created_by TEXT DEFAULT ''
         )
     ''')
 
@@ -1487,6 +1502,120 @@ def delete_duty(entry_id):
     conn.execute('DELETE FROM duty_roster WHERE id = ?', (entry_id,))
     conn.commit()
     conn.close()
+    return jsonify({'success': True})
+
+
+# ── Report history ──
+
+def _import_timestamp(value):
+    """A client-supplied created_at, normalised, or None to use the default.
+
+    Only ever set by the localStorage import, and never trusted blindly: a value
+    that does not parse, or one in the future, falls back to 'now'.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    stamp = parsed.strftime('%Y-%m-%d %H:%M:%S')
+    return stamp if stamp <= datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') else None
+
+
+def _prune_report_history(conn, platoon):
+    """Keep only the most recent REPORT_HISTORY_MAX rows for a platoon."""
+    conn.execute(
+        'DELETE FROM report_history WHERE platoon = ? AND id NOT IN ('
+        '  SELECT id FROM report_history WHERE platoon = ? ORDER BY id DESC LIMIT ?'
+        ')',
+        (platoon, platoon, REPORT_HISTORY_MAX)
+    )
+
+
+@app.route('/api/reports', methods=['GET'])
+@login_required
+def get_reports():
+    platoon = request.args.get('platoon', '')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT id, unit_name, created_at, created_by FROM report_history '
+        'WHERE platoon = ? ORDER BY id DESC LIMIT ?',
+        (platoon, REPORT_HISTORY_MAX)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/reports', methods=['POST'])
+@login_required
+def add_report():
+    data = request.get_json() or {}
+    platoon = data.get('platoon', '')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'Report text is required.'}), 400
+    unit_name = (data.get('unit_name') or '').strip()
+    # The one-time localStorage import sends the report's original save time.
+    # Without it every migrated report lands stamped today, which makes the
+    # history actively misleading for a record people read by date.
+    created_at = _import_timestamp(data.get('created_at'))
+    conn = get_db()
+    if created_at:
+        cur = conn.execute(
+            'INSERT INTO report_history (platoon, unit_name, text, created_by, created_at) '
+            'VALUES (?, ?, ?, ?, ?)',
+            (platoon, unit_name, text, user['username'], created_at)
+        )
+    else:
+        cur = conn.execute(
+            'INSERT INTO report_history (platoon, unit_name, text, created_by) VALUES (?, ?, ?, ?)',
+            (platoon, unit_name, text, user['username'])
+        )
+    new_id = cur.lastrowid
+    _prune_report_history(conn, platoon)
+    conn.commit()
+    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (new_id,)).fetchone()
+    conn.close()
+    log_action('SAVE_REPORT', unit_name, platoon)
+    if not row:
+        # Cannot happen with REPORT_HISTORY_MAX >= 1, but don't 500 if it ever does.
+        return jsonify({'success': True}), 201
+    return jsonify(dict(row)), 201
+
+
+@app.route('/api/reports/<int:report_id>', methods=['GET'])
+@login_required
+def get_report(report_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (report_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, row['platoon']):
+        return jsonify({'error': 'Forbidden'}), 403
+    return jsonify(dict(row))
+
+
+@app.route('/api/reports/<int:report_id>', methods=['DELETE'])
+@admin_required
+def delete_report(report_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (report_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    conn.execute('DELETE FROM report_history WHERE id = ?', (report_id,))
+    conn.commit()
+    conn.close()
+    log_action('DELETE_REPORT', row['unit_name'], row['platoon'])
     return jsonify({'success': True})
 
 

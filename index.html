@@ -5547,37 +5547,60 @@ function downloadReport() {
 function printRoster() { window.print(); }
 
 // ─── Report history ───
+// Server-side now (was localStorage) so every device/user sees the same
+// record. saveToHistory fires-and-forgets the POST; api() already toasts and
+// resyncs on failure, so nothing extra is needed here.
 function saveToHistory(reportText, unitName) {
-  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
-  history.unshift({ timestamp: new Date().toISOString(), platoon: currentPlatoon, unitName, text: reportText });
-  if (history.length > 50) history.splice(50);
-  localStorage.setItem('reportHistory', JSON.stringify(history));
+  api('POST', '/reports', { platoon: currentPlatoon, unit_name: unitName, text: reportText });
 }
-function openHistory() {
-  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
+
+let _historyMigrated = false;
+// One-time import of the old localStorage history into the server, then clear
+// the key so it can't double-import. Guarded so any failure (a save that 403s,
+// a network error) leaves localStorage untouched — it just retries next load.
+async function migrateLegacyReportHistory() {
+  if (_historyMigrated) return;
+  _historyMigrated = true;
+  let legacy;
+  try { legacy = JSON.parse(localStorage.getItem('reportHistory') || '[]'); } catch (e) { return; }
+  if (!Array.isArray(legacy) || !legacy.length) return;
+  try {
+    for (const r of legacy) {
+      const saved = await api('POST', '/reports', {
+        platoon: r.platoon || currentPlatoon, unit_name: r.unitName || '',
+        text: r.text || '', created_at: r.timestamp || ''
+      });
+      if (!saved) throw new Error('migration save failed');
+    }
+    localStorage.removeItem('reportHistory');
+  } catch (e) {
+    // Leave localStorage as-is; migration retries on the next openHistory().
+  }
+}
+
+async function openHistory() {
+  await migrateLegacyReportHistory();
+  const history = await api('GET', `/reports?platoon=${currentPlatoon}`);
   const list = document.getElementById('historyList');
-  if (!history.length) {
+  if (!history || !history.length) {
     list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
   } else {
-    list.innerHTML = history.map((r, i) => {
-      const d = new Date(r.timestamp);
-      const ts = `${d.toLocaleDateString()} ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
-      return `<div class="history-item" onclick="viewHistory(${i})">
-        <div class="history-item-ts">${ts} &nbsp;·&nbsp; ${r.platoon || ''}</div>
-        <div class="history-item-summary">${escapeHtml(r.unitName || 'Report')}</div>
+    list.innerHTML = history.map(r => {
+      const ts = (r.created_at || '').replace('T', ' ').slice(0, 16);
+      return `<div class="history-item" onclick="viewHistory(${r.id})">
+        <div class="history-item-ts">${ts} &nbsp;·&nbsp; ${escapeHtml(r.created_by || '')}</div>
+        <div class="history-item-summary">${escapeHtml(r.unit_name || 'Report')}</div>
       </div>`;
     }).join('');
   }
   document.getElementById('historyModal').classList.add('active');
 }
 function closeHistory() { document.getElementById('historyModal').classList.remove('active'); }
-function viewHistory(i) {
-  const history = JSON.parse(localStorage.getItem('reportHistory') || '[]');
-  const r = history[i];
+async function viewHistory(id) {
+  const r = await api('GET', `/reports/${id}`);
   if (!r) return;
   historyViewData = r;
-  const d = new Date(r.timestamp);
-  document.getElementById('historyViewTitle').textContent = `${r.unitName || 'Report'} — ${d.toLocaleDateString()}`;
+  document.getElementById('historyViewTitle').textContent = `${r.unit_name || 'Report'} — ${(r.created_at || '').slice(0, 10)}`;
   document.getElementById('historyViewText').textContent = r.text;
   document.getElementById('historyModal').classList.remove('active');
   document.getElementById('historyViewModal').classList.add('active');
@@ -5597,8 +5620,8 @@ function copyHistoryReport() {
 }
 function downloadHistoryReport() {
   if (!historyViewData) return;
-  const name = (historyViewData.unitName || 'report').replace(/[^a-z0-9]/gi, '_');
-  const filename = `${name}_${historyViewData.timestamp.slice(0,10)}.txt`;
+  const name = (historyViewData.unit_name || 'report').replace(/[^a-z0-9]/gi, '_');
+  const filename = `${name}_${(historyViewData.created_at || '').slice(0,10)}.txt`;
   const blob = new Blob([historyViewData.text], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
