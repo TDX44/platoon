@@ -1716,6 +1716,76 @@
   .directory-table .dir-name { font-weight: 600; color: var(--cp-text-strong); }
   .directory-table .dir-muted { color: var(--cp-muted); }
 
+  .person-details { max-height: 60vh; overflow-y: auto; }
+  .person-details h3 {
+    margin: 14px 0 6px; font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--cp-muted);
+  }
+  .person-details h3:first-child { margin-top: 0; }
+  .pd-row {
+    display: flex; gap: 12px; align-items: baseline;
+    padding: 6px 0; border-bottom: 1px solid var(--cp-hairline);
+  }
+  .pd-row:last-child { border-bottom: none; }
+  .pd-label { flex: none; min-width: 10em; color: var(--cp-muted); font-size: 0.82em; }
+  .pd-value { color: var(--cp-text); word-break: break-word; }
+  .pd-value.empty { color: var(--cp-faint); }
+  @media (max-width: 900px) {
+    .pd-row { display: block; }
+    .pd-label { min-width: 0; display: block; margin-bottom: 2px; }
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .directory-table td.dir-actions, .directory-table th.dir-actions {
+    width: 1%; text-align: right; white-space: nowrap;
+  }
+  .dir-row-menu > summary { padding: 3px 9px; font-size: 1em; line-height: 1; }
+
+  /* Phone: eight nowrap columns is 824px of table in a 390px screen, so the
+     header row comes off and every row becomes a card that labels its own
+     cells. Scoped to the directory — the audit log and TDY lists share
+     .directory-table and are still better off scrolling. */
+  @media (max-width: 900px) {
+    .directory-view .directory-table-wrap { overflow-x: visible; background: none; border: none; }
+    .directory-view .directory-table { font-size: 1em; }
+    .directory-view .directory-table thead { display: none; }
+    .directory-view .directory-table,
+    .directory-view .directory-table tbody,
+    .directory-view .directory-table tr,
+    .directory-view .directory-table td { display: block; width: auto; }
+    .directory-view .directory-table tr {
+      position: relative;
+      border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+      background: var(--cp-surface); padding: 10px 12px; margin-bottom: 10px;
+    }
+    .directory-view .directory-table td {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 4px 0; border-bottom: none; white-space: normal;
+    }
+    .directory-view .directory-table td::before {
+      content: attr(data-label);
+      flex: none; min-width: 8.5em;
+      color: var(--cp-muted); font-size: 0.72em; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    /* The name is the card's heading, so it loses its label and the ⋯ sits beside it. */
+    .directory-view .directory-table td.dir-name {
+      font-size: 1.02em; padding: 0 44px 8px 0; margin-bottom: 6px;
+      border-bottom: 1px solid var(--cp-hairline);
+    }
+    .directory-view .directory-table td.dir-name::before { content: none; }
+    .directory-view .directory-table td.dir-actions {
+      position: absolute; top: 8px; right: 10px; width: auto; padding: 0;
+    }
+    .directory-view .directory-table td.dir-actions::before { content: none; }
+    .directory-view .directory-table tbody tr:last-child td { border-bottom: none; }
+    .directory-view .directory-table td.dir-name:not(:last-child) { border-bottom: 1px solid var(--cp-hairline); }
+    .directory-view .directory-search { margin-left: 0; }
+  }
+
   /* Sortable column headers (directory + audit log) */
   .directory-table th.sortable { cursor: pointer; user-select: none; }
   .directory-table th.sortable:hover { color: var(--cp-text); background: var(--cp-hover); }
@@ -3915,6 +3985,68 @@ function directoryValue(r, key) {
   }
 }
 
+// ─── Person details (from the directory's ⋯ menu) ───
+// The soldier page already shows all of this, but stepping off the directory to
+// read one phone number and stepping back loses your place, sort and search.
+const PERSON_DETAIL_GROUPS = [
+  ['Contact', [['phone', 'Phone'], ['email', 'Email'], ['address', 'Home address']]],
+  ['Emergency & family', [['emergency_name', 'Emergency contact'], ['emergency_phone', 'Emergency phone'],
+                          ['spouse_dependents', 'Spouse / dependents'], ['next_of_kin', 'Next of kin']]],
+  ['Administrative', [['dod_id', 'DOD ID'], ['dob', 'Date of birth'], ['date_of_rank', 'Date of rank'],
+                      ['mos', 'MOS'], ['clearance', 'Clearance'], ['ets_date', 'ETS date'], ['section', 'Section / team']]],
+  ['Readiness', [['flags', 'Flags'], ['medical_date', 'Medical'], ['dental_date', 'Dental'],
+                 ['weapons_qual', 'Weapons qual']]],
+  ['Notes', [['profile_notes', 'Notes']]],
+];
+const PERSON_DETAIL_DATES = new Set(['dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date']);
+
+function detailRow(label, value, isDate) {
+  const shown = (value || '').trim();
+  const text = shown && isDate ? formatDateWithYear(shown) : shown;
+  return `<div class="pd-row"><div class="pd-label">${label}</div>` +
+         `<div class="pd-value${text ? '' : ' empty'}">${text ? escapeHtml(text) : 'Not recorded'}</div></div>`;
+}
+
+async function openPersonDetails(id) {
+  const row = directoryRows.find(r => r.id === id) || personnel.find(p => p.id === id);
+  if (!row) return;
+  const name = `${row.rank} ${row.last}, ${row.first}`;
+  document.getElementById('personDetailsTitle').textContent = name;
+  document.getElementById('personDetailsBody').innerHTML = '<div class="dash-section-empty">Loading…</div>';
+  document.getElementById('personDetailsPageBtn').onclick = () => { closePersonDetails(); openSoldierPage(id); };
+  document.getElementById('personDetailsEditBtn').onclick = () => { closePersonDetails(); editPersonById(id); };
+  document.getElementById('personDetailsModal').classList.add('active');
+
+  const profile = await api('GET', `/personnel/${id}/profile`) || {};
+  // The modal may have been closed, or another person opened, while this loaded.
+  if (document.getElementById('personDetailsTitle').textContent !== name) return;
+  const status = `<h3>Status</h3>${detailRow('Current', STATUS_LABELS[row.status] || row.status)}` +
+    detailRow('Return', row.to_date || '', true) +
+    (row.next_absence
+      ? detailRow('Next scheduled',
+          `${STATUS_LABELS[row.next_absence.status] || row.next_absence.status} ` +
+          `${formatDateShort(row.next_absence.from_date)}–${formatDateShort(row.next_absence.to_date)}`)
+      : detailRow('Next scheduled', ''));
+  document.getElementById('personDetailsBody').innerHTML = status + PERSON_DETAIL_GROUPS.map(([title, fields]) =>
+    `<h3>${title}</h3>` + fields.map(([key, label]) =>
+      detailRow(label, profile[key] || '', PERSON_DETAIL_DATES.has(key))).join('')
+  ).join('');
+}
+
+function closePersonDetails() {
+  document.getElementById('personDetailsModal').classList.remove('active');
+}
+
+// The edit modal indexes into personnel[]; the directory works in ids.
+function editPersonById(id) {
+  const i = personnel.findIndex(p => p.id === id);
+  if (i < 0) {
+    alert('Open the roster for this platoon first, then edit from there.');
+    return;
+  }
+  openEditModal(i);
+}
+
 function sortDirectory(key) {
   toggleSort(directorySort, key);
   renderDirectory();
@@ -3934,15 +4066,28 @@ function renderDirectory() {
     const nxt = r.next_absence
       ? `${STATUS_LABELS[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
       : '—';
+    const dash = '<span class="dir-muted">\u2014</span>';
+    // data-label feeds the phone card layout, where each cell renders its own
+    // heading because the table header is not on screen.
     return `<tr onclick="openSoldierPage(${r.id})">
-      <td class="dir-name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
-      <td>${statusText(r.status)}</td>
-      <td>${ret}</td>
-      <td>${r.next_absence ? escapeHtml(nxt) : '<span class="dir-muted">—</span>'}</td>
-      <td>${escapeHtml(r.dod_id || '') || '<span class="dir-muted">—</span>'}</td>
-      <td>${r.dob ? formatDateWithYear(r.dob) : '<span class="dir-muted">—</span>'}</td>
-      <td>${escapeHtml(r.mos || '') || '<span class="dir-muted">—</span>'}</td>
-      <td>${escapeHtml(r.phone || '') || '<span class="dir-muted">—</span>'}</td>
+      <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
+      <td data-label="Status">${statusText(r.status)}</td>
+      <td data-label="Return">${ret}</td>
+      <td data-label="Next Scheduled">${r.next_absence ? escapeHtml(nxt) : dash}</td>
+      <td data-label="DOD ID">${escapeHtml(r.dod_id || '') || dash}</td>
+      <td data-label="DOB">${r.dob ? formatDateWithYear(r.dob) : dash}</td>
+      <td data-label="MOS">${escapeHtml(r.mos || '') || dash}</td>
+      <td data-label="Phone">${escapeHtml(r.phone || '') || dash}</td>
+      <td class="dir-actions" onclick="event.stopPropagation()">
+        <details class="dash-row-menu dir-row-menu">
+          <summary aria-label="Actions for ${escapeHtml(r.last)}">&#8943;</summary>
+          <div class="dash-more-menu">
+            <button onclick="openPersonDetails(${r.id});closeDashMenus()">View details</button>
+            <button onclick="editPersonById(${r.id});closeDashMenus()">Edit person</button>
+            <button onclick="openSoldierPage(${r.id});closeDashMenus()">Open full page</button>
+          </div>
+        </details>
+      </td>
     </tr>`;
   }).join('');
   view.innerHTML = `
@@ -3955,8 +4100,8 @@ function renderDirectory() {
     </div>
     <div class="directory-table-wrap">
       <table class="directory-table">
-        <thead><tr>${sortHeaders(DIRECTORY_COLUMNS, directorySort, 'sortDirectory')}</tr></thead>
-        <tbody>${body || `<tr><td colspan="${DIRECTORY_COLUMNS.length}" class="dir-muted">No personnel found.</td></tr>`}</tbody>
+        <thead><tr>${sortHeaders(DIRECTORY_COLUMNS, directorySort, 'sortDirectory')}<th class="dir-actions"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${DIRECTORY_COLUMNS.length + 1}" class="dir-muted">No personnel found.</td></tr>`}</tbody>
       </table>
     </div>`;
   const search = document.getElementById('directorySearch');
@@ -6769,6 +6914,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
   document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
   document.getElementById('inviteModal').addEventListener('click', function(e) { if (e.target === this) closeInviteModal(); });
+  document.getElementById('personDetailsModal').addEventListener('click', function(e) { if (e.target === this) closePersonDetails(); });
 });
 
 window.addEventListener('popstate', () => {
@@ -6968,6 +7114,19 @@ initApp();
     </div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeUserMgmt()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Person Details Modal (global — opened from the directory's ⋯ menu) -->
+<div class="modal-overlay" id="personDetailsModal">
+  <div class="modal modal-wide">
+    <h2 id="personDetailsTitle">Person</h2>
+    <div id="personDetailsBody" class="person-details"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closePersonDetails()">Close</button>
+      <button class="btn-small btn-import" id="personDetailsPageBtn">Open full page</button>
+      <button class="btn-small btn-add" id="personDetailsEditBtn">Edit</button>
     </div>
   </div>
 </div>
