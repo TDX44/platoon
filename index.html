@@ -2603,6 +2603,9 @@
     border-color: var(--cp-green);
   }
   .dash-row .dash-btn-primary:hover { background: var(--cp-green-bg); }
+  /* Square, so the tick reads as a button and not a loose glyph. Stays green:
+     it is the one affirmative action in the row. */
+  .dash-btn-check { min-width: 40px; font-size: 1.1em; line-height: 1; padding: 7px 10px; }
 
   .dash-more { position: relative; }
   .dash-more > summary {
@@ -5151,9 +5154,9 @@ function dashNeedsRow(p) {
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
       <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
-      <button class="dash-btn dash-btn-primary dash-btn-sm" onclick="markPresentToday(${i})">Mark Present</button>
+      <button class="dash-btn dash-btn-primary dash-btn-sm dash-btn-check"
+              onclick="markPresentToday(${i})" title="Mark present" aria-label="Mark present">&#10003;</button>
     </div>
-    ${dashMobileDetail('')}
   </div>`;
 }
 
@@ -5170,7 +5173,6 @@ function dashPresentRow(p) {
       ['Set status…', `openTdyLeave(${i})`],
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
-    ${dashMobileDetail('')}
   </div>`;
 }
 

@@ -240,24 +240,29 @@ def check_no_duplicate_meta(page, width):
 
 
 def check_rows_are_one_height(page, width):
-    """The phone layout is two fixed lines, so within a section every row must
-    be exactly the same height — that is what stopped the list jittering when a
-    long location wrapped. Needs Action is measured separately: it gets a
-    full-width second line for its two buttons, so it is legitimately taller."""
+    """Every row inside a section must be exactly the same height — that is what
+    stopped the list jittering when a long location wrapped.
+
+    Sections differ from each other on purpose and are checked separately:
+    Present for Duty carries no location or dates so it has no detail line,
+    and Needs Action gets a full-width second line for its two buttons."""
     groups = page.evaluate("""
     () => {
       const g = {};
-      document.querySelectorAll('.dash-row').forEach(r => {
-        const kind = r.classList.contains('dash-row-needs') ? 'needs' : 'standard';
-        (g[kind] = g[kind] || []).push(Math.round(r.getBoundingClientRect().height));
+      document.querySelectorAll('.dash-section').forEach(s => {
+        const title = s.querySelector('.dash-section-title').textContent;
+        const hs = Array.from(s.querySelectorAll('.dash-row'))
+                        .map(r => Math.round(r.getBoundingClientRect().height));
+        if (hs.length) g[title] = hs;
       });
       return g;
     }
     """)
-    for kind, heights in groups.items():
+    assert groups, f'no sections rendered @ {width}px — fixture or render() is broken'
+    for title, heights in groups.items():
         distinct = sorted(set(heights))
         assert len(distinct) == 1, (
-            f'{kind} rows @ {width}px are not a single height: {distinct}'
+            f'"{title}" rows @ {width}px are not a single height: {distinct}'
         )
 
 
