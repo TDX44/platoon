@@ -267,7 +267,7 @@
     .rp-pop { max-height: 80vh; overflow-y: auto; }
     .rp-months { flex-direction: column; gap: 18px; }
   }
-  /* Touch: bottom sheet, months stacked in a scrollable body, nav + footer pinned */
+  /* Touch: bottom sheet, the two months stacked; arrows page them like desktop */
   .rp-pop.rp-sheet {
     left: 0 !important; right: 0; top: auto !important; bottom: 0;
     max-height: none; overflow: hidden; border-radius: 12px 12px 0 0;
@@ -276,11 +276,10 @@
     box-shadow: 0 -8px 30px rgba(16,24,40,0.25);
   }
   .rp-sheet .rp-months {
-    flex-direction: column; gap: 22px; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    max-height: 62vh; padding-top: 36px; overscroll-behavior: contain;
+    flex-direction: column; gap: 14px; padding-top: 30px;
+    max-height: calc(100vh - 150px); overflow-y: auto; /* only kicks in on very short screens */
   }
   .rp-sheet .rp-month { min-width: 0; }
-  .rp-sheet .rp-d { height: 42px; }
   .rp-sheet .rp-foot { margin: 12px -16px 0; flex-shrink: 0; }
 
   /* ─── Login screen ─── */
@@ -4465,7 +4464,7 @@ function rpOpen(event, fromId, toId, which) {
   window.addEventListener('resize', rpClose);
 }
 
-// Page scroll closes the popover; scrolling inside it (stacked months) must not.
+// Page scroll closes the popover; scrolling inside it must not.
 function rpScroll(e) {
   if (rp && !rp.pop.contains(e.target)) rpClose();
 }
@@ -4507,19 +4506,14 @@ function rpMonthHTML(base, offset) {
 }
 
 function rpRender() {
-  // Sheet shows a year of months to scroll through; desktop shows two side by side.
-  const count = RP_TOUCH ? 12 : 2;
-  const months = Array.from({ length: count }, (_, i) => rpMonthHTML(rp.view, i)).join('');
-  const prevScroll = rp.pop.querySelector('.rp-months')?.scrollTop || 0;
   rp.pop.innerHTML = `
     <button type="button" class="rp-nav prev" data-act="prev" aria-label="Previous month">&#8249;</button>
     <button type="button" class="rp-nav next" data-act="next" aria-label="Next month">&#8250;</button>
-    <div class="rp-months">${months}</div>
+    <div class="rp-months">${rpMonthHTML(rp.view, 0)}${rpMonthHTML(rp.view, 1)}</div>
     <div class="rp-foot">
       <button type="button" class="rp-reset" data-act="reset">Reset Dates</button>
       <button type="button" class="rp-done" data-act="done">Done</button>
     </div>`;
-  rp.pop.querySelector('.rp-months').scrollTop = prevScroll;
   rpPosition();
 }
 
