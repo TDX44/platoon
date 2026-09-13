@@ -2603,9 +2603,26 @@
     border-color: var(--cp-green);
   }
   .dash-row .dash-btn-primary:hover { background: var(--cp-green-bg); }
-  /* Square, so the tick reads as a button and not a loose glyph. Stays green:
-     it is the one affirmative action in the row. */
-  .dash-btn-check { min-width: 40px; font-size: 1.1em; line-height: 1; padding: 7px 10px; }
+  /* Solid, thumb-sized and the only filled control in the row: this is the
+     button the roster is tapped with every morning, so it should read as
+     pressable at a glance rather than as an outlined glyph. 44px is the
+     minimum comfortable touch target. */
+  .dash-row .dash-btn-check {
+    min-width: 52px; height: 44px; padding: 0 14px;
+    background: var(--cp-green); color: #fff; border: 1px solid var(--cp-green);
+    border-radius: 10px; font-size: 1.25em; line-height: 1; font-weight: 700;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .dash-row .dash-btn-check:hover { background: #277b42; border-color: #277b42; }
+  /* Dark mode's green is a light green meant for text on a dark ground, so a
+     white tick on it lands at 2.6:1. A near-black tick on the same fill is
+     over 7:1 and keeps the button unmistakably green in both themes. */
+  body.dark-mode .dash-row .dash-btn-check { color: #0b1a10; }
+  body.dark-mode .dash-row .dash-btn-check:hover { background: #6cc98a; border-color: #6cc98a; }
+  /* Presses visibly — on a phone there is no hover to confirm the tap landed. */
+  .dash-row .dash-btn-check:active { transform: scale(0.94); box-shadow: none; }
+  .dash-row .dash-btn-setstatus { height: 44px; border-radius: 10px; }
 
   .dash-more { position: relative; }
   .dash-more > summary {
@@ -5153,7 +5170,7 @@ function dashNeedsRow(p) {
     <div>${dashName(p, i)}${dashMobileTop('Not yet accounted for')}</div>
     <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
     <div class="dash-row-actions">
-      <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openTdyLeave(${i})">Set Status</button>
+      <button class="dash-btn dash-btn-secondary dash-btn-sm dash-btn-setstatus" onclick="openTdyLeave(${i})">Set Status</button>
       <button class="dash-btn dash-btn-primary dash-btn-sm dash-btn-check"
               onclick="markPresentToday(${i})" title="Mark present" aria-label="Mark present">&#10003;</button>
     </div>
