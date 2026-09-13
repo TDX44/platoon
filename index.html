@@ -212,6 +212,12 @@
 
   /* Two-month range calendar popover (replaces the native picker on From/To pairs) */
   .rp-field { cursor: pointer; }
+  /* iOS Safari sizes date inputs to their text and collapses empty ones; reset so they fill the column */
+  .rp-field {
+    -webkit-appearance: none; appearance: none;
+    display: block; width: 100%; min-width: 0; box-sizing: border-box; min-height: 2.4em;
+  }
+  .rp-field::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
   .rp-field::-webkit-calendar-picker-indicator { display: none; }
   .rp-pop {
     position: fixed; z-index: 4000;
