@@ -45,10 +45,11 @@ Two files hold essentially the entire app:
 hard reload (this is the "SPA reload 404" fix).
 
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
-`soldier/<id>`, `schools`, `locations`, `audit`). Each is a hidden container in
+`soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
 `.dash-main` revealed by a `body.<name>-active` class, with matching
 `open*()` / `close*()` / `render*()` functions — copy the directory page when
-adding another. Every new section needs a branch in `routeAfterLogin()` and the
+adding another. The sidebar highlight is derived from those body classes by
+`syncNavActive()`; each `open*()` calls it, and `render()` covers the rest. Every new section needs a branch in `routeAfterLogin()` and the
 `popstate` handler, plus a class-clearing line wherever the other pages clear
 theirs.
 

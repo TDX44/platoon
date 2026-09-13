@@ -1569,6 +1569,27 @@
 
   /* ── Audit log page ── */
   .audit-view { display: none; }
+  .settings-view { display: none; }
+  body.settings-active #dashMetrics,
+  body.settings-active #bulkBar,
+  body.settings-active #personnelBody { display: none; }
+  body.settings-active .dash-rail { display: none; }
+  body.settings-active .dash-main { grid-column: 2 / 4; max-width: none; }
+  body.settings-active .settings-view { display: block; }
+  .settings-cards {
+    margin-top: 14px; max-width: 780px;
+    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  }
+  .settings-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 11px 0; border-top: 1px solid var(--theme_border);
+  }
+  .settings-row + .settings-row { }
+  .soldier-card .settings-row:first-of-type { border-top: none; padding-top: 2px; }
+  .settings-row-text { flex: 1 1 160px; min-width: 0; }
+  .settings-row-label { font-weight: 600; color: var(--theme_text); font-size: 0.9rem; }
+  .settings-row-hint { color: var(--theme_text-muted); font-size: 0.78rem; margin-top: 2px; }
+  .settings-row .dash-btn { flex: none; margin-left: auto; }
   body.audit-active #dashMetrics,
   body.audit-active #bulkBar,
   body.audit-active #personnelBody { display: none; }
@@ -1576,6 +1597,7 @@
   body.audit-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.audit-active .audit-view { display: block; }
   body.soldier-active .audit-view,
+  body.soldier-active .settings-view,
   body.soldier-active .tdy-lists-view { display: none; }
 
   .audit-filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
@@ -2292,21 +2314,14 @@
 
   /* Settings dropdown (shared by sidebar + bottom nav; lives outside the
      sidebar so it still renders when the sidebar is hidden on mobile) */
-  .dash-settings-menu {
-    display: none; position: fixed; left: 14px; bottom: calc(86px + env(safe-area-inset-bottom));
-    background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
-    box-shadow: var(--dash-shadow-lg); min-width: 190px; padding: 6px; z-index: 80;
-  }
-  .dash-settings-menu.open { display: block; }
-  .dash-settings-menu button, .dash-more-menu button {
+  .dash-more-menu button {
     display: block; width: 100%; text-align: left; background: none; border: none;
     color: var(--dash-text); font-size: 0.88em; font-weight: 500; font-family: inherit;
     padding: 9px 10px; border-radius: 6px; cursor: pointer;
   }
-  .dash-settings-menu button:hover, .dash-more-menu button:hover { background: var(--dash-hover); }
+  .dash-more-menu button:hover { background: var(--dash-hover); }
   /* Shown only under the 900px query below, where Add Person leaves the header. */
   .dash-more-menu button.more-mobile-only { display: none; }
-  .dash-settings-menu .dash-signout { color: var(--dash-red); }
 
   /* Header */
   .dash-header {
@@ -2593,10 +2608,17 @@
     .dash-layout .bulk-bar { order: 3; margin: 12px 14px 0; }
     .dash-sections { order: 4; margin: 14px 14px 0; }
     #reportPreviewCard { order: 5; margin: 16px 14px 0; }
-    .dash-metrics-primary { gap: 8px; }
-    .dash-metric-card { padding: 12px; min-height: 78px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
+    /* min-width:0 so the ring card cannot steal width from the other two and
+       force their labels onto a second line. */
+    .dash-metrics-primary { gap: 8px; grid-template-columns: 1.2fr 1fr 1fr; }
+    .dash-metric-card { min-width: 0; }
+    .dash-ring { width: 52px; height: 52px; }
+    .dash-metric-card { padding: 10px 11px; min-height: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
     .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 10px; }
     .dash-metric-num { font-size: 1.45em; }
+    .dash-metric-card:not(.has-ring) .dash-metric-sub { display: none; }
+    .dash-metric-label { font-size: 0.66em; letter-spacing: 0.02em; }
+    .metric-label-long { display: none; }
     .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
     .dash-row-meta { display: none; }
     .dash-row-mobilemeta { display: block !important; }
@@ -2614,7 +2636,6 @@
     /* .dash-rail is display:contents here, so the 1240px rule giving rail cards
        flex: 1 1 300px would force a 300px height on them in the column layout. */
     .dash-rail > .dash-card { flex: none; }
-    .dash-settings-menu { left: auto; right: 12px; bottom: calc(64px + env(safe-area-inset-bottom)); }
   }
   .dash-row-mobilemeta { display: none; font-size: 0.78em; color: var(--dash-muted); margin-top: 2px; }
 
@@ -2701,17 +2722,13 @@
     <span class="dash-brand-name">Platoon Accountability</span>
   </div>
   <nav class="dash-nav" aria-label="Main navigation">
-    <button class="dash-nav-item" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
-    <button class="dash-nav-item" onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
-    <button class="dash-nav-item" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
-    <button class="dash-nav-item active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
-    <button class="dash-nav-item" onclick="openTdyLists('schools')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg>Schools</button>
-    <button class="dash-nav-item" onclick="openTdyLists('locations')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Locations</button>
-    <button class="dash-nav-item" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
-    <button class="dash-nav-item" onclick="openHistory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button>
-    <button class="dash-nav-item" id="auditLogBtn" onclick="openAuditLog()" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Audit Log</button>
+    <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+    <button class="dash-nav-item" data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
+    <button class="dash-nav-item" data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
+    <button class="dash-nav-item" data-nav="reports" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
+    <button class="dash-nav-item" data-nav="lists" onclick="openTdyLists(listsKind)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg>TDY Lists</button>
     <div class="dash-section-spacer"></div>
-    <button class="dash-nav-item" onclick="toggleDashSettings(event)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
+    <button class="dash-nav-item" data-nav="settings" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
   </nav>
   <div class="dash-side-user" id="dashSideUser"></div>
 </aside>
@@ -2733,7 +2750,6 @@
         <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
         <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
         <button onclick="openHistory();closeDashMenus()">History</button>
-        <button id="mobileAuditLogBtn" onclick="openAuditLog();closeDashMenus()" style="display:none">Audit Log</button>
       </div>
     </details>
     <button class="dash-btn dash-btn-secondary" id="dashAddPersonBtn" onclick="openAddModal()">+ Add Person</button>
@@ -2766,6 +2782,7 @@
   <div class="directory-view" id="directoryView"></div>
   <div class="tdy-lists-view" id="tdyListsView"></div>
   <div class="audit-view" id="auditView"></div>
+  <div class="settings-view" id="settingsView"></div>
 </div>
 
 <aside class="dash-rail">
@@ -2812,15 +2829,7 @@
 
 <!-- Settings menu lives outside the sidebar so the mobile bottom nav
      (which hides the sidebar) can still open it. -->
-<div class="dash-settings-menu" id="dashSettingsMenu">
-  <button onclick="toggleTheme();closeDashMenus()" id="dashThemeItem">Toggle Theme</button>
-  <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
-  <button onclick="openClerkProfile();closeDashMenus()">Manage Account</button>
-  <button id="dashManageUsers" onclick="openUserMgmt();closeDashMenus()" style="display:none">Manage Access</button>
-  <button onclick="exportBackup();closeDashMenus()">Export Backup</button>
-  <button onclick="openRestoreModal();closeDashMenus()">Import Backup</button>
-  <button class="dash-signout" onclick="doLogout()">Sign Out</button>
-</div>
+
 
 <nav class="dash-bottomnav" aria-label="Mobile navigation">
   <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
@@ -2843,8 +2852,7 @@
   <button onclick="openImportModal();closeMoreSheet()">Import List</button>
   <button onclick="exportCSV();closeMoreSheet()">Export CSV</button>
   <button onclick="resetDay();closeMoreSheet()">Reset Day</button>
-  <button id="moreSheetAuditBtn" onclick="openAuditLog();closeMoreSheet()" style="display:none">Audit Log</button>
-  <button onclick="closeMoreSheet();toggleDashSettings(event)">Settings</button>
+  <button onclick="openSettings();closeMoreSheet()">Settings</button>
 </div>
 
 </div>
@@ -3331,7 +3339,7 @@ function renderMetrics(counts, total, todayStr) {
     </button>
     <div class="dash-metric-card" title="${escapeHtml(summarizePeople(returningSoon) || 'None')}">
       <div><div class="dash-metric-num">${returningSoon.length}</div>
-      <div class="dash-metric-label">Return This Week</div>
+      <div class="dash-metric-label">Returning<span class="metric-label-long"> this week</span></div>
       <div class="dash-metric-sub">${returningSoon.length ? escapeHtml(summarizePeople(returningSoon)) : 'No returns due'}</div></div>
     </div>
   </div>`;
@@ -3390,14 +3398,91 @@ function clearDashFilters() {
   if (inp) inp.value = '';
   render();
 }
-function toggleDashSettings(e) {
-  if (e) e.stopPropagation();
-  const menu = document.getElementById('dashSettingsMenu');
-  if (menu) menu.classList.toggle('open');
+// ─── Settings (full page) ───────────────────────────────────────────────────
+// Was a popup menu; the sidebar entry now routes to /<platoon>/settings like any
+// other page, and the items that used to live in that popup are grouped here.
+function openSettings(push = true) {
+  closeSoldierPage(false);
+  closeDirectoryPage(false);
+  closeTdyLists(false);
+  closeAuditLog(false);
+  document.body.classList.add('settings-active');
+  if (push) pushAppRoute(currentPlatoon, 'settings');
+  renderSettings();
+  syncNavActive();
+  window.scrollTo({ top: 0 });
 }
+
+function closeSettings(push = true) {
+  if (!document.body.classList.contains('settings-active')) return;
+  document.body.classList.remove('settings-active');
+  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  render();
+}
+
+function settingsRow(label, hint, action, fn, variant = 'dash-btn-secondary') {
+  return `<div class="settings-row">
+    <div class="settings-row-text">
+      <div class="settings-row-label">${label}</div>
+      <div class="settings-row-hint">${hint}</div>
+    </div>
+    <button class="dash-btn ${variant} dash-btn-sm" onclick="${fn}">${action}</button>
+  </div>`;
+}
+
+function renderSettings() {
+  const view = document.getElementById('settingsView');
+  if (!view) return;
+  const isAdmin = !!(currentUser && currentUser.is_admin);
+  const isDark = document.body.classList.contains('dark-mode');
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeSettings()">&larr; Back to roster</button>
+    <div class="directory-head">
+      <h2>Settings &mdash; ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+    </div>
+    <div class="soldier-cards settings-cards">
+      <section class="soldier-card">
+        <h3>Appearance</h3>
+        ${settingsRow('Theme', isDark ? 'Currently dark.' : 'Currently light.',
+                      isDark ? 'Switch to light' : 'Switch to dark', 'toggleTheme();renderSettings()')}
+      </section>
+      <section class="soldier-card">
+        <h3>Lists &amp; rosters</h3>
+        ${settingsRow('Schools', 'Courses offered in the TDY dropdown.', 'Open', "openTdyLists('schools')")}
+        ${settingsRow('Locations', 'Places offered in the TDY dropdowns.', 'Open', "openTdyLists('locations')")}
+        ${settingsRow('Duty roster', 'CQ and staff duty by date.', 'Open', 'openDutyRoster()')}
+      </section>
+      <section class="soldier-card">
+        <h3>Data</h3>
+        ${settingsRow('Report history', 'Reports generated on this device.', 'Open', 'openHistory()')}
+        ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
+        ${settingsRow('Export backup', 'Full JSON snapshot of every platoon.', 'Export', 'exportBackup()')}
+        ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
+        ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
+      </section>
+      <section class="soldier-card">
+        <h3>Account</h3>
+        ${settingsRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'Open', 'openClerkProfile()')}
+        ${isAdmin ? settingsRow('Manage access', 'Platoon access and invite links.', 'Open', 'openUserMgmt()') : ''}
+        ${isAdmin ? settingsRow('Audit log', 'Every change made to this platoon.', 'Open', 'openAuditLog()') : ''}
+        ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
+      </section>
+    </div>`;
+}
+
+// One place decides which sidebar entry is lit, derived from the open page.
+function syncNavActive() {
+  const c = document.body.classList;
+  const current =
+      c.contains('settings-active') || c.contains('audit-active') ? 'settings'
+    : c.contains('lists-active')     ? 'lists'
+    : c.contains('directory-active') ? 'directory'
+    : 'accountability';
+  document.querySelectorAll('.dash-nav-item[data-nav]').forEach(el =>
+    el.classList.toggle('active', el.dataset.nav === current));
+}
+
 function closeDashMenus() {
-  const menu = document.getElementById('dashSettingsMenu');
-  if (menu) menu.classList.remove('open');
   closeMoreSheet();
   document.querySelectorAll('#platoonScreen details.dash-more[open], #platoonScreen details.dash-row-menu[open]')
     .forEach(d => d.removeAttribute('open'));
@@ -3482,8 +3567,10 @@ async function openDirectory(push = true) {
   closeSoldierPage(false);
   document.body.classList.remove('lists-active');
   document.body.classList.remove('audit-active');
+  document.body.classList.remove('settings-active');
   document.body.classList.add('directory-active');
   if (push) pushAppRoute(currentPlatoon, 'directory');
+  syncNavActive();
   const view = document.getElementById('directoryView');
   view.innerHTML = '<div class="dash-section-empty">Loading directory…</div>';
   const data = await api('GET', `/directory?platoon=${currentPlatoon}`);
@@ -3520,11 +3607,13 @@ function openTdyLists(kind = 'schools', push = true) {
   closeSoldierPage(false);
   closeDirectoryPage(false);
   closeAuditLog(false);
+  closeSettings(false);
   listsKind = LIST_PAGES[kind] ? kind : 'schools';
   listSelected = new Set();
   document.body.classList.add('lists-active');
   if (push) pushAppRoute(currentPlatoon, listsKind);
   renderTdyLists();
+  syncNavActive();
 }
 
 function closeTdyLists(push = true) {
@@ -3567,6 +3656,11 @@ function renderTdyLists() {
 
   view.innerHTML = `
     <button class="soldier-back" onclick="closeTdyLists()">&larr; Back to roster</button>
+    <div class="soldier-tabs">
+      ${Object.entries(LIST_PAGES).map(([kind, cfg]) =>
+        `<button class="soldier-tab${kind === listsKind ? ' active' : ''}"
+                 onclick="openTdyLists('${kind}')">${cfg.title}</button>`).join('')}
+    </div>
     <div class="directory-head">
       <h2>${page.title} — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
       <span class="directory-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
@@ -3885,6 +3979,7 @@ function openSoldierPage(id, push = true) {
   document.body.classList.remove('directory-active');
   document.body.classList.remove('lists-active');
   document.body.classList.remove('audit-active');
+  document.body.classList.remove('settings-active');
   if (push) pushAppRoute(currentPlatoon, 'soldier', id);
   document.body.classList.add('soldier-active');
   renderSoldierPage();
@@ -4196,6 +4291,7 @@ function render() {
   });
   const total = personnel.filter(p => p.status !== 'loan').length;
 
+  syncNavActive();
   renderMetrics(counts, total, todayStr);
   renderReportPreview(counts, total);
   renderQuickFilters(counts, total);
@@ -5609,8 +5705,10 @@ async function openAuditLog(push = true) {
   closeSoldierPage(false);
   closeDirectoryPage(false);
   closeTdyLists(false);
+  closeSettings(false);
   document.body.classList.add('audit-active');
   if (push) pushAppRoute(currentPlatoon, 'audit');
+  syncNavActive();
   const view = document.getElementById('auditView');
   view.innerHTML = '<div class="dash-section-empty">Loading audit log…</div>';
   // Small table (hundreds of rows) — pull it all once, then sort/filter/page
@@ -5740,6 +5838,7 @@ function showAppScreen(screen) {
     document.body.classList.remove('directory-active');
     document.body.classList.remove('lists-active');
     document.body.classList.remove('audit-active');
+    document.body.classList.remove('settings-active');
     currentSoldierId = null;
   }
   document.getElementById('loginScreen').style.display = 'none';
@@ -6308,6 +6407,7 @@ function routeAfterLogin() {
     selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
     if (route.section === 'directory') openDirectory(false);
     else if (route.section === 'audit') openAuditLog(false);
+    else if (route.section === 'settings') openSettings(false);
     else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
   } else {
     loadHome();
@@ -6382,17 +6482,9 @@ function selectPlatoon(platoon, push = true, pendingSoldier = null) {
   document.body.classList.remove('directory-active');
   document.body.classList.remove('lists-active');
   document.body.classList.remove('audit-active');
+  document.body.classList.remove('settings-active');
   if (push) pushAppRoute(platoon, 'accountability');
   showAppScreen('platoon');
-  const isAdmin = currentUser && currentUser.is_admin;
-  const auditNav = document.getElementById('auditLogBtn');
-  if (auditNav) auditNav.style.display = isAdmin ? 'flex' : 'none';
-  const auditMore = document.getElementById('mobileAuditLogBtn');
-  if (auditMore) auditMore.style.display = isAdmin ? 'block' : 'none';
-  const auditSheet = document.getElementById('moreSheetAuditBtn');
-  if (auditSheet) auditSheet.style.display = isAdmin ? 'block' : 'none';
-  const manageUsers = document.getElementById('dashManageUsers');
-  if (manageUsers) manageUsers.style.display = isAdmin ? 'block' : 'none';
   const sideUser = document.getElementById('dashSideUser');
   if (sideUser && currentUser) {
     const platoonLabel = platoon === 'hq' ? 'HQ' : `${platoon} Platoon`;
@@ -6610,10 +6702,6 @@ async function deleteUser(userId, username) {
 // ─── Init ───
 document.addEventListener('click', e => {
   if (!e.target.closest('.hamburger-wrap')) closeHamburger();
-  if (!e.target.closest('.dash-settings-menu') && !e.target.closest('.dash-bottomnav')) {
-    const menu = document.getElementById('dashSettingsMenu');
-    if (menu) menu.classList.remove('open');
-  }
   if (!e.target.closest('details.dash-more')) {
     document.querySelectorAll('#platoonScreen details.dash-more[open]').forEach(d => d.removeAttribute('open'));
   }
@@ -6640,6 +6728,7 @@ window.addEventListener('popstate', () => {
       selectPlatoon(route.platoon, false, wantSoldier);
       if (route.section === 'directory') openDirectory(false);
       else if (route.section === 'audit') openAuditLog(false);
+      else if (route.section === 'settings') openSettings(false);
       else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
     } else if (wantSoldier != null) {
       openSoldierPage(wantSoldier, false);
@@ -6647,6 +6736,8 @@ window.addEventListener('popstate', () => {
       openDirectory(false);
     } else if (route.section === 'audit') {
       openAuditLog(false);
+    } else if (route.section === 'settings') {
+      openSettings(false);
     } else if (LIST_PAGES[route.section]) {
       openTdyLists(route.section, false);
     } else {
@@ -6654,6 +6745,7 @@ window.addEventListener('popstate', () => {
       closeDirectoryPage(false);
       closeTdyLists(false);
       closeAuditLog(false);
+      closeSettings(false);
     }
   } else { loadHome(); }
 });
