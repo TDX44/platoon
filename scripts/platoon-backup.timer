@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly platoon accountability database snapshot
+
+[Timer]
+# 03:10 local, after the midnight roll-over and well clear of morning formation.
+OnCalendar=*-*-* 03:10:00
+# The box is not always up at 03:10; catch up on the next boot instead of
+# silently skipping a day.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

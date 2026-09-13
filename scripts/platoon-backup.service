@@ -1,0 +1,13 @@
+[Unit]
+Description=Snapshot the platoon accountability database
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tdx44
+WorkingDirectory=/opt/homelab/platoon
+ExecStart=/opt/homelab/platoon/scripts/backup-db.sh
+# Exit 2 means the local snapshot is good but the off-box copy failed; still a
+# failure worth seeing in `systemctl status`, just not a lost backup.
+SuccessExitStatus=0

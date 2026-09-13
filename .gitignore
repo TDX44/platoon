@@ -4,3 +4,6 @@ data/*
 
 __pycache__/
 *.pyc
+
+# Local DB snapshots written by scripts/backup-db.sh on the server
+backups/
