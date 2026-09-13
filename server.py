@@ -1012,6 +1012,11 @@ def update_person(person_id):
         return jsonify({'error': 'Forbidden'}), 403
     values.append(person_id)
     conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = ?', values)
+    # Only the transition matters: apiUpdate() resends the current status on
+    # every save, so a TDY soldier being marked present-for-today still PUTs
+    # status='tdy' and must not have their absence closed.
+    if data.get('status') == 'present' and person['status'] in ABSENCE_STATUSES:
+        _end_running_absence(conn, person_id, date.today().isoformat())
     conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
     conn.close()
@@ -1896,6 +1901,39 @@ def _derive_state(row, today_str):
     if row['from_date'] and row['from_date'] > today_str:
         return 'scheduled'
     return 'active'
+
+
+def _end_running_absence(conn, person_id, today_str):
+    """Close out whatever absence is running when a soldier is marked present.
+
+    Marking someone present used to leave the active scheduled_events row alone,
+    so the roster said 'present' while an absence was still running underneath —
+    and weeks later the roster produced an ABSENCE_COMPLETE for an absence that
+    was never recorded as taken. Coming back is an early return: the absence
+    ends yesterday. One that had not started yet was a mis-entry, so it goes.
+
+    Returns the number of rows closed or removed.
+    """
+    yesterday = (date.fromisoformat(today_str) - timedelta(days=1)).isoformat()
+    running = conn.execute(
+        "SELECT * FROM scheduled_events WHERE person_id = ? AND state = 'active'",
+        (person_id,)
+    ).fetchall()
+    for row in running:
+        if row['from_date'] and row['from_date'] > yesterday:
+            conn.execute('DELETE FROM scheduled_events WHERE id = ?', (row['id'],))
+            _absence_audit(conn, 'ABSENCE_CANCELLED', row,
+                           f'person {person_id}: {row["status"]} from {row["from_date"]} '
+                           'removed — marked present before it began')
+        else:
+            conn.execute(
+                "UPDATE scheduled_events SET to_date = ?, state = 'completed' WHERE id = ?",
+                (yesterday, row['id'])
+            )
+            _absence_audit(conn, 'ABSENCE_ENDED_EARLY', row,
+                           f'person {person_id}: {row["status"]} cut short at {yesterday} '
+                           '— marked present')
+    return len(running)
 
 
 def _sync_person_status(conn, person_id, today_str):

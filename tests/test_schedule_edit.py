@@ -207,6 +207,38 @@ def main():
     assert c.post('/api/personnel/1/schedule',
                   json={**body, 'to_date': day(6)}).status_code == 201
 
+    # 14. Marking a soldier present ends the absence they were on, instead of
+    #     leaving it running underneath a 'present' roster line.
+    clear()
+    eid = add_event('active', -3, 4, status='leave')
+    assert c.put('/api/personnel/1', json={'status': 'present', 'notes': '',
+                                           'from_date': '', 'to_date': ''}).status_code == 200
+    conn = server.get_db()
+    row = dict(conn.execute('SELECT state, to_date FROM scheduled_events WHERE id = ?', (eid,)).fetchone())
+    conn.close()
+    assert row == {'state': 'completed', 'to_date': day(-1)}, row
+    c.get('/api/personnel?platoon=2nd')          # reconcile must leave them present
+    assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+
+    # An absence marked present before it began was a mis-entry: it goes.
+    clear()
+    eid = add_event('active', 0, 4, status='tdy')
+    c.put('/api/personnel/1', json={'status': 'present'})
+    conn = server.get_db()
+    gone = conn.execute('SELECT COUNT(*) FROM scheduled_events WHERE id = ?', (eid,)).fetchone()[0]
+    conn.close()
+    assert gone == 0, 'an absence that never started should be removed, not kept'
+
+    # Marking present for the day does NOT end a running absence — apiUpdate()
+    # resends the current status, so this must stay a no-op on the event.
+    clear()
+    eid = add_event('active', -2, 6, status='tdy')
+    c.put('/api/personnel/1', json={'status': 'tdy', 'present_date': day(0)})
+    conn = server.get_db()
+    state = conn.execute('SELECT state FROM scheduled_events WHERE id = ?', (eid,)).fetchone()[0]
+    conn.close()
+    assert state == 'active', 'present-for-today must not close a running absence'
+
     print('ok')
 
 

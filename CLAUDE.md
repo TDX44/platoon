@@ -115,6 +115,16 @@ just that function looped over everyone with a live row; it keeps its
 so activation and auto-return-to-duty need no background job. Schedule
 create/edit/delete each call `_sync_person_status` directly.
 
+Marking a soldier present is the one thing that ends an absence from outside:
+`PUT /api/personnel/<id>` with `status='present'` over an absence status calls
+`_end_running_absence()`, which closes the active row at yesterday (or deletes it
+if it had not started). Without that the roster said "present" while the absence
+kept running underneath. The check is on the *transition* — `apiUpdate()` resends
+the current status on every save, so marking a TDY soldier present-for-today
+still PUTs `status='tdy'` and must stay a no-op. `POST .../schedule` is
+idempotent on (person, status, from_date, to_date) so a double-tapped Save
+cannot book the same absence twice.
+
 Two rules it deliberately keeps: `completed` is terminal (history is never
 resurrected), and the cache is only overwritten when it already holds an absence
 or when an absence has just activated — which is what keeps `loan` (no dates,
