@@ -4412,6 +4412,9 @@ function rpParse(s) {
 
 // Bound to onmousedown so the native calendar never gets a chance to open.
 function rpOpen(event, fromId, toId, which) {
+  // ponytail: touch devices keep the native (iOS/Android) picker; preventDefault on the
+  // emulated mousedown can't stop it, so opening ours too showed two calendars.
+  if (matchMedia('(pointer: coarse)').matches) return;
   event.preventDefault();
   const input = event.currentTarget;
   input.focus();
