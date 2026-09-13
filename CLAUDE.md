@@ -29,6 +29,22 @@ python tests/test_schedule_edit.py    # absence edit + state re-derivation
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
 
+## Backups
+
+`scripts/backup-db.sh` runs nightly on prodsrv02 (`platoon-backup.timer`, 03:10)
+and takes an integrity-checked SQLite snapshot to `backups/`, keeping 30 days and
+rsyncing each one to prodsrv04 over Tailscale. `backups/LAST_BACKUP` records the
+outcome.
+
+`scripts/drive-sync.sh` is a *third* copy into personal Google Drive, and it runs
+on the Windows workstation under WSL (Scheduled Task "Platoon DB backup to
+Drive"), NOT on the server — Drive is only authenticated there, through Google
+Drive for Desktop (`E:` = jcarr2006@gmail.com; `G:` is the business account and
+must not be used). rclone on prodsrv02 would be the always-on answer, but its
+fixed OAuth redirect port 53682 falls inside that machine's reserved range
+53613-53712, so the handshake cannot complete. This copy therefore only refreshes
+while that PC is on; prodsrv02 + prodsrv04 remain authoritative.
+
 ## Architecture
 
 Two files hold essentially the entire app:
