@@ -15,6 +15,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 import jwt
 from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientConnectionError
 
 app = Flask(__name__, static_folder=None)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -49,7 +50,13 @@ CLERK_JWKS_URL = f'{CLERK_FRONTEND_API_URL.rstrip("/")}/.well-known/jwks.json' i
 CLERK_AUTHORIZED_PARTIES = _parse_csv_env('CLERK_AUTHORIZED_PARTIES')
 CLERK_ADMIN_EMAILS = {email.lower() for email in _parse_csv_env('CLERK_ADMIN_EMAILS')}
 CLERK_ENABLED = bool(CLERK_PUBLISHABLE_KEY and CLERK_JWKS_URL)
-_JWKS_CLIENT = PyJWKClient(CLERK_JWKS_URL) if CLERK_ENABLED else None
+# lifespan: the default refetches Clerk's key set every 5 minutes, so any DNS or
+# network blip had ~288 chances a day to land on a refetch and 401 everyone. A
+# rotated key still refreshes immediately, because PyJWKClient refetches on a
+# kid miss. timeout: the 30s default would park a sync gunicorn worker.
+_JWKS_CLIENT = PyJWKClient(CLERK_JWKS_URL, lifespan=3600, timeout=5) if CLERK_ENABLED else None
+_JWKS_LAST_GOOD = None
+CLERK_UNREACHABLE = 'Sign-in is temporarily unavailable — could not reach Clerk. Try again in a moment.'
 
 PLATOONS = {
     '1st': '1st Platoon Accountability',
@@ -388,6 +395,30 @@ def _get_session_token():
     return request.cookies.get('__session', '').strip()
 
 
+def _signing_key_for(token):
+    """Resolve the token's signing key, tolerating a brief Clerk outage.
+
+    A DNS or network blip while refetching the key set must not look like an
+    invalid token, so fall back to the last key set we fetched successfully.
+    Matching is still by exact `kid`, so this can never validate a token with
+    the wrong key -- it only survives the window where Clerk is unreachable.
+    """
+    global _JWKS_LAST_GOOD
+    try:
+        key = _JWKS_CLIENT.get_signing_key_from_jwt(token)
+        _JWKS_LAST_GOOD = _JWKS_CLIENT.get_jwk_set()  # already cached; no extra fetch
+        return key
+    except PyJWKClientConnectionError:
+        if _JWKS_LAST_GOOD is None:
+            raise
+        kid = jwt.get_unverified_header(token).get('kid')
+        for key in _JWKS_LAST_GOOD.keys:
+            if key.key_id == kid:
+                app.logger.warning('Clerk JWKS unreachable; using the last known-good key set.')
+                return key
+        raise
+
+
 def _verify_clerk_session_token():
     if not CLERK_ENABLED:
         return None, 'Clerk is not configured on the server.'
@@ -397,14 +428,19 @@ def _verify_clerk_session_token():
         return None, 'Unauthorized'
 
     try:
-        signing_key = _JWKS_CLIENT.get_signing_key_from_jwt(token)
+        signing_key = _signing_key_for(token)
         claims = jwt.decode(
             token,
             signing_key.key,
             algorithms=['RS256'],
             options={'require': ['exp', 'iat', 'nbf', 'sub']},
         )
-    except (jwt.PyJWTError, URLError, ValueError) as exc:
+    except (PyJWKClientConnectionError, URLError) as exc:
+        # Clerk itself is unreachable. This is our problem, not a bad session:
+        # report it as 503 so the client retries instead of signing the user out.
+        app.logger.warning('Clerk JWKS fetch failed: %s', exc)
+        return None, CLERK_UNREACHABLE
+    except (jwt.PyJWTError, ValueError) as exc:
         # PyJWTError covers InvalidTokenError plus PyJWKClientError, which is
         # raised when the token's signing key isn't in our instance's JWKS
         # (e.g. a token minted by a different Clerk instance). Treat all of
@@ -422,13 +458,20 @@ def _verify_clerk_session_token():
     return claims, None
 
 
+def _auth_status_for(error):
+    if error.startswith('Clerk is not configured'):
+        return 500
+    # 503, not 401: the session may be perfectly valid, we just could not check
+    # it. A 401 makes the client sign the user out over a transient blip.
+    return 503 if error == CLERK_UNREACHABLE else 401
+
+
 def clerk_auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         claims, error = _verify_clerk_session_token()
         if error:
-            status = 500 if error.startswith('Clerk is not configured') else 401
-            return jsonify({'error': error}), status
+            return jsonify({'error': error}), _auth_status_for(error)
         g.auth_claims = claims
         return f(*args, **kwargs)
     return decorated
@@ -442,6 +485,7 @@ def get_current_user():
     if not claims:
         claims, error = _verify_clerk_session_token()
         if error:
+            g.auth_error = error
             return None
         g.auth_claims = claims
 
@@ -598,12 +642,17 @@ def has_platoon_access(user, platoon):
     return platoon in [p.strip() for p in user['platoons'].split(',') if p.strip()]
 
 
+def _unauthenticated_response():
+    error = getattr(g, 'auth_error', '') or 'Unauthorized'
+    return jsonify({'error': error}), _auth_status_for(error)
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         user = get_current_user()
         if not user:
-            return jsonify({'error': 'Unauthorized'}), 401
+            return _unauthenticated_response()
         g.current_user = user
         return f(*args, **kwargs)
     return decorated
@@ -614,7 +663,7 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         user = get_current_user()
         if not user:
-            return jsonify({'error': 'Unauthorized'}), 401
+            return _unauthenticated_response()
         g.current_user = user
         if not user['is_admin']:
             return jsonify({'error': 'Forbidden'}), 403

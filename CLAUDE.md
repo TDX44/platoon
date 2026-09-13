@@ -22,7 +22,8 @@ There is no lint config and no test framework — do not invent commands for the
 The one self-check that exists runs standalone:
 
 ```bash
-python tests/test_invites.py   # invite expiry / single-use / platoon validation
+python tests/test_invites.py          # invite expiry / single-use / platoon validation
+python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
 ```
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
@@ -102,6 +103,13 @@ the session token), `login_required`, and `admin_required`. `sync_clerk_user()`
 mirrors a Clerk identity into the local `users` table; emails in
 `CLERK_ADMIN_EMAILS` are auto-granted admin. `ProxyFix` is applied because the app
 runs behind the Cloudflare tunnel.
+
+Clerk's JWKS is fetched over the network, so a DNS blip on the host used to 401
+every request and sign everyone out with a raw `urlopen error` in the UI.
+`_signing_key_for()` therefore keeps the last successfully fetched key set and
+reuses it (matching by exact `kid`) when Clerk is unreachable, and an unreachable
+Clerk maps to **503**, never 401 — a 401 makes the client sign the user out over
+a transient blip. The client retries `/api/auth/sync` once on a 503.
 
 Sign-up is **invite-only**: a Clerk account that has never synced here is rejected
 by `sync_clerk_user()` with a 403 unless it presents a live `invite_token`, matches

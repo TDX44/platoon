@@ -6161,12 +6161,20 @@ async function syncClerkUser() {
   const primaryEmail = activeClerk.user.primaryEmailAddress ? activeClerk.user.primaryEmailAddress.emailAddress : '';
   const username = activeClerk.user.username || primaryEmail || activeClerk.user.id;
   const full_name = activeClerk.user.fullName || [activeClerk.user.firstName, activeClerk.user.lastName].filter(Boolean).join(' ');
-  const res = await fetch('/api/auth/sync', {
+  const post = () => fetch('/api/auth/sync', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, email: primaryEmail, full_name, invite_token: getInviteToken() }),
   });
+
+  // 503 = the server could not reach Clerk to verify the session (usually a DNS
+  // blip). The session is fine, so retry once rather than bouncing to sign-in.
+  let res = await post();
+  if (res.status === 503) {
+    await new Promise(r => setTimeout(r, 1500));
+    res = await post();
+  }
   const data = await res.json();
   if (!res.ok) {
     // 403 = invite-only rejection. Their Clerk account exists but has no app
