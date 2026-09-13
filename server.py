@@ -64,6 +64,11 @@ PLATOONS = {
     'hq':  'HQ Platoon Accountability'
 }
 
+# Every dated absence lives in scheduled_events and is mirrored onto
+# personnel.status by _sync_person_status(). 'loan' is deliberately absent: it
+# has no dates, is never a scheduled event, and must never be reconciled away.
+ABSENCE_STATUSES = ('tdy', 'leave', 'pass', 'other', 'ftr')
+
 # ── TDY picklists ──────────────────────────────────────────────────────────
 # Seeded once per platoon into `settings` (keys tdy_schools_<platoon> /
 # tdy_locations_<platoon>) as JSON arrays, then owned by the TDY Lists page.
@@ -258,11 +263,6 @@ def init_db():
         "ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL AND clerk_user_id != ''"
     )
 
-    # Scheduled TDY/Leave columns
-    for col, default in [('sched_status',''), ('sched_from',''), ('sched_to',''), ('sched_notes','')]:
-        if col not in cols:
-            cur.execute(f'ALTER TABLE personnel ADD COLUMN {col} TEXT DEFAULT ""')
-
     pcols = [row[1] for row in cur.execute('PRAGMA table_info(personnel_profile)').fetchall()]
     for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'):
         if pcols and col not in pcols:
@@ -271,7 +271,9 @@ def init_db():
     scols = [row[1] for row in cur.execute('PRAGMA table_info(scheduled_events)').fetchall()]
     if 'location' not in scols:
         cur.execute('ALTER TABLE scheduled_events ADD COLUMN location TEXT DEFAULT ""')
-    if scols:
+    # personnel.sched_* predates scheduled_events. Drain any leftovers into the
+    # real table, then drop the columns — nothing reads them.
+    if 'sched_status' in cols:
         cur.execute(
             "INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes) "
             "SELECT id, platoon, sched_status, sched_from, sched_to, sched_notes FROM personnel p "
@@ -282,6 +284,8 @@ def init_db():
             "  AND s.notes = p.sched_notes"
             ")"
         )
+        for col in ('sched_status', 'sched_from', 'sched_to', 'sched_notes'):
+            cur.execute(f'ALTER TABLE personnel DROP COLUMN {col}')
     if scols and 'state' not in scols:
         cur.execute("ALTER TABLE scheduled_events ADD COLUMN state TEXT DEFAULT 'scheduled'")
         # Old-model rows whose whole window already passed were never activated
@@ -1035,7 +1039,7 @@ def add_scheduled_event(person_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     status = data.get('status', '').strip()
-    if status not in ('tdy', 'leave', 'pass', 'other', 'ftr'):
+    if status not in ABSENCE_STATUSES:
         conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
@@ -1047,7 +1051,7 @@ def add_scheduled_event(person_id):
          data.get('notes', ''), data.get('location', ''))
     )
     new_id = cur.lastrowid
-    _reconcile_absences(conn, date.today().isoformat())
+    _sync_person_status(conn, person_id, date.today().isoformat())
     conn.commit()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (new_id,)).fetchone()
     conn.close()
@@ -1127,7 +1131,7 @@ def update_scheduled_event(event_id):
         return jsonify({'error': 'That absence is already over and can no longer be edited.'}), 400
 
     status = (data.get('status') or '').strip()
-    if status not in ('tdy', 'leave', 'pass', 'other', 'ftr'):
+    if status not in ABSENCE_STATUSES:
         conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
@@ -1142,24 +1146,9 @@ def update_scheduled_event(event_id):
         (status, from_date, to_date, notes, data.get('location', ''), event_id)
     )
 
-    # An edit can move the window in either direction, but _reconcile_absences
-    # only advances forward (scheduled -> active -> completed) and so cannot undo
-    # an activation. Re-derive this row's state from its new dates first.
-    if row['state'] == 'active':
-        if from_date > today:
-            # Pushed into the future: the soldier is back on duty until it starts.
-            conn.execute("UPDATE scheduled_events SET state = 'scheduled' WHERE id = ?", (event_id,))
-            conn.execute(
-                "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
-                'WHERE id = ? AND status = ?', (row['person_id'], row['status'])
-            )
-        else:
-            # Still current: keep personnel's display cache in step with the edit.
-            conn.execute(
-                'UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?',
-                (status, from_date, to_date, notes, row['person_id'])
-            )
-    _reconcile_absences(conn, today)
+    # An edit can move the window in either direction; _sync_person_status
+    # re-derives the row's state from its new dates and owns the display cache.
+    _sync_person_status(conn, row['person_id'], today)
     conn.commit()
     updated = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
     person = conn.execute('SELECT rank, last FROM personnel WHERE id = ?', (row['person_id'],)).fetchone()
@@ -1183,12 +1172,8 @@ def delete_scheduled_event(event_id):
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
     conn.execute('DELETE FROM scheduled_events WHERE id = ?', (event_id,))
-    if row['state'] == 'active':
-        # Cancelling an in-progress absence returns the soldier to duty.
-        conn.execute(
-            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
-            "WHERE id = ? AND status = ?", (person_id, row['status'])
-        )
+    # Cancelling an in-progress absence returns the soldier to duty.
+    _sync_person_status(conn, person_id, date.today().isoformat())
     conn.commit()
     conn.close()
     log_action('DELETE_SCHEDULE', f'{row["status"]} on {row["from_date"]}', row['platoon'])
@@ -1605,52 +1590,108 @@ def reset_day():
 
 # ── Midnight auto-reset background thread ──
 
-def _reconcile_absences(conn, today_str):
-    """Advance the absence lifecycle: scheduled -> active when from_date arrives,
-    active -> completed when to_date passes (returning the soldier to duty)."""
-    completed_rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE state = 'active' "
-        "AND to_date != '' AND to_date < ?", (today_str,)
-    ).fetchall()
-    for r in completed_rows:
-        conn.execute("UPDATE scheduled_events SET state = 'completed' WHERE id = ?", (r['id'],))
-        conn.execute(
-            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
-            "WHERE id = ? AND status = ?", (r['person_id'], r['status'])
-        )
-        conn.execute(
-            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
-            ('system', 'ABSENCE_COMPLETE', f'person {r["person_id"]}: {r["status"]} ended {r["to_date"]}', r['platoon'])
-        )
+def _absence_audit(conn, action, row, details):
+    conn.execute(
+        'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
+        ('system', action, details, row['platoon'])
+    )
 
-    activated = 0
-    activated_rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE state = 'scheduled' "
-        "AND from_date != '' AND from_date <= ? ORDER BY from_date, id", (today_str,)
+
+def _derive_state(row, today_str):
+    """The state a live absence row should be in today, from its dates alone.
+
+    An empty from_date means "already started" and an empty to_date means
+    "open-ended" — the two bounds are optional in the same way.
+    """
+    if row['to_date'] and row['to_date'] < today_str:
+        return 'completed'
+    if row['from_date'] and row['from_date'] > today_str:
+        return 'scheduled'
+    return 'active'
+
+
+def _sync_person_status(conn, person_id, today_str):
+    """THE single owner of personnel's absence display cache.
+
+    Re-derives each of this person's live scheduled_events rows from its dates —
+    in both directions, so an edit that pushes a window into the future demotes
+    an active row back to 'scheduled' — then writes
+    personnel.status/from_date/to_date/notes from the one absence that is current
+    today, or clears them back to 'present' when none is. Nothing else may write
+    those four columns for an absence reason.
+
+    'completed' is terminal: history rows are never resurrected.
+
+    Returns {'activated': n, 'completed': n} counting only the date-driven
+    transitions, which are the ones that get an audit row.
+    """
+    live = conn.execute(
+        "SELECT * FROM scheduled_events WHERE person_id = ? AND state != 'completed' "
+        'ORDER BY from_date, id', (person_id,)
     ).fetchall()
-    for r in activated_rows:
-        if r['to_date'] and r['to_date'] < today_str:
-            # Window already entirely in the past: never became visible; file as history.
-            conn.execute("UPDATE scheduled_events SET state = 'completed' WHERE id = ?", (r['id'],))
+
+    # Only one absence can be current; the newest window wins and the rest are
+    # filed as history, otherwise a stale row would later "return" the soldier
+    # mid-absence.
+    current_ids = [r['id'] for r in live if _derive_state(r, today_str) == 'active']
+    winner_id = current_ids[-1] if current_ids else None
+
+    activated = completed = 0
+    winner_is_new = False
+    for r in live:
+        natural = _derive_state(r, today_str)
+        want = 'completed' if (natural == 'active' and r['id'] != winner_id) else natural
+        if want == r['state']:
             continue
-        # The newest activation supersedes any absence still marked active,
-        # otherwise the stale event would later "return" the soldier mid-absence.
-        conn.execute(
-            "UPDATE scheduled_events SET state = 'completed' "
-            "WHERE person_id = ? AND state = 'active' AND id != ?", (r['person_id'], r['id'])
-        )
-        conn.execute(
-            "UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?",
-            (r['status'], r['from_date'], r['to_date'], r['notes'], r['person_id'])
-        )
-        conn.execute("UPDATE scheduled_events SET state = 'active' WHERE id = ?", (r['id'],))
-        conn.execute(
-            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
-            ('system', 'ABSENCE_ACTIVATE', f'person {r["person_id"]}: {r["status"]} from {r["from_date"]}', r['platoon'])
-        )
-        activated += 1
+        conn.execute('UPDATE scheduled_events SET state = ? WHERE id = ?', (want, r['id']))
+        if want == 'active':
+            winner_is_new = True
+            activated += 1
+            _absence_audit(conn, 'ABSENCE_ACTIVATE', r,
+                           f'person {r["person_id"]}: {r["status"]} from {r["from_date"]}')
+        elif r['state'] == 'active' and natural == 'completed':
+            completed += 1
+            _absence_audit(conn, 'ABSENCE_COMPLETE', r,
+                           f'person {r["person_id"]}: {r["status"]} ended {r["to_date"]}')
 
-    return {'activated': activated, 'completed': len(completed_rows)}
+    person = conn.execute('SELECT status FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None:
+        return {'activated': activated, 'completed': completed}
+    # Only ever overwrite a cached absence (or a fresh activation). That leaves
+    # 'loan' alone, and leaves a soldier someone marked present by hand alone
+    # until the absence that is still running actually ends.
+    cached_absence = person['status'] in ABSENCE_STATUSES
+    if winner_id is not None:
+        if winner_is_new or cached_absence:
+            w = next(r for r in live if r['id'] == winner_id)
+            conn.execute(
+                'UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?',
+                (w['status'], w['from_date'], w['to_date'], w['notes'], person_id)
+            )
+    elif cached_absence:
+        conn.execute(
+            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' WHERE id = ?",
+            (person_id,)
+        )
+    return {'activated': activated, 'completed': completed}
+
+
+def _reconcile_absences(conn, today_str):
+    """Advance the absence lifecycle for everyone who still has a live event.
+
+    ponytail: one _sync_person_status() pass per person with a live row — a
+    handful of people per platoon, so the per-person queries are cheaper than
+    the set-based version was to keep correct.
+    """
+    totals = {'activated': 0, 'completed': 0}
+    people = conn.execute(
+        "SELECT DISTINCT person_id FROM scheduled_events WHERE state != 'completed' ORDER BY person_id"
+    ).fetchall()
+    for p in people:
+        counts = _sync_person_status(conn, p['person_id'], today_str)
+        totals['activated'] += counts['activated']
+        totals['completed'] += counts['completed']
+    return totals
 
 
 def _midnight_reset_worker():

@@ -1,7 +1,8 @@
-"""Editing an absence must re-derive its state from the new dates.
+"""The absence display cache on personnel has exactly one owner.
 
-_reconcile_absences only advances forward, so an edit that pushes an active
-absence into the future has to undo the activation itself.
+_sync_person_status() re-derives every live scheduled_events row from its dates
+(in both directions) and writes personnel.status/from_date/to_date/notes from
+the one absence that is current. Every write path delegates to it.
 
 Run with: python tests/test_schedule_edit.py
 """
@@ -47,11 +48,29 @@ def add_event(state, from_off, to_off, status='tdy'):
     return event_id
 
 
-def person():
+def person(pid=1):
     conn = server.get_db()
-    row = dict(conn.execute('SELECT status, from_date, to_date FROM personnel WHERE id = 1').fetchone())
+    row = dict(conn.execute(
+        'SELECT status, from_date, to_date FROM personnel WHERE id = ?', (pid,)).fetchone())
     conn.close()
     return row
+
+
+def clear():
+    """Fresh slate: no events, person 1 back on duty."""
+    conn = server.get_db()
+    conn.execute('DELETE FROM scheduled_events')
+    conn.execute("UPDATE personnel SET status='present', from_date='', to_date='', notes=''")
+    conn.commit()
+    conn.close()
+
+
+def states():
+    conn = server.get_db()
+    rows = [tuple(r) for r in conn.execute(
+        'SELECT id, state FROM scheduled_events WHERE person_id = 1 ORDER BY id')]
+    conn.close()
+    return rows
 
 
 def event(event_id):
@@ -100,6 +119,78 @@ def main():
     eid = add_event('scheduled', 3, 6)
     assert c.put(f'/api/schedules/{eid}', json={'status': 'vacation'}).status_code == 400
     assert c.put('/api/schedules/999999', json={'status': 'tdy'}).status_code == 404
+
+    # ── The cache is derived, never hand-written ──────────────────────────────
+
+    # 6. A scheduled absence activates the day it starts and fills the cache.
+    clear()
+    eid = add_event('scheduled', 0, 4, status='leave')
+    assert c.get('/api/personnel?platoon=2nd').status_code == 200
+    assert event(eid)['state'] == 'active', 'from_date == today must activate'
+    assert person() == {'status': 'leave', 'from_date': day(0), 'to_date': day(4)}, person()
+
+    # 7. An active absence completes the day after it ends, and the soldier returns.
+    clear()
+    eid = add_event('active', -6, -1)
+    assert person()['status'] == 'tdy', 'precondition: the soldier is away'
+    c.get('/api/personnel?platoon=2nd')
+    assert event(eid)['state'] == 'completed', 'a past to_date must complete'
+    assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+
+    # 8. Editing an active absence into the future demotes it AND clears the cache
+    #    (reconciliation alone only ever moves forward, so this is the regression
+    #    the single owner exists to prevent).
+    clear()
+    eid = add_event('active', -1, 4)
+    r = c.put(f'/api/schedules/{eid}', json={'status': 'tdy', 'from_date': day(6), 'to_date': day(9)})
+    assert r.status_code == 200, r.get_json()
+    assert event(eid)['state'] == 'scheduled', event(eid)
+    assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+    # ...and a later read must not silently re-activate it.
+    c.get('/api/personnel?platoon=2nd')
+    assert event(eid)['state'] == 'scheduled'
+    assert person()['status'] == 'present'
+
+    # 9. Two overlapping absences resolve to exactly one active row.
+    clear()
+    old = add_event('active', -5, 5)
+    new = add_event('active', -1, 7, status='leave')
+    c.get('/api/personnel?platoon=2nd')
+    assert states() == [(old, 'completed'), (new, 'active')], states()
+    assert person() == {'status': 'leave', 'from_date': day(-1), 'to_date': day(7)}, person()
+
+    # 10. Deleting an in-progress absence returns the soldier to duty.
+    clear()
+    eid = add_event('active', -1, 5)
+    assert c.delete(f'/api/schedules/{eid}').status_code == 200
+    assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+
+    # 11. 'loan' has no dates and is never a scheduled event: reconciliation
+    #     must not touch it, even when a stale absence row expires under it.
+    clear()
+    conn = server.get_db()
+    conn.execute("INSERT OR REPLACE INTO personnel (id, rank, last, first, status, notes, platoon) "
+                 "VALUES (2, 'SPC', 'Boone', 'Rae', 'loan', 'S2 NCOIC', '2nd')")
+    conn.execute("INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, state) "
+                 "VALUES (2, '2nd', 'tdy', ?, ?, 'active')", (day(-9), day(-1)))
+    conn.commit()
+    conn.close()
+    c.get('/api/personnel?platoon=2nd')
+    assert person(2)['status'] == 'loan', 'a loaned soldier must never be reconciled to present'
+
+    # 12. A new absence booked for today activates on creation.
+    clear()
+    r = c.post('/api/personnel/1/schedule',
+               json={'status': 'pass', 'from_date': day(0), 'to_date': day(1), 'notes': 'p'})
+    assert r.status_code == 201, r.get_json()
+    assert r.get_json()['state'] == 'active', r.get_json()
+    assert person() == {'status': 'pass', 'from_date': day(0), 'to_date': day(1)}, person()
+    # ...and one booked for later does not.
+    clear()
+    r = c.post('/api/personnel/1/schedule',
+               json={'status': 'pass', 'from_date': day(4), 'to_date': day(6)})
+    assert r.get_json()['state'] == 'scheduled', r.get_json()
+    assert person()['status'] == 'present', person()
 
     print('ok')
 

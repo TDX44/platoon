@@ -83,17 +83,27 @@ dropdowns render, so nothing on either side may re-sort these lists.
 All TDY/leave/pass/other/FTR absences live in `scheduled_events` with a `state`
 column: `scheduled → active → completed`. Rows are never deleted on activation;
 completed rows are the soldier's absence history (shown on the soldier page via
-`GET /api/personnel/<id>/absences`). `_reconcile_absences(conn, today)` advances
-states and is called from **every `GET /api/personnel`** (and on schedule
-creation), so activation and auto-return-to-duty need no background job.
-`personnel.status/from_date/to_date/notes` is a display cache the server keeps
-correct. `_reconcile_absences` only ever advances forward, so it cannot undo an
-activation — `PUT /api/schedules/<id>` (the soldier page's Edit button) therefore
-re-derives the row's state from the new dates itself before calling it, sending
-an active absence back to `scheduled` and the soldier back to `present` when the
-edit pushes the window into the future. Completed absences are history and reject
-edits. The legacy `sched_*` columns on `personnel` are dead — never read or
-write them. `loan` status has no dates and is never a scheduled event.
+`GET /api/personnel/<id>/absences`).
+
+`personnel.status/from_date/to_date/notes` is a **display cache** of the one
+absence that is current, and **`_sync_person_status(conn, person_id, today)` is
+its only owner**. Nothing else may write those four columns for an absence
+reason. It re-derives every live row of that person from its dates alone
+(`_derive_state`) — in *both* directions, so an edit that pushes a window into
+the future demotes an `active` row back to `scheduled` — picks the newest current
+window as the single active absence (any other current row is filed as history),
+and writes or clears the cache to match. `_reconcile_absences(conn, today)` is
+just that function looped over everyone with a live row; it keeps its
+`{'activated': n, 'completed': n}` shape and the `ABSENCE_ACTIVATE` /
+`ABSENCE_COMPLETE` audit rows, and is called from **every `GET /api/personnel`**,
+so activation and auto-return-to-duty need no background job. Schedule
+create/edit/delete each call `_sync_person_status` directly.
+
+Two rules it deliberately keeps: `completed` is terminal (history is never
+resurrected), and the cache is only overwritten when it already holds an absence
+or when an absence has just activated — which is what keeps `loan` (no dates,
+never a scheduled event) and a hand-set "present" from being reconciled away.
+Completed absences reject edits. Tests: `tests/test_schedule_edit.py`.
 
 ### Multi-platoon model
 
