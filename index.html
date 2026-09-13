@@ -2542,7 +2542,9 @@
     display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
     background: var(--dash-card); border-top: 1px solid var(--dash-border);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-    grid-template-columns: repeat(5, 1fr);
+    /* Accountability is the longest label by far; give its tab the extra width
+       rather than letting the word break across two lines. */
+    grid-template-columns: 1fr 1fr 1.45fr 1fr 1fr;
   }
   /* Mobile "More" bottom sheet */
   .more-sheet-scrim {
@@ -2572,7 +2574,8 @@
   .dash-bottomnav button {
     background: none; border: none; cursor: pointer; font-family: inherit;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    color: var(--dash-muted); font-size: 0.68em; font-weight: 700; padding: 6px 4px; border-radius: 8px;
+    color: var(--dash-muted); font-size: 0.68em; font-weight: 700; padding: 6px 2px; border-radius: 8px;
+    min-width: 0; line-height: 1.15; text-align: center; white-space: nowrap;
   }
   .dash-bottomnav button.active, .dash-bottomnav button:hover { color: var(--dash-accent); }
   .dash-bottomnav svg { width: 20px; height: 20px; stroke: currentColor; }
@@ -2641,6 +2644,9 @@
 
   @media (max-width: 380px) {
     .btn-small { font-size: 0.74rem; }
+    /* Labels are nowrap, so on the narrowest phones they have to shrink or
+       they bleed into the neighbouring tab. */
+    .dash-bottomnav button { font-size: 0.6em; padding: 6px 1px; }
   }
 </style>
 </head>
@@ -2833,8 +2839,8 @@
 
 <nav class="dash-bottomnav" aria-label="Mobile navigation">
   <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
-  <button onclick="dashGoRoster()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 010 6.8M18.5 14.5c2 .8 3 2.5 3 5.5"/></svg>Roster</button>
-  <button class="active" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Account</button>
+  <button data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
+  <button data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
   <button onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
   <button onclick="openMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>More</button>
 </nav>
@@ -2843,7 +2849,6 @@
 <div class="more-sheet-scrim" id="moreSheetScrim" onclick="closeMoreSheet()"></div>
 <div class="more-sheet" id="moreSheet" role="menu" aria-label="More options">
   <div class="more-sheet-handle"></div>
-  <button onclick="openDirectory();closeMoreSheet()">Directory</button>
   <button onclick="openTdyLists('schools');closeMoreSheet()">Schools</button>
   <button onclick="openTdyLists('locations');closeMoreSheet()">Locations</button>
   <button onclick="generateStrengthReport();closeMoreSheet()">Strength Report</button>
@@ -3478,7 +3483,7 @@ function syncNavActive() {
     : c.contains('lists-active')     ? 'lists'
     : c.contains('directory-active') ? 'directory'
     : 'accountability';
-  document.querySelectorAll('.dash-nav-item[data-nav]').forEach(el =>
+  document.querySelectorAll('.dash-nav-item[data-nav], .dash-bottomnav button[data-nav]').forEach(el =>
     el.classList.toggle('active', el.dataset.nav === current));
 }
 
@@ -3497,16 +3502,13 @@ function closeMoreSheet() {
   sheet.classList.remove('open');
   document.getElementById('moreSheetScrim').classList.remove('open');
 }
-function dashGoRoster() {
-  closeSoldierPage();
-  closeDirectoryPage();
-  clearDashFilters();
-  const el = document.getElementById('personnelBody');
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
 function dashGoAccountability() {
+  // The way back from any full-page view, so it has to close all of them.
   closeSoldierPage();
   closeDirectoryPage();
+  closeTdyLists();
+  closeAuditLog();
+  closeSettings();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function refreshData() {
