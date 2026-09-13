@@ -181,6 +181,7 @@ def init_db():
             date      TEXT NOT NULL,
             platoon   TEXT NOT NULL,
             duty_type TEXT NOT NULL DEFAULT 'CQ',
+            person_id INTEGER,
             rank      TEXT DEFAULT '',
             last      TEXT DEFAULT '',
             first     TEXT DEFAULT '',
@@ -304,6 +305,21 @@ def init_db():
         "  SELECT 1 FROM scheduled_events s WHERE s.person_id = p.id AND s.state = 'active'"
         ")"
     )
+
+    # Duty entries predate person_id and stored only a name snapshot. Link the
+    # ones that resolve to exactly one soldier; a name shared by two people (or
+    # since renamed/deleted) stays NULL and keeps only its snapshot — guessing
+    # would silently attach the wrong soldier's absences to an old duty row.
+    # Deliberately not a foreign key: deleting a soldier must not erase history.
+    dcols = [row[1] for row in cur.execute('PRAGMA table_info(duty_roster)').fetchall()]
+    if 'person_id' not in dcols:
+        cur.execute('ALTER TABLE duty_roster ADD COLUMN person_id INTEGER')
+        match = ('FROM personnel p WHERE p.platoon = duty_roster.platoon AND p.rank = duty_roster.rank '
+                 'AND p.last = duty_roster.last AND p.first = duty_roster.first')
+        cur.execute(
+            f'UPDATE duty_roster SET person_id = (SELECT p.id {match}) '
+            f'WHERE (SELECT COUNT(*) {match}) = 1'
+        )
 
     # ── Seed the TDY picklists once per platoon; the TDY Lists page owns them after that ──
     for platoon in PLATOONS:
@@ -1303,6 +1319,60 @@ def get_audit():
 
 
 # ── Duty roster ──
+# A duty assignment conflicts when the soldier has an absence covering that
+# date. This is a pure READER of scheduled_events: coverage is decided by
+# _derive_state(row, date) == 'active', the lifecycle's own rule for "this
+# window contains this day" (empty from_date = already started, empty to_date =
+# open-ended), so duty and the roster can never disagree about a date. Both live
+# states are searched — 'scheduled' is the whole point, since duty is usually
+# planned before the absence starts — while 'completed' is terminal history.
+
+_MONTHS_UPPER = ('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+                 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC')
+
+ABSENCE_LABELS = {'tdy': 'TDY', 'leave': 'leave', 'pass': 'pass', 'other': 'other', 'ftr': 'FTR'}
+
+
+def _short_date(value):
+    """'2026-09-07' -> '7SEP', matching the frontend's formatDateShort()."""
+    try:
+        d = date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return ''
+    return f'{d.day}{_MONTHS_UPPER[d.month - 1]}'
+
+
+def _conflict_from(row):
+    """Describe an absence row as a duty conflict, e.g. 'on leave 7SEP-20SEP'."""
+    start, end = _short_date(row['from_date']), _short_date(row['to_date'])
+    if start and end:
+        span = f'{start}-{end}'
+    elif start:
+        span = f'from {start}'
+    elif end:
+        span = f'until {end}'
+    else:
+        span = 'dates open'
+    return {
+        'status': row['status'],
+        'from_date': row['from_date'],
+        'to_date': row['to_date'],
+        'label': f'on {ABSENCE_LABELS.get(row["status"], row["status"])} {span}',
+    }
+
+
+def _duty_conflict(conn, person_id, date_str):
+    """The absence covering date_str for this soldier, described, or None."""
+    if not person_id or not date_str:
+        return None
+    rows = conn.execute(
+        "SELECT * FROM scheduled_events WHERE person_id = ? AND state != 'completed' "
+        'ORDER BY from_date, id', (person_id,)
+    ).fetchall()
+    # Newest window wins when two overlap, the same tie-break _sync_person_status uses.
+    covering = [r for r in rows if _derive_state(r, date_str) == 'active']
+    return _conflict_from(covering[-1]) if covering else None
+
 
 @app.route('/api/duty', methods=['GET'])
 @login_required
@@ -1323,8 +1393,39 @@ def get_duty():
             'SELECT * FROM duty_roster WHERE platoon = ? ORDER BY date DESC, duty_type, id LIMIT 90',
             (platoon,)
         ).fetchall()
+    out = []
+    for r in rows:
+        entry = dict(r)
+        entry['conflict'] = _duty_conflict(conn, entry['person_id'], entry['date'])
+        out.append(entry)
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(out)
+
+
+@app.route('/api/duty/conflicts', methods=['GET'])
+@login_required
+def get_duty_conflicts():
+    """Who in this platoon is away on a given date, keyed by person id.
+
+    Feeds the duty picker so a soldier reads as unavailable *before* you assign
+    them, not after.
+    """
+    platoon = request.args.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
+    date_str = request.args.get('date', '') or date.today().isoformat()
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT s.* FROM scheduled_events s JOIN personnel p ON p.id = s.person_id '
+        "WHERE p.platoon = ? AND s.state != 'completed' ORDER BY s.from_date, s.id",
+        (platoon,)
+    ).fetchall()
+    conn.close()
+    # Same ordering as _duty_conflict, so a later overlapping window wins here too.
+    away = {str(r['person_id']): _conflict_from(r)
+            for r in rows if _derive_state(r, date_str) == 'active'}
+    return jsonify(away)
 
 
 @app.route('/api/duty', methods=['POST'])
@@ -1336,17 +1437,37 @@ def add_duty():
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
+    try:
+        person_id = int(data.get('person_id'))
+    except (TypeError, ValueError):
+        person_id = 0
+    person = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    if person is None or person['platoon'] != platoon:
+        conn.close()
+        return jsonify({'error': 'Pick a soldier from this platoon.'}), 400
+
+    date_str = data.get('date', '')
+    duty_type = data.get('duty_type', 'CQ')
+    # rank/last/first come from the database, never the client: they are a
+    # snapshot so the entry still reads correctly once the soldier is gone.
     cur = conn.execute(
-        'INSERT INTO duty_roster (date, platoon, duty_type, rank, last, first, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (data.get('date', ''), platoon, data.get('duty_type', 'CQ'),
-         data.get('rank', ''), data.get('last', ''), data.get('first', ''), data.get('notes', ''))
+        'INSERT INTO duty_roster (date, platoon, duty_type, person_id, rank, last, first, notes) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (date_str, platoon, duty_type, person['id'],
+         person['rank'], person['last'], person['first'], data.get('notes', ''))
     )
     new_id = cur.lastrowid
     conn.commit()
-    row = conn.execute('SELECT * FROM duty_roster WHERE id = ?', (new_id,)).fetchone()
+    row = dict(conn.execute('SELECT * FROM duty_roster WHERE id = ?', (new_id,)).fetchone())
+    # Warn, never block: assigning someone who is away is sometimes the real
+    # answer, and a tool that refuses just gets worked around.
+    row['conflict'] = _duty_conflict(conn, person['id'], date_str)
     conn.close()
-    log_action('ADD_DUTY', f'{data.get("duty_type","CQ")} on {data.get("date","")}', platoon)
-    return jsonify(dict(row)), 201
+    detail = f'{duty_type} on {date_str} — {person["rank"]} {person["last"]}'
+    if row['conflict']:
+        detail += f' (CONFLICT: {row["conflict"]["label"]})'
+    log_action('ADD_DUTY', detail, platoon)
+    return jsonify(row), 201
 
 
 @app.route('/api/duty/<int:entry_id>', methods=['DELETE'])

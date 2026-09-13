@@ -1482,6 +1482,15 @@
     font-size: 0.78rem;
     margin-top: 3px;
   }
+  .duty-warn {
+    color: var(--cp-red);
+    background: var(--cp-red-bg);
+    border-radius: var(--theme_radius);
+    padding: 3px 6px;
+    font-size: 0.78em;
+    font-weight: 600;
+    margin-top: 4px;
+  }
   .scheduled-event-list {
     display: grid;
     gap: 8px;
@@ -3127,6 +3136,8 @@ const DASH_PRESENT_LIMIT = 8;
 let historyViewData = null;
 let activeQuickFilter = 'all';
 let currentDutyEntries = [];
+// person id -> absence covering the duty date currently shown, from /api/duty/conflicts.
+let dutyConflicts = {};
 
 const PLATOONS = ['1st', '2nd', 'hq'];
 const PLATOON_PATHS = { '1st': '1stplatoon', '2nd': '2ndplatoon', hq: 'hq' };
@@ -5600,6 +5611,7 @@ function downloadHistoryReport() {
 function openDutyRoster() {
   const dateEl = document.getElementById('dutyDate');
   if (dateEl && !dateEl.value) dateEl.value = getTodayStr();
+  dutyConflicts = {};
   renderDutyPersonOptions();
   document.getElementById('dutyModal').classList.add('active');
   loadDutyRoster();
@@ -5612,14 +5624,20 @@ function closeDutyRoster() {
 function renderDutyPersonOptions() {
   const select = document.getElementById('dutyPerson');
   if (!select) return;
+  const keep = select.value;
   const available = personnel.filter(p => p.status !== 'loan').sort(rankSort);
   if (!available.length) {
     select.innerHTML = '<option value="">No personnel loaded</option>';
     return;
   }
-  select.innerHTML = available.map(p => (
-    `<option value="${p.id}">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</option>`
-  )).join('');
+  select.innerHTML = available.map(p => {
+    // Flag the ones already away on the selected date, so a clash is visible
+    // in the picker rather than only after the entry is saved.
+    const conflict = dutyConflicts[String(p.id)];
+    const away = conflict ? ` — ${conflict.label}` : '';
+    return `<option value="${p.id}">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}${escapeHtml(away)}</option>`;
+  }).join('');
+  if (keep) select.value = keep;
 }
 
 async function loadDutyRoster() {
@@ -5627,8 +5645,14 @@ async function loadDutyRoster() {
   const list = document.getElementById('dutyList');
   if (!list) return;
   list.innerHTML = '<div class="duty-row"><div class="duty-meta">Loading duty...</div></div>';
-  const rows = await api('GET', `/duty?platoon=${currentPlatoon}&date=${encodeURIComponent(date)}`);
+  const query = `platoon=${currentPlatoon}&date=${encodeURIComponent(date)}`;
+  const [rows, away] = await Promise.all([
+    api('GET', `/duty?${query}`),
+    api('GET', `/duty/conflicts?${query}`)
+  ]);
   currentDutyEntries = Array.isArray(rows) ? rows : [];
+  dutyConflicts = away || {};
+  renderDutyPersonOptions();
   renderDutyRoster();
 }
 
@@ -5641,11 +5665,14 @@ function renderDutyRoster() {
   }
   list.innerHTML = currentDutyEntries.map(row => {
     const name = [row.rank, row.last && `${row.last},`, row.first].filter(Boolean).join(' ');
+    const warn = row.conflict
+      ? `<div class="duty-warn">⚠ Away this date — ${escapeHtml(row.conflict.label)}</div>` : '';
     return `
       <div class="duty-row">
         <div>
           <div class="duty-title">${escapeHtml(row.duty_type || 'Duty')} · ${escapeHtml(name || 'Unassigned')}</div>
           <div class="duty-meta">${escapeHtml(row.notes || 'No notes')}</div>
+          ${warn}
         </div>
         <button class="btn-small btn-danger" onclick="deleteDutyEntry(${row.id})">Remove</button>
       </div>
@@ -5660,13 +5687,13 @@ async function addDutyEntry() {
     alert('Select a person for duty.');
     return;
   }
+  // The server owns rank/last/first now — it fills the snapshot from the
+  // database so a stale client cannot write a name nobody has.
   const payload = {
     platoon: currentPlatoon,
     date: document.getElementById('dutyDate').value || getTodayStr(),
     duty_type: document.getElementById('dutyType').value || 'CQ',
-    rank: person.rank,
-    last: person.last,
-    first: person.first,
+    person_id: person.id,
     notes: document.getElementById('dutyNotes').value.trim()
   };
   const row = await api('POST', '/duty', payload);
@@ -5676,6 +5703,9 @@ async function addDutyEntry() {
   }
   document.getElementById('dutyNotes').value = '';
   await loadDutyRoster();
+  if (row.conflict) {
+    alert(`Heads up: ${person.rank} ${person.last} is ${row.conflict.label} on that date.\n\nThe duty entry was still added.`);
+  }
 }
 
 async function deleteDutyEntry(id) {
