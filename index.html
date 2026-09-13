@@ -217,6 +217,13 @@
     -webkit-appearance: none; appearance: none;
     display: block; width: 100%; min-width: 0; box-sizing: border-box; min-height: 2.4em;
   }
+  /* Same intrinsic-width problem on every other date field (profile dates, duty
+     roster). Without this they can be wider than their column on iOS and the
+     whole page pans sideways. Shrinkable, but not forced to fill. */
+  input[type="date"] {
+    -webkit-appearance: none; appearance: none;
+    max-width: 100%; min-width: 0; box-sizing: border-box;
+  }
   .rp-field::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
   .rp-field::-webkit-calendar-picker-indicator { display: none; }
   .rp-pop {
@@ -1541,21 +1548,6 @@
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; flex-wrap: wrap;
   }
-  .abs-form-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 8px;
-  }
-  .add-absence-form {
-    border: 1px dashed var(--theme_border);
-    border-radius: var(--theme_radius);
-    padding: 10px 12px; margin: 10px 0;
-  }
-  .abs-form-title {
-    font-weight: 700; font-size: 0.82rem; margin-bottom: 8px;
-    text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--theme_text-muted);
-  }
   .abs-row-actions { display: flex; gap: 6px; flex: none; }
   /* ── Directory page ── */
   .directory-view { display: none; }
@@ -1769,7 +1761,8 @@
 
   .soldier-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    /* min() so the 280px track floor never exceeds a narrow screen and overflow. */
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
     align-items: start;
     gap: 14px;
   }
@@ -1778,6 +1771,7 @@
     border-radius: var(--theme_radius);
     background: var(--theme_surface);
     padding: 16px 18px;
+    min-width: 0;
   }
   .soldier-card h3 {
     margin: 0 0 10px; font-size: 0.78rem; text-transform: uppercase;
@@ -1788,7 +1782,7 @@
     text-transform: uppercase; letter-spacing: 0.03em; color: var(--theme_text-muted);
   }
   .soldier-card input, .soldier-card textarea, .soldier-card select {
-    width: 100%; box-sizing: border-box; margin-top: 4px;
+    width: 100%; min-width: 0; box-sizing: border-box; margin-top: 4px;
     background: var(--theme_surface-soft, var(--theme_surface));
     color: var(--theme_text);
     border: 1px solid var(--theme_border);
@@ -3609,7 +3603,7 @@ async function saveTdyLists(kind = listsKind) {
   const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, { [`tdy_${kind}`]: tdyLists[kind] });
   if (saved) applyTdyLists(saved);
   renderTdyLists();
-  ['awaySchool', 'awayLocation', 'abs_location'].forEach(base => pickRender(base));
+  ['awaySchool', 'awayLocation'].forEach(base => pickRender(base));
 }
 
 async function addTdyListItem() {
@@ -3996,40 +3990,7 @@ function renderSoldierPage() {
       <div class="soldier-card">
         <div class="profile-abs-head">
           <h3>Absences (TDY / Leave)</h3>
-          <button class="btn-small btn-add" onclick="toggleAddAbsence()">+ Add Absence</button>
-        </div>
-        <div id="addAbsenceForm" class="add-absence-form" style="display:none">
-          <div class="abs-form-title" id="absFormTitle">New Absence</div>
-          <div class="abs-form-grid">
-            <div>
-              <label>Type</label>
-              <select id="abs_status">
-                <option value="tdy">TDY</option>
-                <option value="leave">Leave</option>
-                <option value="pass">Pass</option>
-                <option value="ftr">FTR</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div><label>From</label><input type="date" class="rp-field" id="abs_from"
-                 onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'from')"></div>
-            <div><label>To</label><input type="date" class="rp-field" id="abs_to"
-                 onmousedown="rpOpen(event, 'abs_from', 'abs_to', 'to')"></div>
-            <div>
-              <label>Location</label>
-              <select id="abs_location_sel" onchange="pickOnChange('abs_location')"></select>
-              <div class="pick-custom" id="abs_location_custom" style="display:none">
-                <input type="text" id="abs_location_txt" placeholder="e.g. Fort Knox KY">
-                <label class="pick-save"><input type="checkbox" id="abs_location_save" checked> Save to list</label>
-              </div>
-            </div>
-          </div>
-          <label>Notes</label>
-          <input type="text" id="abs_notes" placeholder="Reason / course / details">
-          <div class="modal-buttons">
-            <button class="btn-small btn-cancel" onclick="toggleAddAbsence(false)">Cancel</button>
-            <button class="btn-small btn-add" id="absSaveBtn" onclick="saveAbsence()">Save Absence</button>
-          </div>
+          <button class="btn-small btn-add" onclick="openAbsenceModal()">+ Add Absence</button>
         </div>
         <div id="profileAbsenceList" class="scheduled-event-list"></div>
       </div>
@@ -4063,67 +4024,65 @@ async function saveProfile() {
   }
 }
 
-let editingAbsenceId = null;   // null = adding, otherwise the absence being edited
+// The absences tab drives the same TDY/Leave modal the roster uses, so absence
+// entry looks and behaves identically everywhere. null = adding a new absence.
+let editingAbsenceId = null;
+let editingAbsenceNotes = '';
+let profileAbsences = [];
 
-function syncAbsenceFormMode() {
-  const editing = editingAbsenceId !== null;
-  document.getElementById('absFormTitle').textContent = editing ? 'Edit Absence' : 'New Absence';
-  document.getElementById('absSaveBtn').textContent = editing ? 'Save Changes' : 'Save Absence';
-}
-
-function toggleAddAbsence(show) {
-  const form = document.getElementById('addAbsenceForm');
-  if (!form) return;
-  const willShow = show === undefined ? form.style.display === 'none' : show;
-  form.style.display = willShow ? 'block' : 'none';
-  // Always back to a blank "add" form; openEditAbsence() fills it in afterwards.
-  editingAbsenceId = null;
-  if (willShow) {
-    document.getElementById('abs_status').value = 'tdy';
-    ['abs_from', 'abs_to', 'abs_notes'].forEach(id => {
-      document.getElementById(id).value = '';
-    });
-    pickSet('abs_location', '');
-  }
-  syncAbsenceFormMode();
-}
-
-async function openEditAbsence(eventId) {
+function openAbsenceModal(eventId = null) {
   const p = currentSoldierPerson();
   if (!p) return;
-  const res = await api('GET', `/personnel/${p.id}/absences`);
-  const ev = ((res && res.absences) || []).find(a => a.id === eventId);
+  const i = personnel.indexOf(p);
+  if (i < 0) return;
+  openTdyLeave(i);                       // resets editingAbsenceId
+  if (eventId === null) return;
+
+  const ev = profileAbsences.find(a => a.id === eventId);
   if (!ev) { alert('That absence is no longer on record.'); return; }
-  toggleAddAbsence(true);
   editingAbsenceId = eventId;
-  document.getElementById('abs_status').value = ev.status || 'tdy';
-  document.getElementById('abs_from').value = ev.from_date || '';
-  document.getElementById('abs_to').value = ev.to_date || '';
-  document.getElementById('abs_notes').value = ev.notes || '';
-  pickSet('abs_location', ev.location || '');
-  syncAbsenceFormMode();
-  document.getElementById('addAbsenceForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  editingAbsenceNotes = ev.notes || '';
+  document.getElementById('tdyLeaveTitle').textContent = `Edit Absence — ${p.rank} ${p.last}`;
+  setAwayStatus(ev.status || 'tdy');
+  pickSet('awaySchool', '');
+  pickSet('awayLocation', '');
+  document.getElementById('otherCategory').value = '';
+  if (ev.status === 'tdy') {
+    // Absences written by the modal pack "school - location" into notes; older
+    // rows from the removed inline form kept location in its own column.
+    const idx = (ev.notes || '').indexOf(' - ');
+    if (ev.location) {
+      pickSet('awaySchool', ev.notes || '');
+      pickSet('awayLocation', ev.location);
+    } else if (idx !== -1) {
+      pickSet('awaySchool', ev.notes.slice(0, idx));
+      pickSet('awayLocation', ev.notes.slice(idx + 3));
+    } else {
+      pickSet('awaySchool', ev.notes || '');
+    }
+  } else if (ev.status === 'other') {
+    document.getElementById('otherCategory').value = ev.notes || '';
+  }
+  awayFrom = ev.from_date || '';
+  awayTo = ev.to_date || '';
+  document.getElementById('awayFromInput').value = awayFrom;
+  const toInput = document.getElementById('awayToInput');
+  toInput.value = awayTo;
+  toInput.min = awayFrom || '';
+  syncAbsenceEditMode();
+  updateFutureNotice();
+  updateNotesPreview();
 }
 
-async function saveAbsence() {
-  const p = currentSoldierPerson();
-  if (!p) return;
-  await pickSaveCustoms(['abs_location']);
-  const payload = {
-    status: document.getElementById('abs_status').value,
-    from_date: document.getElementById('abs_from').value,
-    to_date: document.getElementById('abs_to').value,
-    location: pickValue('abs_location'),
-    notes: document.getElementById('abs_notes').value
-  };
-  if (!payload.from_date) { alert('Enter a start date for the absence.'); return; }
-  const res = editingAbsenceId !== null
-    ? await api('PUT', `/schedules/${editingAbsenceId}`, payload)
-    : await api('POST', `/personnel/${p.id}/schedule`, payload);
-  if (!res || res.error) { alert(res && res.error ? res.error : 'Could not save absence.'); return; }
-  toggleAddAbsence(false);
-  await load();              // refresh roster + this person's scheduled_events
-  renderProfileAbsences();
+// Editing one absence: On Loan is not an absence, and the person-level scheduled
+// list / Clear button would act on other rows, so hide them for this mode.
+function syncAbsenceEditMode() {
+  const editing = editingAbsenceId !== null;
+  const loanToggle = document.querySelector('#statusToggles [data-status="loan"]');
+  if (loanToggle) loanToggle.style.display = editing ? 'none' : '';
+  document.getElementById('scheduledEventsLabel').style.display = 'none';
+  document.getElementById('scheduledEventsList').style.display = editing ? 'none' : '';
+  document.getElementById('clearScheduleBtn').style.display = 'none';
 }
 
 async function removeAbsence(eventId) {
@@ -4134,6 +4093,12 @@ async function removeAbsence(eventId) {
   renderProfileAbsences();
 }
 
+// The soldier page is a separate view from the roster, so anything that changes
+// absences has to redraw it too.
+function refreshSoldierPageIfOpen() {
+  if (currentSoldierId && document.body.classList.contains('soldier-active')) renderProfileAbsences();
+}
+
 async function renderProfileAbsences() {
   const list = document.getElementById('profileAbsenceList');
   if (!list) return;
@@ -4142,6 +4107,7 @@ async function renderProfileAbsences() {
 
   const res = await api('GET', `/personnel/${p.id}/absences`);
   const all = (res && res.absences) ? res.absences : [];
+  profileAbsences = all;   // openAbsenceModal() prefills from this
   const groups = [
     ['Current',  all.filter(ev => ev.state === 'active'),    true],
     ['Upcoming', all.filter(ev => ev.state === 'scheduled'), true],
@@ -4163,7 +4129,7 @@ async function renderProfileAbsences() {
       const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
       const btn = removable
         ? `<div class="abs-row-actions">
-             <button class="btn-small btn-edit" onclick="openEditAbsence(${ev.id})">Edit</button>
+             <button class="btn-small btn-edit" onclick="openAbsenceModal(${ev.id})">Edit</button>
              <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
            </div>` : '';
       return `<div class="scheduled-event-row">
@@ -4511,7 +4477,7 @@ function rpOpen(event, fromId, toId, which) {
   rpClose();
   const fromEl = document.getElementById(fromId);
   const toEl = document.getElementById(toId);
-  const anchor = input.closest('.date-pick-row') || input.closest('.abs-form-grid') || input;
+  const anchor = input.closest('.date-pick-row') || input;
   const start = rpParse(fromEl.value) || new Date();
   rp = {
     fromEl, toEl, anchor,
@@ -4663,7 +4629,7 @@ function setAwayStatus(status) {
 // Per-platoon lists live in settings (see the TDY Lists page). A field is a
 // <select> plus a hidden "Other" text box; pickValue() is the single reader.
 let tdyLists = { schools: [], locations: [] };
-const PICK_KIND = { awaySchool: 'schools', awayLocation: 'locations', abs_location: 'locations' };
+const PICK_KIND = { awaySchool: 'schools', awayLocation: 'locations' };
 
 function pickValue(base) {
   const sel = document.getElementById(`${base}_sel`);
@@ -4753,6 +4719,9 @@ function updateNotesPreview() {
 function openTdyLeave(i) {
   bulkTdyIds = [];
   tdyLeaveIndex = i;
+  editingAbsenceId = null;
+  editingAbsenceNotes = '';
+  syncAbsenceEditMode();   // restores anything the edit mode hid
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
 
@@ -4797,6 +4766,8 @@ function closeTdyLeaveModal() {
   document.getElementById('tdyLeaveModal').classList.remove('active');
   tdyLeaveIndex = -1;
   bulkTdyIds = [];
+  editingAbsenceId = null;
+  editingAbsenceNotes = '';
 }
 
 function bulkAbsenceNotes() {
@@ -4855,6 +4826,27 @@ async function saveTdyLeave() {
     notesVal = document.getElementById('otherCategory').value.trim();
   }
 
+  if (editingAbsenceId !== null) {
+    // Leave/Pass/FTR have no notes field in this modal, so keep whatever the row
+    // already had rather than blanking it on every edit.
+    const res = await api('PUT', `/schedules/${editingAbsenceId}`, {
+      status: awayStatus,
+      from_date: awayFrom,
+      to_date: awayTo,
+      notes: notesVal || editingAbsenceNotes,
+      location: ''
+    });
+    if (!res || res.error) {
+      alert(res && res.error ? res.error : 'Could not save the absence.');
+      return;
+    }
+    closeTdyLeaveModal();
+    await load();
+    render();
+    refreshSoldierPageIfOpen();
+    return;
+  }
+
   if (awayStatus === 'loan') {
     // Loan has no dates and is never a scheduled event.
     p.status = 'loan';
@@ -4880,6 +4872,7 @@ async function saveTdyLeave() {
 
   closeTdyLeaveModal();
   render();
+  refreshSoldierPageIfOpen();
 }
 
 async function clearSchedule() {
