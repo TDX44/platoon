@@ -267,6 +267,21 @@
     .rp-pop { max-height: 80vh; overflow-y: auto; }
     .rp-months { flex-direction: column; gap: 18px; }
   }
+  /* Touch: bottom sheet, months stacked in a scrollable body, nav + footer pinned */
+  .rp-pop.rp-sheet {
+    left: 0 !important; right: 0; top: auto !important; bottom: 0;
+    max-height: none; overflow: hidden; border-radius: 12px 12px 0 0;
+    padding: 18px 16px calc(0px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column;
+    box-shadow: 0 -8px 30px rgba(16,24,40,0.25);
+  }
+  .rp-sheet .rp-months {
+    flex-direction: column; gap: 22px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    max-height: 62vh; padding-top: 36px; overscroll-behavior: contain;
+  }
+  .rp-sheet .rp-month { min-width: 0; }
+  .rp-sheet .rp-d { height: 42px; }
+  .rp-sheet .rp-foot { margin: 12px -16px 0; flex-shrink: 0; }
 
   /* ─── Login screen ─── */
   #loginScreen {
@@ -4407,6 +4422,14 @@ async function deleteFromEditModal() {
 const RP_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const RP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 let rp = null;
+// Touch devices: block the native picker (readonly) and open ours as a bottom sheet.
+const RP_TOUCH = matchMedia('(pointer: coarse)').matches;
+// Delegated so inputs rendered later (soldier page) are covered; readonly must be set
+// before the tap completes or iOS opens its own picker on top of ours.
+if (RP_TOUCH) document.addEventListener('touchstart', e => {
+  const f = e.target.closest && e.target.closest('.rp-field');
+  if (f) f.readOnly = true;
+}, { capture: true, passive: true });
 
 function rpISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -4418,9 +4441,6 @@ function rpParse(s) {
 
 // Bound to onmousedown so the native calendar never gets a chance to open.
 function rpOpen(event, fromId, toId, which) {
-  // ponytail: touch devices keep the native (iOS/Android) picker; preventDefault on the
-  // emulated mousedown can't stop it, so opening ours too showed two calendars.
-  if (matchMedia('(pointer: coarse)').matches) return;
   event.preventDefault();
   const input = event.currentTarget;
   input.focus();
@@ -4435,14 +4455,19 @@ function rpOpen(event, fromId, toId, which) {
     next: which === 'to' && fromEl.value ? 'to' : 'from',
     pop: document.createElement('div')
   };
-  rp.pop.className = 'rp-pop';
+  rp.pop.className = RP_TOUCH ? 'rp-pop rp-sheet' : 'rp-pop';
   rp.pop.addEventListener('mousedown', e => e.preventDefault());
   rp.pop.addEventListener('click', rpOnClick);
   document.body.appendChild(rp.pop);
   rpRender();
   document.addEventListener('mousedown', rpOutside, true);
-  document.addEventListener('scroll', rpClose, true);
+  document.addEventListener('scroll', rpScroll, true);
   window.addEventListener('resize', rpClose);
+}
+
+// Page scroll closes the popover; scrolling inside it (stacked months) must not.
+function rpScroll(e) {
+  if (rp && !rp.pop.contains(e.target)) rpClose();
 }
 
 function rpClose() {
@@ -4450,7 +4475,7 @@ function rpClose() {
   rp.pop.remove();
   rp = null;
   document.removeEventListener('mousedown', rpOutside, true);
-  document.removeEventListener('scroll', rpClose, true);
+  document.removeEventListener('scroll', rpScroll, true);
   window.removeEventListener('resize', rpClose);
 }
 
@@ -4482,18 +4507,24 @@ function rpMonthHTML(base, offset) {
 }
 
 function rpRender() {
+  // Sheet shows a year of months to scroll through; desktop shows two side by side.
+  const count = RP_TOUCH ? 12 : 2;
+  const months = Array.from({ length: count }, (_, i) => rpMonthHTML(rp.view, i)).join('');
+  const prevScroll = rp.pop.querySelector('.rp-months')?.scrollTop || 0;
   rp.pop.innerHTML = `
     <button type="button" class="rp-nav prev" data-act="prev" aria-label="Previous month">&#8249;</button>
     <button type="button" class="rp-nav next" data-act="next" aria-label="Next month">&#8250;</button>
-    <div class="rp-months">${rpMonthHTML(rp.view, 0)}${rpMonthHTML(rp.view, 1)}</div>
+    <div class="rp-months">${months}</div>
     <div class="rp-foot">
       <button type="button" class="rp-reset" data-act="reset">Reset Dates</button>
       <button type="button" class="rp-done" data-act="done">Done</button>
     </div>`;
+  rp.pop.querySelector('.rp-months').scrollTop = prevScroll;
   rpPosition();
 }
 
 function rpPosition() {
+  if (RP_TOUCH) return; // sheet is positioned by CSS
   const r = rp.anchor.getBoundingClientRect();
   const w = rp.pop.offsetWidth, h = rp.pop.offsetHeight;
   const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
