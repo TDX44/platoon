@@ -1099,10 +1099,24 @@ def add_scheduled_event(person_id):
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
     from_date = (data.get('from_date') or '').strip() or date.today().isoformat()
+    to_date = (data.get('to_date') or '').strip()
+
+    # ponytail: a double-tapped Save used to insert a second identical row —
+    # four of them once. The same person, status and window is never a real
+    # second absence, so hand back the row that already exists.
+    dup = conn.execute(
+        'SELECT * FROM scheduled_events WHERE person_id = ? AND status = ? '
+        'AND from_date = ? AND to_date = ?',
+        (person_id, status, from_date, to_date)
+    ).fetchone()
+    if dup is not None:
+        conn.close()
+        return jsonify(dict(dup)), 200
+
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state) '
         "VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')",
-        (person_id, person['platoon'], status, from_date, data.get('to_date', ''),
+        (person_id, person['platoon'], status, from_date, to_date,
          data.get('notes', ''), data.get('location', ''))
     )
     new_id = cur.lastrowid

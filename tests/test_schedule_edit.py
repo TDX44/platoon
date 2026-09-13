@@ -192,6 +192,21 @@ def main():
     assert r.get_json()['state'] == 'scheduled', r.get_json()
     assert person()['status'] == 'present', person()
 
+    # 13. A double-tapped Save must not book the same absence twice.
+    clear()
+    body = {'status': 'tdy', 'from_date': day(2), 'to_date': day(5), 'notes': 'Sim - Dothan'}
+    first = c.post('/api/personnel/1/schedule', json=body)
+    second = c.post('/api/personnel/1/schedule', json=body)
+    assert first.status_code == 201 and second.status_code == 200, (first.status_code, second.status_code)
+    assert first.get_json()['id'] == second.get_json()['id'], 'the retry got a second row'
+    conn = server.get_db()
+    n = conn.execute('SELECT COUNT(*) FROM scheduled_events WHERE person_id = 1').fetchone()[0]
+    conn.close()
+    assert n == 1, f'expected one absence row, found {n}'
+    # A genuinely different window is still a new absence.
+    assert c.post('/api/personnel/1/schedule',
+                  json={**body, 'to_date': day(6)}).status_code == 201
+
     print('ok')
 
 
