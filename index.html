@@ -1597,7 +1597,11 @@
   .fm-body { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
   .fm-name {
     text-align: center; font-weight: 800; line-height: 1.05;
-    font-size: clamp(1.9em, 11vw, 3.4em); color: var(--cp-text-strong);
+    /* 11vw alone is sized off width only, so a wide-but-short window (a resized
+       laptop) gave the name 70px+ and pushed the reason buttons off screen.
+       The min() caps it by height too; on a phone 11vw is the smaller of the
+       two and nothing changes. */
+    font-size: clamp(1.9em, min(11vw, 8.5vh), 3.4em); color: var(--cp-text-strong);
     word-break: break-word;
   }
   .fm-rank {
@@ -1621,6 +1625,20 @@
     flex: none; min-height: 52px; width: 100%; box-sizing: border-box;
     border: 1px solid var(--cp-border); background: none; color: var(--cp-text-weak);
     border-radius: var(--cp-radius); font-size: 1em; cursor: pointer; margin-top: 14px;
+  }
+  /* Formation mode assumes a tall phone. A short viewport (a laptop window
+     someone resized, or a phone in landscape) has to give something back, and
+     it comes out of the padding and the button heights — never out of a button
+     falling off the bottom where a thumb cannot reach it. */
+  @media (max-height: 660px) {
+    body.formation-active .formation { padding-top: max(6px, env(safe-area-inset-top)); }
+    .fm-body { gap: 10px; }
+    .fm-bar { margin-top: 6px; }
+    .fm-btn { min-height: 16vh; }
+    .fm-actions { gap: 10px; }
+    .fm-reasons { gap: 8px; }
+    .fm-reasons .fm-btn { min-height: max(44px, 10vh); font-size: 1.05em; }
+    .fm-back { min-height: 44px; margin-top: 8px; }
   }
   .fm-done-head { text-align: center; }
   .fm-done-head h2 { margin: 0 0 6px; font-size: 1.8em; }
