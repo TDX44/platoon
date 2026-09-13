@@ -1109,6 +1109,66 @@ def get_absences(person_id):
     return jsonify({'absences': [dict(r) for r in rows]})
 
 
+@app.route('/api/schedules/<int:event_id>', methods=['PUT'])
+@login_required
+def update_scheduled_event(event_id):
+    data = request.get_json() or {}
+    conn = get_db()
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = get_current_user()
+    if not has_platoon_access(user, row['platoon']):
+        conn.close()
+        return jsonify({'error': 'Forbidden'}), 403
+    if row['state'] == 'completed':
+        conn.close()
+        return jsonify({'error': 'That absence is already over and can no longer be edited.'}), 400
+
+    status = (data.get('status') or '').strip()
+    if status not in ('tdy', 'leave', 'pass', 'other', 'ftr'):
+        conn.close()
+        return jsonify({'error': 'Invalid scheduled status'}), 400
+
+    today = date.today().isoformat()
+    from_date = (data.get('from_date') or '').strip() or today
+    to_date = (data.get('to_date') or '').strip()
+    notes = data.get('notes', '')
+
+    conn.execute(
+        'UPDATE scheduled_events SET status = ?, from_date = ?, to_date = ?, notes = ?, location = ? '
+        'WHERE id = ?',
+        (status, from_date, to_date, notes, data.get('location', ''), event_id)
+    )
+
+    # An edit can move the window in either direction, but _reconcile_absences
+    # only advances forward (scheduled -> active -> completed) and so cannot undo
+    # an activation. Re-derive this row's state from its new dates first.
+    if row['state'] == 'active':
+        if from_date > today:
+            # Pushed into the future: the soldier is back on duty until it starts.
+            conn.execute("UPDATE scheduled_events SET state = 'scheduled' WHERE id = ?", (event_id,))
+            conn.execute(
+                "UPDATE personnel SET status='present', from_date='', to_date='', notes='' "
+                'WHERE id = ? AND status = ?', (row['person_id'], row['status'])
+            )
+        else:
+            # Still current: keep personnel's display cache in step with the edit.
+            conn.execute(
+                'UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?',
+                (status, from_date, to_date, notes, row['person_id'])
+            )
+    _reconcile_absences(conn, today)
+    conn.commit()
+    updated = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
+    person = conn.execute('SELECT rank, last FROM personnel WHERE id = ?', (row['person_id'],)).fetchone()
+    conn.close()
+    who = f'{person["rank"]} {person["last"]}: ' if person else ''
+    log_action('EDIT_SCHEDULE', f'{who}{status} {from_date} - {to_date or "open"}', row['platoon'])
+    return jsonify(dict(updated))
+
+
 @app.route('/api/schedules/<int:event_id>', methods=['DELETE'])
 @login_required
 def delete_scheduled_event(event_id):

@@ -1551,6 +1551,12 @@
     border-radius: var(--theme_radius);
     padding: 10px 12px; margin: 10px 0;
   }
+  .abs-form-title {
+    font-weight: 700; font-size: 0.82rem; margin-bottom: 8px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--theme_text-muted);
+  }
+  .abs-row-actions { display: flex; gap: 6px; flex: none; }
   /* ── Directory page ── */
   .directory-view { display: none; }
   body.directory-active #dashMetrics,
@@ -1744,7 +1750,9 @@
     font-size: 1.4rem; font-weight: 700; color: var(--theme_text);
   }
   .soldier-hero-sub { color: var(--theme_text-muted); font-size: 0.85rem; margin-top: 4px; }
-  .soldier-hero-actions { flex: none; }
+  /* margin-left:auto keeps Save changes hard right on desktop and, once the hero
+     wraps on a phone, on its own row rather than under the avatar. */
+  .soldier-hero-actions { flex: none; margin-left: auto; }
 
   .soldier-tabs {
     display: flex; gap: 4px; border-bottom: 1px solid var(--theme_border);
@@ -2302,6 +2310,8 @@
     padding: 9px 10px; border-radius: 6px; cursor: pointer;
   }
   .dash-settings-menu button:hover, .dash-more-menu button:hover { background: var(--dash-hover); }
+  /* Shown only under the 900px query below, where Add Person leaves the header. */
+  .dash-more-menu button.more-mobile-only { display: none; }
   .dash-settings-menu .dash-signout { color: var(--dash-red); }
 
   /* Header */
@@ -2597,6 +2607,13 @@
     .dash-row-meta { display: none; }
     .dash-row-mobilemeta { display: block !important; }
     .dash-header-actions { width: 100%; justify-content: flex-end; }
+    /* Three buttons is all that fits across a phone: Add Person moves into More,
+       and the rest shrink enough to stay on one row at 390px. */
+    #dashAddPersonBtn { display: none; }
+    .dash-more-menu button.more-mobile-only { display: block; }
+    .dash-header-actions { flex-wrap: nowrap; gap: 6px; }
+    .dash-header-actions .dash-btn,
+    .dash-header-actions .dash-more > summary { font-size: 0.76em; padding: 9px 11px; }
     /* The More button sits near the left screen edge on small screens, so a
        right-aligned menu would hang off-screen — open it to the right instead. */
     #dashMore .dash-more-menu { right: auto; left: 0; }
@@ -2716,6 +2733,7 @@
     <details class="dash-more" id="dashMore">
       <summary>More</summary>
       <div class="dash-more-menu">
+        <button class="more-mobile-only" onclick="openAddModal();closeDashMenus()">+ Add Person</button>
         <button onclick="openImportModal();closeDashMenus()">Import List</button>
         <button onclick="resetDay();closeDashMenus()">Reset Day</button>
         <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
@@ -2724,7 +2742,7 @@
         <button id="mobileAuditLogBtn" onclick="openAuditLog();closeDashMenus()" style="display:none">Audit Log</button>
       </div>
     </details>
-    <button class="dash-btn dash-btn-secondary" onclick="openAddModal()">+ Add Person</button>
+    <button class="dash-btn dash-btn-secondary" id="dashAddPersonBtn" onclick="openAddModal()">+ Add Person</button>
     <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
     <button class="dash-btn dash-btn-primary" onclick="generateReport()">Generate Report</button>
   </div>
@@ -3981,6 +3999,7 @@ function renderSoldierPage() {
           <button class="btn-small btn-add" onclick="toggleAddAbsence()">+ Add Absence</button>
         </div>
         <div id="addAbsenceForm" class="add-absence-form" style="display:none">
+          <div class="abs-form-title" id="absFormTitle">New Absence</div>
           <div class="abs-form-grid">
             <div>
               <label>Type</label>
@@ -4009,7 +4028,7 @@ function renderSoldierPage() {
           <input type="text" id="abs_notes" placeholder="Reason / course / details">
           <div class="modal-buttons">
             <button class="btn-small btn-cancel" onclick="toggleAddAbsence(false)">Cancel</button>
-            <button class="btn-small btn-add" onclick="saveAbsence()">Save Absence</button>
+            <button class="btn-small btn-add" id="absSaveBtn" onclick="saveAbsence()">Save Absence</button>
           </div>
         </div>
         <div id="profileAbsenceList" class="scheduled-event-list"></div>
@@ -4044,11 +4063,21 @@ async function saveProfile() {
   }
 }
 
+let editingAbsenceId = null;   // null = adding, otherwise the absence being edited
+
+function syncAbsenceFormMode() {
+  const editing = editingAbsenceId !== null;
+  document.getElementById('absFormTitle').textContent = editing ? 'Edit Absence' : 'New Absence';
+  document.getElementById('absSaveBtn').textContent = editing ? 'Save Changes' : 'Save Absence';
+}
+
 function toggleAddAbsence(show) {
   const form = document.getElementById('addAbsenceForm');
   if (!form) return;
   const willShow = show === undefined ? form.style.display === 'none' : show;
   form.style.display = willShow ? 'block' : 'none';
+  // Always back to a blank "add" form; openEditAbsence() fills it in afterwards.
+  editingAbsenceId = null;
   if (willShow) {
     document.getElementById('abs_status').value = 'tdy';
     ['abs_from', 'abs_to', 'abs_notes'].forEach(id => {
@@ -4056,6 +4085,24 @@ function toggleAddAbsence(show) {
     });
     pickSet('abs_location', '');
   }
+  syncAbsenceFormMode();
+}
+
+async function openEditAbsence(eventId) {
+  const p = currentSoldierPerson();
+  if (!p) return;
+  const res = await api('GET', `/personnel/${p.id}/absences`);
+  const ev = ((res && res.absences) || []).find(a => a.id === eventId);
+  if (!ev) { alert('That absence is no longer on record.'); return; }
+  toggleAddAbsence(true);
+  editingAbsenceId = eventId;
+  document.getElementById('abs_status').value = ev.status || 'tdy';
+  document.getElementById('abs_from').value = ev.from_date || '';
+  document.getElementById('abs_to').value = ev.to_date || '';
+  document.getElementById('abs_notes').value = ev.notes || '';
+  pickSet('abs_location', ev.location || '');
+  syncAbsenceFormMode();
+  document.getElementById('addAbsenceForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function saveAbsence() {
@@ -4070,7 +4117,9 @@ async function saveAbsence() {
     notes: document.getElementById('abs_notes').value
   };
   if (!payload.from_date) { alert('Enter a start date for the absence.'); return; }
-  const res = await api('POST', `/personnel/${p.id}/schedule`, payload);
+  const res = editingAbsenceId !== null
+    ? await api('PUT', `/schedules/${editingAbsenceId}`, payload)
+    : await api('POST', `/personnel/${p.id}/schedule`, payload);
   if (!res || res.error) { alert(res && res.error ? res.error : 'Could not save absence.'); return; }
   toggleAddAbsence(false);
   await load();              // refresh roster + this person's scheduled_events
@@ -4113,7 +4162,10 @@ async function renderProfileAbsences() {
         ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
       const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
       const btn = removable
-        ? `<button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>` : '';
+        ? `<div class="abs-row-actions">
+             <button class="btn-small btn-edit" onclick="openEditAbsence(${ev.id})">Edit</button>
+             <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
+           </div>` : '';
       return `<div class="scheduled-event-row">
         <div>
           <div class="scheduled-event-title">${labels[ev.status] || escapeHtml(ev.status || '')}</div>
@@ -4268,7 +4320,7 @@ function dashCheckbox(p) {
 
 function dashName(p, i, extra = '') {
   const nm = `${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
-  return `<div class="dash-row-name" onclick="openEditModal(${i})" onkeydown="openEditModalFromKey(event, ${i})" role="button" tabindex="0" title="Edit ${escapeHtml(p.rank)} ${nm}">${nm}${extra}</div>`;
+  return `<div class="dash-row-name" onclick="openSoldierPage(${p.id})" onkeydown="openSoldierPageFromKey(event, ${p.id})" role="button" tabindex="0" title="Open ${escapeHtml(p.rank)} ${nm}">${nm}${extra}</div>`;
 }
 
 function dashRowMenu(items) {
@@ -4939,10 +4991,10 @@ function openEditModal(i) {
   document.getElementById('addLast').focus();
 }
 
-function openEditModalFromKey(event, i) {
+function openSoldierPageFromKey(event, id) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
-  openEditModal(i);
+  openSoldierPage(id);
 }
 
 function closeAddModal() {

@@ -24,6 +24,7 @@ The one self-check that exists runs standalone:
 ```bash
 python tests/test_invites.py          # invite expiry / single-use / platoon validation
 python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
+python tests/test_schedule_edit.py    # absence edit + state re-derivation
 ```
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
@@ -85,7 +86,12 @@ completed rows are the soldier's absence history (shown on the soldier page via
 states and is called from **every `GET /api/personnel`** (and on schedule
 creation), so activation and auto-return-to-duty need no background job.
 `personnel.status/from_date/to_date/notes` is a display cache the server keeps
-correct. The legacy `sched_*` columns on `personnel` are dead — never read or
+correct. `_reconcile_absences` only ever advances forward, so it cannot undo an
+activation — `PUT /api/schedules/<id>` (the soldier page's Edit button) therefore
+re-derives the row's state from the new dates itself before calling it, sending
+an active absence back to `scheduled` and the soldier back to `present` when the
+edit pushes the window into the future. Completed absences are history and reject
+edits. The legacy `sched_*` columns on `personnel` are dead — never read or
 write them. `loan` status has no dates and is never a scheduled event.
 
 ### Multi-platoon model
