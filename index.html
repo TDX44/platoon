@@ -3971,7 +3971,7 @@ function renderAvailabilityResults() {
   const el = document.getElementById('availResults');
   if (!el) return;
   if (availability.error) {
-    el.innerHTML = `<div class="dash-section-empty">${availability.error}</div>`;
+    el.innerHTML = `<div class="dash-section-empty">${escapeHtml(availability.error)}</div>`;
     return;
   }
   const d = availability.data;
