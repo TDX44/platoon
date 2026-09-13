@@ -2557,7 +2557,6 @@
   }
   .dash-more-menu button:hover { background: var(--dash-hover); }
   /* Shown only under the 900px query below, where Add Person leaves the header. */
-  .dash-more-menu button.more-mobile-only { display: none; }
 
   /* Header */
   .dash-header {
@@ -2615,6 +2614,12 @@
   .dash-more > summary::-webkit-details-marker { display: none; }
   .dash-more > summary::after { content: '\25BE'; font-size: 0.85em; }
   .dash-more[open] > summary { background: var(--dash-hover); }
+  /* Reports replaced the primary "Generate Report" button, so it keeps that weight. */
+  .dash-more-primary > summary {
+    background: var(--dash-accent); color: var(--cp-accent-text); border-color: transparent;
+  }
+  .dash-more-primary[open] > summary,
+  .dash-more-primary > summary:hover { background: var(--dash-accent-hover); }
   .dash-more-menu {
     position: absolute; right: 0; top: calc(100% + 6px);
     background: var(--dash-card); border: 1px solid var(--dash-border); border-radius: 10px;
@@ -2862,10 +2867,8 @@
     .dash-row-meta { display: none; }
     .dash-row-mobilemeta { display: block !important; }
     .dash-header-actions { width: 100%; justify-content: flex-end; }
-    /* Three buttons is all that fits across a phone: Add Person moves into More,
-       and the rest shrink enough to stay on one row at 390px. */
-    #dashAddPersonBtn { display: none; }
-    .dash-more-menu button.more-mobile-only { display: block; }
+    /* Three controls is all that fits across a phone, which is why the header
+       is exactly More / Formation Mode / Reports at every width. */
     .dash-header-actions { flex-wrap: nowrap; gap: 6px; }
     .dash-header-actions .dash-btn,
     .dash-header-actions .dash-more > summary { font-size: 0.76em; padding: 9px 11px; }
@@ -2987,7 +2990,7 @@
     <details class="dash-more" id="dashMore">
       <summary>More</summary>
       <div class="dash-more-menu">
-        <button class="more-mobile-only" onclick="openAddModal();closeDashMenus()">+ Add Person</button>
+        <button onclick="openAddModal();closeDashMenus()">+ Add Person</button>
         <button onclick="openImportModal();closeDashMenus()">Import List</button>
         <button onclick="resetDay();closeDashMenus()">Reset Day</button>
         <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
@@ -2996,9 +2999,13 @@
       </div>
     </details>
     <button class="dash-btn dash-btn-secondary" onclick="startFormation()">Formation Mode</button>
-    <button class="dash-btn dash-btn-secondary" id="dashAddPersonBtn" onclick="openAddModal()">+ Add Person</button>
-    <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
-    <button class="dash-btn dash-btn-primary" onclick="generateReport()">Generate Report</button>
+    <details class="dash-more dash-more-primary" id="dashReports">
+      <summary>Reports</summary>
+      <div class="dash-more-menu">
+        <button onclick="generateStrengthReport();closeDashMenus()">Formation</button>
+        <button onclick="generateReport();closeDashMenus()">Wickr</button>
+      </div>
+    </details>
   </div>
 </header>
 
@@ -3036,8 +3043,8 @@
     <div id="reportPreviewBody"></div>
     <div class="dash-preview-actions">
       <button class="dash-btn dash-btn-primary" id="dashCopyBtn" onclick="dashCopyReport()">Copy Report</button>
-      <button class="dash-btn dash-btn-secondary" onclick="generateReport()">View Full Report</button>
-      <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Strength Report</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Formation</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateReport()">Wickr</button>
       <button class="dash-btn dash-btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
     <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
@@ -3092,7 +3099,7 @@
   <button onclick="openAvailability();closeMoreSheet()">Who's Available</button>
   <button onclick="openTdyLists('schools');closeMoreSheet()">Schools</button>
   <button onclick="openTdyLists('locations');closeMoreSheet()">Locations</button>
-  <button onclick="generateStrengthReport();closeMoreSheet()">Strength Report</button>
+  <button onclick="generateStrengthReport();closeMoreSheet()">Formation Report</button>
   <button onclick="openHistory();closeMoreSheet()">History</button>
   <button onclick="openDutyRoster();closeMoreSheet()">Duty Roster</button>
   <button onclick="openImportModal();closeMoreSheet()">Import List</button>
@@ -5940,7 +5947,7 @@ function generateStrengthReport() {
     .concat(byStatus.filter(([, n]) => n > 0).map(([label, n]) => `${n} ${label}`));
   if (onLoan) parts.push(`${onLoan} on Loan (not assigned)`);
 
-  showReportModal('Strength Report', [unitName, formatDate(new Date()), '', parts.join(', ')].join('\n'));
+  showReportModal('Formation Report', [unitName, formatDate(new Date()), '', parts.join(', ')].join('\n'));
 }
 
 function generateReport() {
@@ -6023,7 +6030,7 @@ function generateReport() {
     });
   }
 
-  showReportModal('Accountability Report', lines.join('\n'), unitName);
+  showReportModal('Wickr Report', lines.join('\n'), unitName);
 }
 
 function copyReport() {
@@ -7462,9 +7469,11 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('click', e => {
   if (!e.target.closest('.hamburger-wrap')) closeHamburger();
-  if (!e.target.closest('details.dash-more')) {
-    document.querySelectorAll('#platoonScreen details.dash-more[open]').forEach(d => d.removeAttribute('open'));
-  }
+  // Close every dropdown except the one just clicked — there are two in the
+  // header now, and both staying open at once looks broken.
+  const openedMore = e.target.closest('details.dash-more');
+  document.querySelectorAll('#platoonScreen details.dash-more[open]')
+    .forEach(d => { if (d !== openedMore) d.removeAttribute('open'); });
   if (!e.target.closest('details.dash-row-menu')) {
     document.querySelectorAll('#platoonScreen details.dash-row-menu[open]').forEach(d => d.removeAttribute('open'));
   }
