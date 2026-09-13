@@ -17,6 +17,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Playwright (tests/test_mobile_layout.py only; dev-only, not in requirements.txt)
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
       - name: Run tests
         run: |
           set -e
