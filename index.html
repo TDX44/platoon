@@ -3255,7 +3255,6 @@
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
-      <button class="btn-small btn-import" onclick="downloadReport()">Download .txt</button>
       <button class="btn-small btn-cancel" onclick="closeReport()">Close</button>
     </div>
   </div>
@@ -3280,7 +3279,6 @@
     <div class="report-text" id="historyViewText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" onclick="copyHistoryReport()">Copy</button>
-      <button class="btn-small btn-import" onclick="downloadHistoryReport()">Download .txt</button>
       <button class="btn-small btn-danger" onclick="backToHistory()">&#8592; Back</button>
     </div>
   </div>
@@ -6238,17 +6236,6 @@ function openBulkStatusModal(status) {
 }
 
 // ─── Download / Print ───
-function downloadReport() {
-  const text = document.getElementById('reportText').textContent;
-  const unitName = (document.getElementById('unitName').value || 'report').replace(/[^a-z0-9]/gi, '_');
-  const filename = `${unitName}_${getTodayStr()}.txt`;
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
-}
 function printRoster() { window.print(); }
 
 // ─── Report history ───
@@ -6323,18 +6310,6 @@ function copyHistoryReport() {
     });
   }
 }
-function downloadHistoryReport() {
-  if (!historyViewData) return;
-  const name = (historyViewData.unit_name || 'report').replace(/[^a-z0-9]/gi, '_');
-  const filename = `${name}_${(historyViewData.created_at || '').slice(0,10)}.txt`;
-  const blob = new Blob([historyViewData.text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
-}
-
 // ─── Duty roster ───
 function openDutyRoster() {
   const dateEl = document.getElementById('dutyDate');
