@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Platoon Accountability — a personnel accountability tracker for A Co. 15th MI BN (AE).
-Flask backend + a single-file vanilla-JS SPA. No build step, no test suite, no linter.
+Flask backend + a single-file vanilla-JS SPA. No build step and no linter.
+Tests are standalone assert-based scripts under `tests/`, run directly and in CI.
 
 ## Commands
 
@@ -18,16 +19,34 @@ python server.py
 docker compose up -d --build      # needs a .env file (see .env.example)
 ```
 
-There is no lint config and no test framework — do not invent commands for them.
-The one self-check that exists runs standalone:
+There is no lint config and no test framework (no pytest) — every check is a
+standalone assert-based script, run directly:
 
 ```bash
 python tests/test_invites.py          # invite expiry / single-use / platoon validation
 python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
 python tests/test_schedule_edit.py    # absence edit + state re-derivation
+python tests/test_smoke.py            # every route answers; every /api/ route is guarded
+python tests/test_duty_roster.py      # duty roster / absence conflict detection
+python tests/test_report_history.py   # report history persistence
 python tests/test_availability.py     # who is free on date X (date-window rules)
 python tests/test_formation_order.py  # formation queue rule (runs the JS under node)
+python tests/test_mobile_layout.py    # layout geometry: overflow, duplicated row
+                                      # metadata, modal control fit, tap targets
 ```
+
+CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
+
+`tests/test_mobile_layout.py` needs Playwright + a chromium browser, which are
+dev-only and NOT in `requirements.txt` (that file is the production install
+list). Install once with:
+
+```bash
+pip install playwright && playwright install chromium
+```
+
+Without that, the test prints `ok (skipped: playwright not installed)` and
+exits 0 — it never fails a developer's box that hasn't installed browsers.
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
 
