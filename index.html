@@ -4423,12 +4423,19 @@ const RP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 let rp = null;
 // Touch devices: block the native picker (readonly) and open ours as a bottom sheet.
 const RP_TOUCH = matchMedia('(pointer: coarse)').matches;
-// Delegated so inputs rendered later (soldier page) are covered; readonly must be set
-// before the tap completes or iOS opens its own picker on top of ours.
-if (RP_TOUCH) document.addEventListener('touchstart', e => {
-  const f = e.target.closest && e.target.closest('.rp-field');
-  if (f) f.readOnly = true;
-}, { capture: true, passive: true });
+// iOS ignores readonly on date inputs, so cancel the tap itself: preventDefault on
+// touchend suppresses the synthesized click, and the input is never activated.
+// Delegated so inputs rendered later (soldier page) are covered; labels too.
+if (RP_TOUCH) document.addEventListener('touchend', e => {
+  let f = e.target.closest && e.target.closest('.rp-field');
+  if (!f) {
+    const l = e.target.closest && e.target.closest('label[for]');
+    f = l && document.getElementById(l.htmlFor);
+    if (!f || !f.classList.contains('rp-field')) return;
+  }
+  e.preventDefault();
+  f.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+}, { passive: false });
 
 function rpISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -4442,7 +4449,7 @@ function rpParse(s) {
 function rpOpen(event, fromId, toId, which) {
   event.preventDefault();
   const input = event.currentTarget;
-  input.focus();
+  if (!RP_TOUCH) input.focus(); // focusing a date input in a tap gesture opens iOS's picker
   rpClose();
   const fromEl = document.getElementById(fromId);
   const toEl = document.getElementById(toId);
