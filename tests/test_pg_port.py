@@ -23,6 +23,36 @@ _SCHEMA = dbharness.setup()
 
 import server  # noqa: E402
 
+# Flask locks route registration after the app has handled its first request
+# ("the setup method 'route' can no longer be called..."), so these probes for
+# the commit/rollback tests below must be registered once, up front, before
+# any test_client() request runs — not inside the test functions that use
+# them.
+
+
+@server.app.route('/__test_probe_500')
+def _probe_500():
+    conn = server.get_db()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_500', 'WROTE') "
+                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    raise RuntimeError('deliberate failure for the probe')
+
+
+@server.app.route('/__test_probe_400')
+def _probe_400():
+    conn = server.get_db()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_400', 'WROTE') "
+                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    return server.jsonify({'error': 'deliberate'}), 400
+
+
+@server.app.route('/__test_probe_200')
+def _probe_200():
+    conn = server.get_db()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_200', 'WROTE') "
+                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    return server.jsonify({'ok': True}), 200
+
 
 def test_harness_isolates():
     """Each test gets a private schema that really is private.
@@ -105,11 +135,145 @@ def test_seeding_is_idempotent():
     dbharness.teardown(schema)
 
 
+def test_audit_row_commits_with_its_change():
+    """log_action must join the caller's transaction, not open its own.
+
+    Under SQLite it opened a second connection because SQLite has one writer.
+    In Postgres that would mean an audit row committing for a change that then
+    failed — an audit trail that lies.
+    """
+    schema = dbharness.setup()
+    import server
+
+    with server.app.test_request_context('/'):
+        conn = server.get_db()
+        assert conn is server.get_db(), 'get_db must return one connection per request'
+
+        conn.execute("INSERT INTO settings (key, value) VALUES ('probe', 'v1') "
+                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+        server.log_action('PROBE', 'details')
+        conn.rollback()
+
+        rows = conn.execute("SELECT 1 FROM audit_log WHERE action = 'PROBE'").fetchall()
+        assert rows == [], 'a rolled-back change must roll back its audit row too'
+
+    dbharness.teardown(schema)
+
+
+def test_audit_row_survives_a_successful_change():
+    """The positive half of the pair above.
+
+    log_action() swallows every exception (`except Exception: pass`), so a
+    log_action that is silently dead — writes nothing, raises internally and
+    is swallowed — produces the exact same observable result as the negative
+    test above: no matching row in audit_log. That test alone cannot tell
+    "correctly rolled back" apart from "never wrote anything in the first
+    place". This one proves the row really lands when the surrounding
+    transaction actually commits.
+
+    Uses the module-level schema (_SCHEMA) rather than a fresh one — no
+    dbharness.setup() call here, per the file-level rule above.
+
+    test_request_context() pushes a request context directly — it never runs
+    the real dispatch machinery (full_dispatch_request / after_request), only
+    do_teardown_request on pop. _close_db's commit is now gated on the
+    after_request-set g.db_commit flag (a real request sets it; this bare
+    context never does), so this commits explicitly rather than relying on
+    teardown to do it — otherwise teardown would see no flag and roll back,
+    same as it correctly does for an unhandled exception or an early error
+    return in a real request.
+    """
+    with server.app.test_request_context('/'):
+        conn = server.get_db()
+        conn.execute("INSERT INTO settings (key, value) VALUES ('probe2', 'v1') "
+                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+        server.log_action('PROBE_POSITIVE', 'details-positive')
+        conn.commit()
+
+    conn = server.get_db()
+    row = conn.execute(
+        "SELECT action, details, timestamp FROM audit_log WHERE action = 'PROBE_POSITIVE'"
+    ).fetchone()
+    conn.close()
+
+    assert row is not None, 'a successful change must leave its audit row behind'
+    assert row['action'] == 'PROBE_POSITIVE'
+    assert row['details'] == 'details-positive'
+    assert row['timestamp'], 'audit row must carry a non-empty timestamp'
+
+
+def test_failed_request_rolls_back_partial_writes():
+    """A raised exception must not commit whatever ran before it.
+
+    @app.errorhandler(Exception) turns every raised exception into a normal
+    500 response rather than letting it propagate, so teardown_request always
+    sees exc=None — even for a request that failed. Under the old
+    `if exc is None: commit()` that meant a failing request committed
+    everything it had written before it blew up (concretely: delete_person()
+    deletes scheduled_events and personnel_profile before personnel, so a
+    failure on the last delete used to leave the first two committed behind a
+    500 that claimed nothing happened). The fix is that teardown now only
+    commits when after_request has marked the response a success
+    (status < 400); a raised exception never reaches after_request with such a
+    response, so the flag stays unset and teardown rolls back.
+    """
+    client = server.app.test_client()
+    resp = client.get('/__test_probe_500')
+    assert resp.status_code == 500, f'expected 500, got {resp.status_code}'
+
+    conn = server.get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_500'").fetchone()
+    conn.close()
+    assert row is None, 'a write made before a raised exception must roll back'
+
+
+def test_4xx_response_rolls_back_partial_writes():
+    """An early `return ..., 400` after a partial write must not commit it.
+
+    Same root cause as the 500 case, different trigger: a route that writes,
+    then later decides the request is invalid and returns a 4xx, must not
+    leave the earlier write committed. (update_settings() writes the
+    timezone and unit_name rows before a bad TDY list can 400 out; that write
+    must not survive.)
+    """
+    client = server.app.test_client()
+    resp = client.get('/__test_probe_400')
+    assert resp.status_code == 400, f'expected 400, got {resp.status_code}'
+
+    conn = server.get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_400'").fetchone()
+    conn.close()
+    assert row is None, 'a write behind a 400 response must roll back'
+
+
+def test_200_response_commits():
+    """The guard test: a normal success must still commit.
+
+    Without this, the two tests above would also pass for a teardown that
+    never commits at all — rollback-always looks identical to
+    rollback-on-failure from the outside unless something also proves the
+    success path really persists.
+    """
+    client = server.app.test_client()
+    resp = client.get('/__test_probe_200')
+    assert resp.status_code == 200, f'expected 200, got {resp.status_code}'
+
+    conn = server.get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_200'").fetchone()
+    conn.close()
+    assert row is not None and row['value'] == 'WROTE', 'a successful request must commit'
+
+
 def main():
     try:
         test_harness_isolates()
         test_init_db_is_idempotent()
         test_seeding_is_idempotent()
+        test_audit_row_commits_with_its_change()
+        test_audit_row_survives_a_successful_change()
+        test_failed_request_rolls_back_partial_writes()
+        test_4xx_response_rolls_back_partial_writes()
+        test_200_response_commits()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

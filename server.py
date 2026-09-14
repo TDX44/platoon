@@ -10,7 +10,7 @@ from functools import wraps
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from urllib.error import URLError
-from flask import Flask, request, jsonify, send_from_directory, session, g
+from flask import Flask, request, jsonify, send_from_directory, session, g, has_request_context
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
@@ -33,6 +33,13 @@ DATABASE_URL = os.environ['DATABASE_URL']
 # init_db() creates tables, so it connects as the owner. Everything else uses
 # the unprivileged role — see scripts/pg-roles.sql, added in Task 6.
 MIGRATION_DATABASE_URL = os.environ.get('MIGRATION_DATABASE_URL', DATABASE_URL)
+
+from psycopg_pool import ConnectionPool
+
+# gunicorn runs -w 2, so each worker keeps a small pool of its own.
+_pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=4, open=False,
+                       kwargs={'row_factory': dict_row})
+
 APP_ENV = os.environ.get('APP_ENV', 'production')
 PLACEHOLDER_PASSWORD_HASH = 'clerk-managed'
 
@@ -84,7 +91,7 @@ PLATOONS = {
 #
 # It falls back to PLATOON_TZ and then Central, and is cached in a module global
 # because app_now() is called from inside open transactions, where opening a
-# second connection to read it would deadlock the way log_action() documents.
+# second connection to read it would block waiting on the first.
 FALLBACK_TZ = os.environ.get('PLATOON_TZ', 'America/Chicago')
 TIMEZONE_KEY = 'org_timezone'
 
@@ -199,6 +206,22 @@ def _get_tdy_list(conn, kind, platoon):
 
 
 def get_db():
+    """The connection for this request.
+
+    One connection per request, not per call. A1 sets a session variable on it
+    for row-level security, which only works if every statement in a request
+    runs on the same connection. Outside a request context — init_db() at
+    import, the midnight worker, the tests — this hands back a fresh plain
+    connection that the caller closes itself; it is not drawn from the pool
+    because those callers own their connection's lifecycle and call .close()
+    on it directly, which would leak a pooled connection instead of returning
+    it.
+    """
+    if has_request_context():
+        _pool.open()
+        if not hasattr(g, 'db'):
+            g.db = _pool.getconn()
+        return g.db
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
@@ -477,13 +500,10 @@ load_app_timezone()
 # ── Audit log helper ──
 
 def log_action(action, details='', platoon=''):
-    """Write one audit row.
+    """Write one audit row onto the caller's transaction.
 
-    Opens its own connection, so callers MUST close theirs first. Calling this
-    while holding an open write transaction self-deadlocks: this connection
-    waits out the busy timeout, and the caller's next statement then fails with
-    "database is locked". Errors here are swallowed, so the stall is the only
-    symptom you get.
+    It commits with the change it describes, so an audit row can never survive
+    a change that failed.
     """
     try:
         conn = get_db()
@@ -499,8 +519,6 @@ def log_action(action, details='', platoon=''):
             'VALUES (%s, %s, %s, %s, %s, %s)',
             (user_id, username, action, str(details), platoon, app_stamp())
         )
-        conn.commit()
-        conn.close()
     except Exception:
         pass
 
@@ -621,7 +639,6 @@ def get_current_user():
         return None
     conn = get_db()
     user = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
-    conn.close()
     g.current_user = dict(user) if user else None
     return g.current_user
 
@@ -753,14 +770,11 @@ def sync_clerk_user(payload):
                 'UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
                 (app_stamp(), clerk_user_id, invite['token'])
             )
-        conn.commit()
         row = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
         g.current_user = dict(row) if row else None
         return g.current_user, None
     except psycopg.errors.UniqueViolation:
         return None, 'That username is already in use locally. Ask an admin to rename or merge the account.'
-    finally:
-        conn.close()
 
 
 def has_platoon_access(user, platoon):
@@ -819,6 +833,34 @@ def handle_unexpected_error(exc):
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Something went wrong on the server.'}), 500
     return 'Something went wrong on the server.', 500
+
+
+@app.after_request
+def _mark_db_success(response):
+    # errorhandler(Exception) above turns a raised exception into a normal
+    # response, so teardown_request alone cannot tell "the handler ran to
+    # completion" from "the handler raised and got turned into a 500" — both
+    # arrive at teardown with exc=None. after_request runs before teardown and
+    # is skipped when an exception escapes with no handler, so this flag is
+    # the signal teardown actually needs: set only for a response that says
+    # the request succeeded.
+    if response.status_code < 400:
+        g.db_commit = True
+    return response
+
+
+@app.teardown_request
+def _close_db(exc):
+    conn = g.pop('db', None)
+    if conn is None:
+        return
+    try:
+        if exc is None and g.get('db_commit'):
+            conn.commit()
+        else:
+            conn.rollback()
+    finally:
+        _pool.putconn(conn)
 
 
 # ── Auth routes ──
@@ -896,7 +938,6 @@ def get_users():
         'SELECT id, username, email, full_name, is_admin, platoons FROM users '
         'WHERE clerk_user_id != \'\' ORDER BY username'
     ).fetchall()
-    conn.close()
     return jsonify([dict(r) for r in rows])
 
 
@@ -920,7 +961,6 @@ def update_user(user_id):
     conn = get_db()
     try:
         conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s AND clerk_user_id != \'\'', values)
-        conn.commit()
         row = conn.execute(
             'SELECT id, username, email, full_name, is_admin, platoons FROM users WHERE id = %s',
             (user_id,)
@@ -928,8 +968,6 @@ def update_user(user_id):
         return jsonify(dict(row))
     except psycopg.errors.UniqueViolation:
         return jsonify({'error': 'Username already exists'}), 409
-    finally:
-        conn.close()
 
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
@@ -939,8 +977,6 @@ def delete_user(user_id):
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
     conn.execute('DELETE FROM users WHERE id = %s AND clerk_user_id != \'\'', (user_id,))
-    conn.commit()
-    conn.close()
     return jsonify({'success': True})
 
 
@@ -952,7 +988,6 @@ def get_invites():
     conn = get_db()
     rows = conn.execute('SELECT * FROM invites ORDER BY created_at DESC LIMIT 50').fetchall()
     now = app_stamp()
-    conn.close()
     return jsonify([{
         'token': r['token'],
         'label': r['label'],
@@ -983,8 +1018,6 @@ def create_invite():
          (app_now() + timedelta(days=INVITE_EXPIRY_DAYS)).strftime('%Y-%m-%d %H:%M:%S'),
          app_stamp())
     )
-    conn.commit()
-    conn.close()
     log_action('INVITE_CREATE', f'Invited {label or "(unnamed)"} — {"administrator" if is_admin else platoons}')
     return jsonify({'token': token, 'url': f'{_get_request_origin()}/invite/{token}'})
 
@@ -995,8 +1028,6 @@ def revoke_invite(token):
     conn = get_db()
     row = conn.execute('SELECT label FROM invites WHERE token = %s', (token,)).fetchone()
     conn.execute('DELETE FROM invites WHERE token = %s', (token,))
-    conn.commit()
-    conn.close()
     if row:
         log_action('INVITE_REVOKE', f'Revoked invite for {row["label"] or "(unnamed)"}')
     return jsonify({'success': True})
@@ -1008,7 +1039,6 @@ def preview_invite(token):
     tell an invitee what they were invited to before they create an account."""
     conn = get_db()
     row = _valid_invite(conn, token)
-    conn.close()
     if not row:
         return jsonify({'valid': False}), 404
     access = 'all platoons (administrator)' if row['is_admin'] else ' + '.join(
@@ -1031,7 +1061,6 @@ def get_platoons():
         row = conn.execute('SELECT value FROM settings WHERE key = %s', (f'unit_name_{key}',)).fetchone()
         count = conn.execute('SELECT COUNT(*) AS n FROM personnel WHERE platoon = %s', (key,)).fetchone()['n']
         result[key] = {'name': row['value'] if row else default_name, 'count': count}
-    conn.close()
     return jsonify(result)
 
 
@@ -1044,7 +1073,6 @@ def get_personnel():
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
     _reconcile_absences(conn, app_today())
-    conn.commit()
     rows = conn.execute(
         'SELECT * FROM personnel WHERE platoon = %s ORDER BY rank, last, first', (platoon,)
     ).fetchall()
@@ -1052,7 +1080,6 @@ def get_personnel():
         "SELECT * FROM scheduled_events WHERE platoon = %s AND state != 'completed' "
         'ORDER BY from_date, to_date, id', (platoon,)
     ).fetchall()
-    conn.close()
     scheduled_by_person = {}
     for r in scheduled_rows:
         scheduled_by_person.setdefault(r['person_id'], []).append(dict(r))
@@ -1078,9 +1105,7 @@ def add_person():
         (data.get('rank', ''), data.get('last', ''), data.get('first', ''), platoon)
     )
     new_id = cur.fetchone()['id']
-    conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (new_id,)).fetchone()
-    conn.close()
     log_action('ADD_PERSON', f'{data.get("rank","")} {data.get("last","")}, {data.get("first","")}', platoon)
     return jsonify(dict(row)), 201
 
@@ -1099,11 +1124,9 @@ def update_person(person_id):
     conn = get_db()
     person = conn.execute('SELECT rank, last, first, status, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, person['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     values.append(person_id)
     conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = %s', values)
@@ -1112,9 +1135,7 @@ def update_person(person_id):
     # status='tdy' and must not have their absence closed.
     if data.get('status') == 'present' and person['status'] in ABSENCE_STATUSES:
         _end_running_absence(conn, person_id, app_today())
-    conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
-    conn.close()
     if 'status' in data and data['status'] != person['status']:
         log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['platoon'])
     return jsonify(dict(row))
@@ -1134,14 +1155,11 @@ def get_profile(person_id):
     conn = get_db()
     person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, person['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
-    conn.close()
     profile = dict(row) if row else {'person_id': person_id, **{f: '' for f in PROFILE_FIELDS}}
     return jsonify(profile)
 
@@ -1153,16 +1171,13 @@ def update_profile(person_id):
     conn = get_db()
     person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, person['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
 
     updates = {f: data[f] for f in PROFILE_FIELDS if f in data}
     if not updates:
-        conn.close()
         return jsonify({'error': 'No fields to update'}), 400
 
     # Ensure a row exists, then update only the provided columns.
@@ -1175,9 +1190,7 @@ def update_profile(person_id):
         f'UPDATE personnel_profile SET {assignments} WHERE person_id = %s',
         [*updates.values(), person_id]
     )
-    conn.commit()
     row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
-    conn.close()
     log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['platoon'])
     return jsonify(dict(row))
 
@@ -1189,16 +1202,13 @@ def add_scheduled_event(person_id):
     conn = get_db()
     person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, person['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
 
     status = data.get('status', '').strip()
     if status not in ABSENCE_STATUSES:
-        conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
     from_date = (data.get('from_date') or '').strip() or app_today()
@@ -1213,7 +1223,6 @@ def add_scheduled_event(person_id):
         (person_id, status, from_date, to_date)
     ).fetchone()
     if dup is not None:
-        conn.close()
         return jsonify(dict(dup)), 200
 
     cur = conn.execute(
@@ -1224,9 +1233,7 @@ def add_scheduled_event(person_id):
     )
     new_id = cur.fetchone()['id']
     _sync_person_status(conn, person_id, app_today())
-    conn.commit()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
-    conn.close()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['platoon'])
     return jsonify(dict(row)), 201
 
@@ -1240,7 +1247,6 @@ def get_directory():
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
     _reconcile_absences(conn, app_today())
-    conn.commit()
     rows = conn.execute(
         'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, '
         '       pp.dod_id, pp.dob, pp.mos, pp.section, pp.phone '
@@ -1251,7 +1257,6 @@ def get_directory():
         "SELECT person_id, status, from_date, to_date FROM scheduled_events "
         "WHERE platoon = %s AND state = 'scheduled' ORDER BY from_date, id", (platoon,)
     ).fetchall()
-    conn.close()
     next_by_person = {}
     for e in upcoming:
         next_by_person.setdefault(e['person_id'], dict(e))
@@ -1342,7 +1347,6 @@ def get_availability():
         "AND (from_date = '' OR from_date <= %s) AND (to_date = '' OR to_date >= %s) "
         'ORDER BY from_date, id', (platoon, end, start)
     ).fetchall()
-    conn.close()
 
     by_person = {}
     for e in events:
@@ -1386,19 +1390,15 @@ def get_absences(person_id):
     conn = get_db()
     person = conn.execute('SELECT id, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, person['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     _reconcile_absences(conn, app_today())
-    conn.commit()
     rows = conn.execute(
         'SELECT * FROM scheduled_events WHERE person_id = %s ORDER BY from_date DESC, id DESC',
         (person_id,)
     ).fetchall()
-    conn.close()
     return jsonify({'absences': [dict(r) for r in rows]})
 
 
@@ -1409,19 +1409,15 @@ def update_scheduled_event(event_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, row['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     if row['state'] == 'completed':
-        conn.close()
         return jsonify({'error': 'That absence is already over and can no longer be edited.'}), 400
 
     status = (data.get('status') or '').strip()
     if status not in ABSENCE_STATUSES:
-        conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
     today = app_today()
@@ -1438,10 +1434,8 @@ def update_scheduled_event(event_id):
     # An edit can move the window in either direction; _sync_person_status
     # re-derives the row's state from its new dates and owns the display cache.
     _sync_person_status(conn, row['person_id'], today)
-    conn.commit()
     updated = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     person = conn.execute('SELECT rank, last FROM personnel WHERE id = %s', (row['person_id'],)).fetchone()
-    conn.close()
     who = f'{person["rank"]} {person["last"]}: ' if person else ''
     log_action('EDIT_SCHEDULE', f'{who}{status} {from_date} - {to_date or "open"}', row['platoon'])
     return jsonify(dict(updated))
@@ -1453,18 +1447,14 @@ def delete_scheduled_event(event_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, row['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
     conn.execute('DELETE FROM scheduled_events WHERE id = %s', (event_id,))
     # Cancelling an in-progress absence returns the soldier to duty.
     _sync_person_status(conn, person_id, app_today())
-    conn.commit()
-    conn.close()
     log_action('DELETE_SCHEDULE', f'{row["status"]} on {row["from_date"]}', row['platoon'])
     return jsonify({'success': True})
 
@@ -1475,18 +1465,14 @@ def delete_person(person_id):
     conn = get_db()
     row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if row is None:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
     if not has_platoon_access(user, row['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
     conn.execute('DELETE FROM scheduled_events WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel_profile WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
-    conn.commit()
-    conn.close()
     return jsonify({'success': True})
 
 
@@ -1504,7 +1490,6 @@ def get_settings():
         # Organisation-wide, not platoon-scoped: one duty day for everyone.
         'timezone': app_timezone(),
     }
-    conn.close()
     return jsonify(payload)
 
 
@@ -1524,12 +1509,10 @@ def update_settings():
     new_tz = None
     if 'timezone' in data:
         if not (user and user.get('is_admin')):
-            conn.close()
             return jsonify({'error': 'Only an administrator can change the organisation timezone.'}), 403
         try:
             new_tz = set_app_timezone(data['timezone'])
         except ValueError as exc:
-            conn.close()
             return jsonify({'error': str(exc)}), 400
         conn.execute(
             'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
@@ -1549,7 +1532,6 @@ def update_settings():
         try:
             cleaned = _clean_tdy_list(data[field])
         except ValueError as exc:
-            conn.close()
             return jsonify({'error': str(exc)}), 400
         value = json.dumps(cleaned)
         conn.execute(
@@ -1559,11 +1541,6 @@ def update_settings():
         logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
     if new_tz:
         logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
-    conn.commit()
-    conn.close()
-    # log_action opens its own connection — it must run only after ours is
-    # closed, or it blocks on our write lock for the full busy timeout and the
-    # next statement here dies with "database is locked".
     for action, details in logs:
         log_action(action, details, platoon)
     return get_settings()
@@ -1586,7 +1563,6 @@ def get_audit():
         ).fetchall()
     else:
         rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT %s', (limit,)).fetchall()
-    conn.close()
     return jsonify([dict(r) for r in rows])
 
 
@@ -1670,7 +1646,6 @@ def get_duty():
         entry = dict(r)
         entry['conflict'] = _duty_conflict(conn, entry['person_id'], entry['date'])
         out.append(entry)
-    conn.close()
     return jsonify(out)
 
 
@@ -1693,7 +1668,6 @@ def get_duty_conflicts():
         "WHERE p.platoon = %s AND s.state != 'completed' ORDER BY s.from_date, s.id",
         (platoon,)
     ).fetchall()
-    conn.close()
     # Same ordering as _duty_conflict, so a later overlapping window wins here too.
     away = {str(r['person_id']): _conflict_from(r)
             for r in rows if _derive_state(r, date_str) == 'active'}
@@ -1715,7 +1689,6 @@ def add_duty():
         person_id = 0
     person = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None or person['platoon'] != platoon:
-        conn.close()
         return jsonify({'error': 'Pick a soldier from this platoon.'}), 400
 
     date_str = data.get('date', '')
@@ -1729,12 +1702,10 @@ def add_duty():
          person['rank'], person['last'], person['first'], data.get('notes', ''))
     )
     new_id = cur.fetchone()['id']
-    conn.commit()
     row = dict(conn.execute('SELECT * FROM duty_roster WHERE id = %s', (new_id,)).fetchone())
     # Warn, never block: assigning someone who is away is sometimes the real
     # answer, and a tool that refuses just gets worked around.
     row['conflict'] = _duty_conflict(conn, person['id'], date_str)
-    conn.close()
     detail = f'{duty_type} on {date_str} — {person["rank"]} {person["last"]}'
     if row['conflict']:
         detail += f' (CONFLICT: {row["conflict"]["label"]})'
@@ -1749,16 +1720,12 @@ def delete_duty(entry_id):
     row = conn.execute('SELECT * FROM duty_roster WHERE id = %s', (entry_id,)).fetchone()
     user = get_current_user()
     if not row:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     if not has_platoon_access(user, row['platoon']):
-        conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     if row:
         log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['platoon'])
     conn.execute('DELETE FROM duty_roster WHERE id = %s', (entry_id,))
-    conn.commit()
-    conn.close()
     return jsonify({'success': True})
 
 
@@ -1803,7 +1770,6 @@ def get_reports():
         'WHERE platoon = %s ORDER BY id DESC LIMIT %s',
         (platoon, REPORT_HISTORY_MAX)
     ).fetchall()
-    conn.close()
     return jsonify([dict(r) for r in rows])
 
 
@@ -1837,9 +1803,7 @@ def add_report():
         )
     new_id = cur.fetchone()['id']
     _prune_report_history(conn, platoon)
-    conn.commit()
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (new_id,)).fetchone()
-    conn.close()
     log_action('SAVE_REPORT', unit_name, platoon)
     if not row:
         # Cannot happen with REPORT_HISTORY_MAX >= 1, but don't 500 if it ever does.
@@ -1852,7 +1816,6 @@ def add_report():
 def get_report(report_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
-    conn.close()
     if not row:
         return jsonify({'error': 'Not found'}), 404
     user = get_current_user()
@@ -1867,11 +1830,8 @@ def delete_report(report_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
     if not row:
-        conn.close()
         return jsonify({'error': 'Not found'}), 404
     conn.execute('DELETE FROM report_history WHERE id = %s', (report_id,))
-    conn.commit()
-    conn.close()
     log_action('DELETE_REPORT', row['unit_name'], row['platoon'])
     return jsonify({'success': True})
 
@@ -1898,7 +1858,6 @@ def export_backup():
     else:
         accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
         if not accessible:
-            conn.close()
             return jsonify({'error': 'No platoon access'}), 403
         placeholders = ','.join(['%s'] * len(accessible))
         personnel = [dict(r) for r in conn.execute(
@@ -1915,7 +1874,6 @@ def export_backup():
         users     = []
         label = '-'.join(accessible)
 
-    conn.close()
     payload = {
         'version': 2,
         'exported_at': datetime.utcnow().isoformat() + 'Z',
@@ -2165,14 +2123,11 @@ def import_backup():
                 f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                 f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
             )
-        conn.commit()
         log_action('BACKUP_RESTORE', f'Backup restored: {restored_personnel} personnel, {restored_users} users')
         return jsonify({'success': True, 'personnel': restored_personnel, 'users': restored_users})
     except Exception as e:
         conn.rollback()
         return jsonify({'error': str(e)}), 500
-    finally:
-        conn.close()
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])
@@ -2181,8 +2136,6 @@ def activate_scheduled():
     today_str = app_today()
     conn = get_db()
     result = _reconcile_absences(conn, today_str)
-    conn.commit()
-    conn.close()
     return jsonify(result)
 
 
@@ -2208,8 +2161,6 @@ def reset_day():
         )
     else:
         conn.execute("UPDATE personnel SET present_date = '' WHERE status = 'present'")
-    conn.commit()
-    conn.close()
     log_action('RESET_DAY', f'Day reset for platoon: {platoon or "all"}', platoon)
     return jsonify({'success': True})
 
