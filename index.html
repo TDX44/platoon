@@ -67,9 +67,9 @@
     background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center;
   }
   .modal-overlay.active { display: flex; }
-  .modal { background: #2d2d44; border-radius: 10px; padding: 25px; width: 420px; max-width: 95vw; }
-  .modal-wide { width: 520px; }
-  .modal-xl { width: 620px; }
+  .modal { background: #2d2d44; border-radius: 10px; padding: 25px; width: 460px; max-width: 95vw; }
+  .modal-wide { width: 580px; }
+  .modal-xl { width: 660px; }
   /* Phone: modals become bottom sheets that fit the viewport */
   @media (max-width: 480px) {
     .modal-overlay.active { align-items: flex-end; padding: 0; }
@@ -842,14 +842,14 @@
   body.light-mode .modal h2,
   body.light-mode .report-box h2 {
     color: var(--theme_text);
-    font-size: 1.35rem;
+    font-size: 1.25em;
     font-weight: 650;
   }
   .modal label,
   .login-card label,
   .notes-preview-label {
     color: var(--theme_text-weak);
-    font-size: 0.82rem;
+    font-size: 0.8em;
     font-weight: 600;
   }
   .modal input,
@@ -874,6 +874,82 @@
     border-color: var(--theme_action);
     outline: none;
     box-shadow: 0 0 0 3px rgba(27,97,201,0.12);
+  }
+
+  /* ── Modal structure ──
+     A modal that is a list of things needs the same anatomy as a page: a
+     subtitle that says what it is for, and labelled sections. Manage Access was
+     a heading followed by an undifferentiated pile of rows. */
+  .modal-sub {
+    margin: -6px 0 16px; color: var(--cp-muted); font-size: 0.85em; line-height: 1.45;
+  }
+  .modal-note {
+    margin: 10px 0 4px; color: var(--cp-muted); font-size: 0.8em; line-height: 1.5;
+  }
+  .modal-empty {
+    margin: 0; padding: 14px 2px; color: var(--cp-muted); font-size: 0.85em;
+  }
+  .modal-section + .modal-section { margin-top: 18px; }
+  .modal-section-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-bottom: 4px; min-height: 34px;
+  }
+  .modal-section-head h3 {
+    margin: 0; font-size: 0.74em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--cp-muted);
+  }
+
+  /* ── Row icon buttons ──
+     Edit and Remove were boxed buttons of equal weight, so the destructive one
+     shouted as loudly as the safe one. Both are quiet; red arrives on hover. */
+  .row-icon-btn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; padding: 0; cursor: pointer;
+    background: none; border: 1px solid transparent; border-radius: var(--cp-radius);
+    color: var(--cp-muted);
+    transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
+  }
+  .row-icon-btn svg { width: 18px; height: 18px; stroke: currentColor; display: block; }
+  .row-icon-btn:hover { background: var(--cp-hover); color: var(--cp-text-strong); border-color: var(--cp-border); }
+  .row-icon-btn:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 1px; }
+  .row-icon-danger:hover { background: var(--cp-red-bg); color: var(--cp-red); border-color: var(--cp-red); }
+  @media (max-width: 480px) { .row-icon-btn { width: 44px; height: 44px; } }
+
+  /* ── Option rows ──
+     Three checkboxes side by side wrapped their own labels on a phone ("1st /
+     Platoon"), and the admin checkbox sat above its text rather than beside it.
+     Full-width rows can't wrap into that, and the whole row is the target. */
+  .opt-list {
+    display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;
+  }
+  .modal label.opt-row {
+    display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+    margin: 0; padding: 10px 12px; min-height: 44px; box-sizing: border-box;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+    background: var(--cp-input); font-size: 0.88em; color: var(--cp-text);
+    transition: background 0.15s ease-out, border-color 0.15s ease-out;
+  }
+  .modal label.opt-row:hover { background: var(--cp-hover); }
+  .modal label.opt-row input[type="checkbox"] {
+    flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--cp-accent);
+    cursor: pointer;
+  }
+  .opt-row-label { flex: 1; min-width: 0; font-weight: 600; line-height: 1.35; }
+  .opt-row-hint {
+    display: block; margin-top: 2px; font-weight: 400; font-size: 0.86em;
+    color: var(--cp-muted); line-height: 1.4;
+  }
+  .modal label.opt-row:has(input:checked) { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+  .modal label.opt-row:focus-within { outline: 2px solid var(--cp-accent); outline-offset: 1px; }
+  .modal label.opt-row.is-disabled { opacity: 0.45; cursor: default; }
+  .modal label.opt-row.is-disabled:hover { background: var(--cp-input); }
+  .modal label.opt-row-strong { margin-top: 4px; }
+
+  /* The generated link: monospace so a token can be read back character by
+     character, and it selects whole on tap. */
+  .invite-link-field {
+    width: 100%; box-sizing: border-box; font-size: 0.82em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
   body.dark-mode .btn-import,
@@ -1813,28 +1889,57 @@
   body.settings-active .dash-rail { display: none; }
   body.settings-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.settings-active .settings-view { display: block; }
-  .settings-cards {
-    margin-top: 14px; max-width: 780px;
-    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  .soldier-cards.settings-cards {
+    margin-top: 14px; max-width: 680px;
+    grid-template-columns: minmax(0, 1fr);
   }
+  /* The card owns the horizontal padding so a row can highlight edge to edge. */
+  .settings-cards .soldier-card { padding: 14px 0 4px; }
+  .settings-cards .soldier-card h3 { padding: 0 18px; }
   .settings-row {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 11px 0; border-top: 1px solid var(--theme_border);
+    padding: 12px 18px; border-top: 1px solid var(--cp-hairline);
+    text-align: left; width: 100%; box-sizing: border-box;
   }
-  .settings-row + .settings-row { }
-  .soldier-card .settings-row:first-of-type { border-top: none; padding-top: 2px; }
+  .soldier-card .settings-row:first-of-type { border-top: none; }
   .settings-row-text { flex: 1 1 160px; min-width: 0; }
-  .settings-row-label { font-weight: 600; color: var(--theme_text); font-size: 0.9rem; }
-  .settings-row-hint { color: var(--theme_text-muted); font-size: 0.78rem; margin-top: 2px; }
+  .settings-row-nav .settings-row-text,
+  .settings-row-nav .settings-row-label,
+  .settings-row-nav .settings-row-hint { display: block; }
+  /* A row that opens a page is navigation, not a command: the whole row is the
+     target and a chevron says where it goes. Rows that DO something keep a
+     button, so the two kinds stop looking identical. */
+  .settings-row-nav {
+    background: none; border-left: none; border-right: none; border-bottom: none;
+    font: inherit; color: inherit; cursor: pointer; align-items: center;
+    transition: background 0.15s ease-out;
+  }
+  .settings-row-nav:hover { background: var(--cp-hover); }
+  .settings-row-nav:focus-visible {
+    outline: 2px solid var(--cp-accent); outline-offset: -2px; background: var(--cp-hover);
+  }
+  .settings-row-chev svg { width: 18px; height: 18px; stroke: currentColor; display: block; }
+  .settings-row-chev {
+    flex: none; margin-left: auto; color: var(--cp-faint);
+    display: inline-flex; transition: transform 0.15s ease-out, color 0.15s ease-out;
+  }
+  .settings-row-nav:hover .settings-row-chev { color: var(--cp-accent); transform: translateX(2px); }
+  /* Destructive-ish actions stay quiet until you reach for them. */
+  .settings-row .dash-btn-ghost:hover { color: var(--cp-red); border-color: var(--cp-red); background: var(--cp-red-bg); }
+  .settings-row-label { font-weight: 600; color: var(--theme_text); font-size: 0.92em; }
+  .settings-row-hint { color: var(--theme_text-muted); font-size: 0.8em; margin-top: 3px; line-height: 1.45; }
   .settings-row .dash-btn { flex: none; margin-left: auto; }
   .settings-select {
     flex: none; margin-left: auto; max-width: 100%;
-    padding: 9px 12px; border-radius: var(--theme_radius);
-    border: 1px solid var(--theme_border); background: var(--theme_surface);
-    color: var(--theme_text); font-family: inherit; font-size: 0.85rem;
-    min-height: 40px; cursor: pointer;
+    padding: 10px 12px; border-radius: var(--theme_radius);
+    border: 1px solid var(--theme_border); background: var(--cp-input);
+    color: var(--theme_text); font-family: inherit; font-size: 0.88em;
+    /* line-height + padding, not a fixed height: at the 21px desktop scale a
+       40px box cropped the descenders off the zone name. */
+    line-height: 1.4; min-height: 44px; cursor: pointer;
   }
   .settings-select:disabled { opacity: 0.6; cursor: default; }
+  .settings-select:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 1px; }
   .switch {
     flex: none; margin-left: auto; position: relative; cursor: pointer;
     width: 52px; height: 32px; padding: 0; border-radius: 999px;
@@ -2131,11 +2236,11 @@
     min-width: 0;
   }
   .soldier-card h3 {
-    margin: 0 0 10px; font-size: 0.78rem; text-transform: uppercase;
+    margin: 0 0 10px; font-size: 0.76em; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--theme_text-muted);
   }
   .pf-label {
-    display: block; margin-top: 12px; font-size: 0.72rem; font-weight: 600;
+    display: block; margin-top: 12px; font-size: 0.72em; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.03em; color: var(--theme_text-muted);
   }
   .soldier-card input, .soldier-card textarea, .soldier-card select {
@@ -2143,7 +2248,7 @@
     background: var(--theme_surface-soft, var(--theme_surface));
     color: var(--theme_text);
     border: 1px solid var(--theme_border);
-    border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; font-family: inherit;
+    border-radius: 8px; padding: 8px 10px; font-size: 0.9em; font-family: inherit;
     line-height: 1.25;
   }
   /* An explicit height, so a date, a text field and a select are the same row
@@ -3895,6 +4000,16 @@ function closeSettings(push = true) {
   render();
 }
 
+// '2ND' beside 'Admin' read as two different kinds of thing. One spelling.
+function platoonBadgeLabel(p) {
+  const key = (p || '').trim();
+  return escapeHtml(key === 'hq' ? 'HQ' : key.charAt(0).toUpperCase() + key.slice(1));
+}
+
+const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+const ICON_PENCIL  = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 10-4-4L4 16v4z"/><path d="M14.5 6.5l3 3"/></svg>';
+const ICON_REMOVE  = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V5a1.5 1.5 0 011.5-1.5h3A1.5 1.5 0 0115 5v2"/></svg>';
+
 function settingsRow(label, hint, action, fn, variant = 'dash-btn-secondary') {
   return `<div class="settings-row">
     <div class="settings-row-text">
@@ -3903,6 +4018,18 @@ function settingsRow(label, hint, action, fn, variant = 'dash-btn-secondary') {
     </div>
     <button class="dash-btn ${variant} dash-btn-sm" onclick="${fn}">${action}</button>
   </div>`;
+}
+
+// A row that just opens another page. Reads as navigation rather than as one
+// more button labelled "Open" — there were seven of those.
+function settingsNavRow(label, hint, fn) {
+  return `<button type="button" class="settings-row settings-row-nav" onclick="${fn}">
+    <span class="settings-row-text">
+      <span class="settings-row-label">${label}</span>
+      <span class="settings-row-hint">${hint}</span>
+    </span>
+    <span class="settings-row-chev">${ICON_CHEVRON}</span>
+  </button>`;
 }
 
 // The organisation has exactly one timezone. The full IANA list is authoritative
@@ -4021,13 +4148,13 @@ function renderSettings() {
       </section>
       <section class="soldier-card">
         <h3>Lists &amp; rosters</h3>
-        ${settingsRow('Schools', 'Courses offered in the TDY dropdown.', 'Open', "openTdyLists('schools')")}
-        ${settingsRow('Locations', 'Places offered in the TDY dropdowns.', 'Open', "openTdyLists('locations')")}
-        ${settingsRow('Duty roster', 'CQ and staff duty by date.', 'Open', 'openDutyRoster()')}
+        ${settingsNavRow('Schools', 'Courses offered in the TDY dropdown.', "openTdyLists('schools')")}
+        ${settingsNavRow('Locations', 'Places offered in the TDY dropdowns.', "openTdyLists('locations')")}
+        ${settingsNavRow('Duty roster', 'CQ and staff duty by date.', 'openDutyRoster()')}
       </section>
       <section class="soldier-card">
         <h3>Data</h3>
-        ${settingsRow('Report history', 'Reports generated on this device.', 'Open', 'openHistory()')}
+        ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
         ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
         ${settingsRow('Export backup', 'Full JSON snapshot of every platoon.', 'Export', 'exportBackup()')}
         ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
@@ -4035,9 +4162,9 @@ function renderSettings() {
       </section>
       <section class="soldier-card">
         <h3>Account</h3>
-        ${settingsRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'Open', 'openClerkProfile()')}
-        ${isAdmin ? settingsRow('Manage access', 'Platoon access and invite links.', 'Open', 'openUserMgmt()') : ''}
-        ${isAdmin ? settingsRow('Audit log', 'Every change made to this platoon.', 'Open', 'openAuditLog()') : ''}
+        ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
+        ${isAdmin ? settingsNavRow('Manage access', 'Platoon access and invite links.', 'openUserMgmt()') : ''}
+        ${isAdmin ? settingsNavRow('Audit log', 'Every change made to this platoon.', 'openAuditLog()') : ''}
         ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
       </section>
     </div>`;
@@ -7702,7 +7829,7 @@ async function refreshUserList() {
   if (!users) return;
   const wrap = document.getElementById('userListWrap');
   if (!users.length) {
-    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No users yet. Create an invite link below to add someone.</p>';
+    wrap.innerHTML = '<p class="modal-empty">No one yet. Create an invite link below to add someone.</p>';
     return;
   }
   wrap.innerHTML = users.map(u => {
@@ -7718,7 +7845,7 @@ async function refreshUserList() {
     const badges = u.is_admin
       ? `<span class="platoon-badge admin-badge">Admin</span>`
       : (u.platoons || '').split(',').filter(p => p.trim()).map(p =>
-          `<span class="platoon-badge">${p.trim().toUpperCase()}</span>`
+          `<span class="platoon-badge">${platoonBadgeLabel(p)}</span>`
         ).join('') || `<span style="color:#636e72;font-size:0.78em">No access</span>`;
     return `<div class="user-row">
       <div class="user-row-name-block">
@@ -7726,8 +7853,8 @@ async function refreshUserList() {
         ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
       <div class="user-row-badges">${badges}</div>
-      <button class="btn-small btn-edit" onclick="openUserEditModal(${u.id})" title="Edit">&#9998;</button>
-      ${!isSelf ? `<button class="btn-small btn-danger user-del-btn" data-uid="${u.id}" title="Remove access">&#10005;</button>` : ''}
+      <button class="row-icon-btn" onclick="openUserEditModal(${u.id})" title="Edit access" aria-label="Edit access for ${label}">${ICON_PENCIL}</button>
+      ${!isSelf ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access">${ICON_REMOVE}</button>` : ''}
     </div>`;
   }).join('');
   // Attach delete handlers here instead of inline onclick — user display names
@@ -7750,14 +7877,14 @@ async function refreshInviteList() {
   if (!invites) return;
   const pending = invites.filter(i => i.status === 'pending');
   if (!pending.length) {
-    wrap.innerHTML = '<p style="color:#636e72;font-size:0.85em">No open invites. Create one to let someone sign up.</p>';
+    wrap.innerHTML = '<p class="modal-empty">No open invites. Create one to let someone sign up.</p>';
     return;
   }
   wrap.innerHTML = pending.map(i => {
     const badges = i.is_admin
       ? '<span class="platoon-badge admin-badge">Admin</span>'
       : (i.platoons || '').split(',').filter(p => p.trim())
-          .map(p => `<span class="platoon-badge">${p.trim().toUpperCase()}</span>`).join('');
+          .map(p => `<span class="platoon-badge">${platoonBadgeLabel(p)}</span>`).join('');
     return `<div class="user-row">
       <div class="user-row-name-block">
         <div class="user-row-name">${escapeHtml(i.label || 'Unnamed invite')}</div>
@@ -7765,7 +7892,7 @@ async function refreshInviteList() {
       </div>
       <div class="user-row-badges">${badges}</div>
       <button class="btn-small btn-edit invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy Link</button>
-      <button class="btn-small btn-danger invite-del-btn" data-token="${escapeHtml(i.token)}" title="Revoke">&#10005;</button>
+      <button class="row-icon-btn row-icon-danger invite-del-btn" data-token="${escapeHtml(i.token)}" title="Revoke invite" aria-label="Revoke invite">${ICON_REMOVE}</button>
     </div>`;
   }).join('');
   wrap.querySelectorAll('.invite-copy-btn').forEach(btn => {
@@ -7781,8 +7908,10 @@ function openInviteModal() {
   document.getElementById('inviteLabel').value = '';
   document.getElementById('inviteAdmin').checked = false;
   Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
-    document.getElementById(id).checked = false;
-    document.getElementById(id).disabled = false;
+    const box = document.getElementById(id);
+    box.checked = false;
+    box.disabled = false;
+    box.closest('.opt-row').classList.remove('is-disabled');
   });
   document.getElementById('inviteError').style.display = 'none';
   document.getElementById('userMgmtModal').classList.remove('active');
@@ -7797,8 +7926,10 @@ function closeInviteModal() {
 function toggleInviteAdminCheck() {
   const isAdmin = document.getElementById('inviteAdmin').checked;
   Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
-    document.getElementById(id).disabled = isAdmin;
-    if (isAdmin) document.getElementById(id).checked = false;
+    const box = document.getElementById(id);
+    box.disabled = isAdmin;
+    if (isAdmin) box.checked = false;
+    box.closest('.opt-row').classList.toggle('is-disabled', isAdmin);
   });
 }
 
@@ -7815,9 +7946,19 @@ async function createInvite() {
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error creating invite.'; errEl.style.display = 'block'; return;
   }
-  closeInviteModal();
+  document.getElementById('inviteModal').classList.remove('active');
   await refreshInviteList();
-  alert(`Invite link (valid 7 days, single use):\n\n${result.url}\n\nUse "Copy Link" in Manage Access to copy it again.`);
+  document.getElementById('inviteLinkValue').value = result.url;
+  document.getElementById('inviteLinkModal').classList.add('active');
+}
+
+function closeInviteLinkModal() {
+  document.getElementById('inviteLinkModal').classList.remove('active');
+  document.getElementById('userMgmtModal').classList.add('active');
+}
+
+function copyInviteLink(btn) {
+  copyWithFeedback(document.getElementById('inviteLinkValue').value, btn, 'Copy Link');
 }
 
 async function revokeInvite(token) {
@@ -7911,6 +8052,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
   document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
   document.getElementById('inviteModal').addEventListener('click', function(e) { if (e.target === this) closeInviteModal(); });
+  document.getElementById('inviteLinkModal').addEventListener('click', function(e) { if (e.target === this) closeInviteLinkModal(); });
   document.getElementById('personDetailsModal').addEventListener('click', function(e) { if (e.target === this) closePersonDetails(); });
 });
 
@@ -8105,11 +8247,15 @@ initApp();
 <div class="modal-overlay" id="userMgmtModal">
   <div class="modal modal-wide">
     <h2>Manage Access</h2>
-    <div id="userListWrap" class="user-list"></div>
-    <div style="border-top:1px solid var(--cp-border);padding-top:12px;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
-        <strong style="font-size:0.92em;">Invite Links</strong>
-        <button class="btn-small btn-add" onclick="openInviteModal()">+ New Invite</button>
+    <p class="modal-sub">Who can sign in, and which platoons they can see.</p>
+    <div class="modal-section">
+      <div class="modal-section-head"><h3>People</h3></div>
+      <div id="userListWrap" class="user-list"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-head">
+        <h3>Open invites</h3>
+        <button class="btn-small btn-add" onclick="openInviteModal()">New invite</button>
       </div>
       <div id="inviteListWrap" class="invite-list"></div>
     </div>
@@ -8138,21 +8284,35 @@ initApp();
     <h2>New Invite Link</h2>
     <label>Who is it for? (optional)</label>
     <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
-    <label>Platoon Access</label>
-    <div class="platoon-checks">
-      <label><input type="checkbox" id="invChk1st" /> 1st Platoon</label>
-      <label><input type="checkbox" id="invChk2nd" /> 2nd Platoon</label>
-      <label><input type="checkbox" id="invChkHq"  /> HQ Platoon</label>
+    <label>Platoon access</label>
+    <div class="opt-list">
+      <label class="opt-row"><input type="checkbox" id="invChk1st" /><span class="opt-row-label">1st Platoon</span></label>
+      <label class="opt-row"><input type="checkbox" id="invChk2nd" /><span class="opt-row-label">2nd Platoon</span></label>
+      <label class="opt-row"><input type="checkbox" id="invChkHq"  /><span class="opt-row-label">HQ Platoon</span></label>
+      <label class="opt-row opt-row-strong">
+        <input type="checkbox" id="inviteAdmin" onchange="toggleInviteAdminCheck()" />
+        <span class="opt-row-label">Administrator
+          <span class="opt-row-hint">Every platoon, plus user management.</span>
+        </span>
+      </label>
     </div>
-    <label class="admin-check-label">
-      <input type="checkbox" id="inviteAdmin" onchange="toggleInviteAdminCheck()" />
-      Administrator (all platoons + user management)
-    </label>
-    <p style="font-size:0.8em;color:#636e72;margin:-4px 0 10px;">The link works once and expires in 7 days. Send it to them however you like — they create their own account with it.</p>
+    <p class="modal-note">The link works once and expires in 7 days. Send it however you like — they create their own account with it.</p>
     <div id="inviteError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeInviteModal()">Cancel</button>
       <button class="btn-small btn-add" onclick="createInvite()">Create Link</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="inviteLinkModal">
+  <div class="modal">
+    <h2>Invite Link Ready</h2>
+    <p style="font-size:0.85em;color:var(--cp-text-weak);margin:0 0 10px;">Works once, expires in 7 days. Send it however you like — they create their own account with it.</p>
+    <input type="text" class="invite-link-field" id="inviteLinkValue" readonly onclick="this.select()" />
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeInviteLinkModal()">Done</button>
+      <button class="btn-small btn-add" onclick="copyInviteLink(this)">Copy Link</button>
     </div>
   </div>
 </div>
