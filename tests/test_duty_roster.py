@@ -17,7 +17,10 @@ os.environ['DATA_DIR'] = tempfile.mkdtemp()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
-TODAY = date.today()
+# The app answers on the unit's clock (server.app_today()), so the tests
+# must ask the same question. Using date.today() here made CI fail on its
+# UTC runner every evening between 1900 and midnight Central.
+TODAY = date.fromisoformat(server.app_today())
 
 
 def day(offset):
