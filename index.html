@@ -20,6 +20,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Installed on iOS the app draws under the status bar and the home indicator
+     (black-translucent + viewport-fit=cover), so the clock and wifi icons sit on
+     top of the header unless it is inset. Named so a rule can use it without
+     repeating the env() fallback — and so it can be overridden to test that the
+     inset is actually honoured, which env() alone makes impossible in a
+     desktop browser. */
+  :root { --safe-top: env(safe-area-inset-top, 0px); }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
 
   .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; justify-content: center; }
@@ -3003,7 +3010,9 @@
     }
     .dash-sidebar { display: none; }
     .dash-bottomnav { display: grid; }
-    .dash-header { padding: 14px 14px 4px; }
+    /* body.dash-active zeroes the body padding so the roster is full-bleed,
+       which also drops the safe-area inset every other screen gets from it. */
+    .dash-header { padding: calc(14px + var(--safe-top)) 14px 4px; }
     .dash-header-title { width: 100%; }
     body .dash-header .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
