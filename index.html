@@ -2975,6 +2975,11 @@
     .dash-layout .bulk-bar { order: 3; margin: 12px 14px 0; }
     .dash-sections { order: 4; margin: 14px 14px 0; }
     #reportPreviewCard { order: 5; margin: 16px 14px 0; }
+    /* .dash-main is display:contents here, so its padding is gone and every
+       full-page view sat 14px closer to the edge than the roster it replaces.
+       The roster's own children each carry this gutter; these need it too. */
+    .soldier-view, .directory-view, .availability-view,
+    .tdy-lists-view, .audit-view, .settings-view { margin: 14px 14px 0; }
     /* min-width:0 so the ring card cannot steal width from the other two and
        force their labels onto a second line. */
     .dash-metrics-primary { gap: 8px; grid-template-columns: 1.2fr 1fr 1fr; }
