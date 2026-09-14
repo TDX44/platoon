@@ -15,6 +15,7 @@ services:
       # makes container logs readable against the duty day.
       TZ: America/Chicago
       PLATOON_TZ: America/Chicago
+      DATABASE_URL: postgresql://platoon_app:${DB_APP_PASSWORD}@db:5432/platoon
     volumes:
       - ./data:/data
     # Resolve directly against the LAN resolvers instead of inheriting the
@@ -25,6 +26,9 @@ services:
       - 10.10.50.3
       - 10.10.50.4
       - 1.1.1.1
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   cloudflared:
@@ -35,3 +39,21 @@ services:
     depends_on:
       - app
     restart: unless-stopped
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: platoon
+      POSTGRES_USER: platoon_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platoon_owner -d platoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
