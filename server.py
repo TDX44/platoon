@@ -30,6 +30,7 @@ app.config['SESSION_PERMANENT'] = True
 
 _default_data_dir = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.environ.get('DATA_DIR', _default_data_dir), 'accountability.db')
+APP_ENV = os.environ.get('APP_ENV', 'production')
 PLACEHOLDER_PASSWORD_HASH = 'clerk-managed'
 
 
@@ -832,6 +833,7 @@ def auth_config():
         'publishable_key': CLERK_PUBLISHABLE_KEY,
         'frontend_api_url': CLERK_FRONTEND_API_URL,
         'timezone': app_timezone(),
+        'app_env': APP_ENV,
     })
 
 

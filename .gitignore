@@ -10,3 +10,6 @@ backups/
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Dev-stack-only port override; must never reach production
+docker-compose.override.yml
