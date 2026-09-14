@@ -21,7 +21,7 @@ import dbharness  # noqa: E402
 
 _SCHEMA = dbharness.setup()
 
-# Later tasks: `import server` goes here, after _SCHEMA is established above.
+import server  # noqa: E402
 
 
 def test_harness_isolates():
@@ -63,9 +63,25 @@ def test_harness_isolates():
     os.environ['MIGRATION_DATABASE_URL'] = module_url
 
 
+def test_init_db_is_idempotent():
+    """init_db() runs at import under gunicorn, so it must survive re-running."""
+    server.init_db()          # second call; the import already ran it once
+    conn = server.get_db()
+    names = {r['table_name'] for r in conn.execute(
+        'SELECT table_name FROM information_schema.tables '
+        'WHERE table_schema = current_schema()').fetchall()}
+    conn.close()
+
+    for expected in ('personnel', 'personnel_profile', 'settings', 'users',
+                      'audit_log', 'duty_roster', 'scheduled_events',
+                      'invites', 'report_history'):
+        assert expected in names, f'{expected} table missing after init_db()'
+
+
 def main():
     try:
         test_harness_isolates()
+        test_init_db_is_idempotent()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)
