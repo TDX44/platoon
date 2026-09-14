@@ -195,6 +195,8 @@
   .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
   .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
   .status-toggle.active-loan { border-color: #6c5ce7; background: #6c5ce722; color: #a29bfe; }
+  .status-toggle.active-late { border-color: #e17055; background: #e1705522; color: #ff9f7f; }
+  .status-toggle.active-excused { border-color: #00b894; background: #00b89422; color: #55efc4; }
 
   /* TDY School field */
   .tdy-school-row { display: none; }
@@ -1699,8 +1701,11 @@
     .fm-bar { margin-top: 6px; }
     .fm-btn { min-height: max(64px, 11vh); }
     .fm-actions { gap: 10px; }
-    .fm-reasons { gap: 8px; }
-    .fm-reasons .fm-btn { min-height: max(44px, 10vh); font-size: 1.05em; }
+    /* Seven reasons in two columns is four rows, which does not fit a short
+       viewport. Three columns makes it three rows and uses the width such a
+       window has going spare. */
+    .fm-reasons { gap: 8px; grid-template-columns: repeat(3, 1fr); }
+    .fm-reasons .fm-btn { min-height: max(44px, 8vh); font-size: 0.95em; }
     .fm-back { min-height: 44px; margin-top: 8px; }
   }
   .fm-done-head { text-align: center; }
@@ -2052,6 +2057,8 @@
   .status-cell.s-pass::before    { background: var(--cp-amber); }
   .status-cell.s-ftr::before     { background: var(--cp-red); }
   .status-cell.s-loan::before    { background: var(--dash-purple); }
+  .status-cell.s-late::before    { background: var(--cp-red); }
+  .status-cell.s-excused::before { background: var(--cp-steel); }
 
   /* ── Soldier detail page ── */
   .soldier-view { display: none; }
@@ -2846,6 +2853,10 @@
   .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
   .dash-pill.p-loan { background: var(--dash-purple-bg); color: var(--dash-purple); }
   .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
+  /* Late borrows FTR's red at low strength — it is a problem, just a smaller
+     one. Excused sits with the accounted-for blues. */
+  .dash-pill.p-late { background: var(--dash-red-bg); color: var(--dash-red); }
+  .dash-pill.p-excused { background: var(--dash-blue-bg); color: var(--dash-blue); }
   .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; white-space: nowrap; }
   .dash-badge-returned { font-size: 0.7em; font-weight: 800; color: var(--dash-blue); letter-spacing: 0.04em; margin-left: 6px; }
 
@@ -3253,6 +3264,8 @@
       <option value="present">Present</option>
       <option value="leave">Leave / Pass</option>
       <option value="tdy">TDY / School</option>
+      <option value="late">Late</option>
+      <option value="excused">Excused</option>
       <option value="other">Other / FTR</option>
       <option value="scheduled">Scheduled</option>
       <option value="loan">On Loan</option>
@@ -3384,6 +3397,8 @@
       <button class="status-toggle" data-status="leave" onclick="setAwayStatus('leave')">Leave</button>
       <button class="status-toggle" data-status="pass" onclick="setAwayStatus('pass')">Pass</button>
       <button class="status-toggle" data-status="other" onclick="setAwayStatus('other')">Other</button>
+      <button class="status-toggle" data-status="late" onclick="setAwayStatus('late')">Running Late</button>
+      <button class="status-toggle" data-status="excused" onclick="setAwayStatus('excused')">Excused</button>
       <button class="status-toggle" data-status="ftr" onclick="setAwayStatus('ftr')">FTR</button>
       <button class="status-toggle" data-status="loan" onclick="setAwayStatus('loan')">On Loan</button>
     </div>
@@ -3393,17 +3408,11 @@
       <input type="text" id="loanPosition" placeholder="e.g. S2 NCOIC, BN Intel Officer" oninput="updateNotesPreview()" />
     </div>
 
-    <div id="otherRow" style="display:none;">
-      <label>Category</label>
-      <input type="text" id="otherCategory" list="otherCategorySuggestions"
+    <div id="reasonRow" style="display:none;">
+      <label id="reasonLabel" for="reasonInput">Category</label>
+      <input type="text" id="reasonInput" list="reasonSuggestions"
              placeholder="e.g. Quarters, Staff Duty Recovery" oninput="updateNotesPreview()" />
-      <datalist id="otherCategorySuggestions">
-        <option value="Quarters"></option>
-        <option value="Staff Duty Recovery"></option>
-        <option value="CQ Recovery"></option>
-        <option value="Appointment"></option>
-        <option value="Detail"></option>
-      </datalist>
+      <datalist id="reasonSuggestions"></datalist>
     </div>
 
     <div class="tdy-school-row" id="tdySchoolRow">
@@ -3749,6 +3758,8 @@ function statusFilterMatches(p, filter) {
   if (filter === 'leave') return p.status === 'leave' || p.status === 'pass';
   if (filter === 'tdy') return p.status === 'tdy';
   if (filter === 'other') return p.status === 'other' || p.status === 'ftr';
+  if (filter === 'late') return p.status === 'late';
+  if (filter === 'excused') return p.status === 'excused';
   if (filter === 'scheduled') return scheduledEventsFor(p).length > 0;
   if (filter === 'loan') return p.status === 'loan';
   return true;
@@ -4123,7 +4134,7 @@ function formatDateWithYear(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = { leave:'Leave', pass:'Pass', tdy:'TDY', other:'Other', ftr:'FTR', loan:'On Loan' };
+  const labels = STATUS_LABELS;
   return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
 }
 
@@ -4350,7 +4361,9 @@ function renderAvailabilityResults() {
 // soldier at a time with two thumb-sized answers and no way to lose your place.
 let formation = { ids: [], known: [], i: 0, asking: false, busy: false };
 
-const FORMATION_REASONS = ['ftr', 'leave', 'pass', 'tdy', 'other'];
+// Ordered by what is actually said at formation: late and excused first,
+// FTR last because it is the one you do not want to tap by reflex.
+const FORMATION_REASONS = ['late', 'excused', 'leave', 'pass', 'tdy', 'other', 'ftr'];
 
 // Pure, and the only rule about who gets asked and in what order.
 // tests/test_formation_order.py runs this function directly.
@@ -5221,7 +5234,7 @@ function openAbsenceModal(eventId = null) {
   setAwayStatus(ev.status || 'tdy');
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  document.getElementById('otherCategory').value = '';
+  document.getElementById('reasonInput').value = '';
   if (ev.status === 'tdy') {
     // Absences written by the modal pack "school - location" into notes; older
     // rows from the removed inline form kept location in its own column.
@@ -5235,8 +5248,8 @@ function openAbsenceModal(eventId = null) {
     } else {
       pickSet('awaySchool', ev.notes || '');
     }
-  } else if (ev.status === 'other') {
-    document.getElementById('otherCategory').value = ev.notes || '';
+  } else if (REASON_FIELDS[ev.status]) {
+    document.getElementById('reasonInput').value = ev.notes || '';
   }
   awayFrom = ev.from_date || '';
   awayTo = ev.to_date || '';
@@ -5296,7 +5309,7 @@ async function renderProfileAbsences() {
     list.innerHTML = '<div class="scheduled-event-meta">No absences on record.</div>';
     return;
   }
-  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', ftr: 'FTR', other: 'Other' };
+  const labels = STATUS_LABELS;
   list.innerHTML = groups.filter(([, evs]) => evs.length).map(([title, evs, removable]) => {
     const rows = evs.map(ev => {
       const range = (ev.from_date || ev.to_date)
@@ -5352,6 +5365,9 @@ function render() {
   const otherList       = sortCol !== 'rank'
     ? applySort(visible.filter(p => p.status === 'other'))
     : visible.filter(p => p.status === 'other').sort(endDateSort);
+  // Late sits at the top of Away: it is the one the platoon sergeant chases.
+  const lateList        = applySort(visible.filter(p => p.status === 'late'));
+  const excusedList     = applySort(visible.filter(p => p.status === 'excused'));
   const ftrList         = sortCol !== 'rank'
     ? applySort(visible.filter(p => p.status === 'ftr'))
     : visible.filter(p => p.status === 'ftr').sort(endDateSort);
@@ -5362,7 +5378,7 @@ function render() {
   body.innerHTML = '';
 
   // Counts always use full (unfiltered) personnel — loan excluded from accountability counts
-  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, loan:0, scheduled:0 };
+  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, loan:0, late:0, excused:0, scheduled:0 };
   personnel.forEach(p => {
     counts.scheduled += scheduledEventsFor(p).length;
     if (p.status === 'loan') { counts.loan++; }
@@ -5399,9 +5415,10 @@ function render() {
   }
 
   // Away but Accounted For — leave/pass, then TDY/school, then other
-  const awayList = [...leaveList, ...tdyList, ...otherList];
+  const awayList = [...lateList, ...excusedList, ...leaveList, ...tdyList, ...otherList];
   if (awayList.length) {
-    const awayFull = (counts.leave || 0) + (counts.pass || 0) + (counts.tdy || 0) + (counts.other || 0);
+    const awayFull = (counts.late || 0) + (counts.excused || 0) + (counts.leave || 0) +
+                     (counts.pass || 0) + (counts.tdy || 0) + (counts.other || 0);
     const awayRows = awayList.map(p => dashAwayRow(p, todayStr)).join('');
     html += dashSection('away', 'Away but Accounted For', 'sec-away', awayRows, secCount(awayList.length, awayFull));
   }
@@ -5445,7 +5462,10 @@ function dashSection(key, title, secClass, rowsHtml, count, opts = {}) {
   </section>`;
 }
 
-const STATUS_LABELS = { present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other', ftr: 'FTR', loan: 'On Loan' };
+const STATUS_LABELS = {
+  present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other',
+  ftr: 'FTR', loan: 'On Loan', late: 'Late', excused: 'Excused'
+};
 
 function dashPill(status) {
   return `<span class="dash-pill p-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
@@ -5516,10 +5536,18 @@ function dashPresentRow(p) {
   </div>`;
 }
 
+// Late and excused are same-day by nature. A today-to-today window and a
+// RETURNING TODAY badge say nothing on those rows, so the reason stands alone.
+function isSameDayState(p) {
+  return (p.status === 'late' || p.status === 'excused') && !!p.from && p.from === p.to;
+}
+
 function dashAwayRow(p, todayStr) {
   const i = personnel.indexOf(p);
-  const dateRange = (p.from || p.to) ? `${formatDateShort(p.from)} – ${formatDateShort(p.to)}` : '';
-  const returningToday = p.to && p.to === (todayStr || getTodayStr());
+  const sameDay = isSameDayState(p);
+  const dateRange = (!sameDay && (p.from || p.to))
+    ? `${formatDateShort(p.from)} – ${formatDateShort(p.to)}` : '';
+  const returningToday = !sameDay && p.to && p.to === (todayStr || getTodayStr());
   const returning = returningToday ? ' <span class="dash-badge-returning">RETURNING TODAY</span>' : '';
   const meta = [
     `<span>${dashPill(p.status)}${returning}</span>`,
@@ -5563,7 +5591,7 @@ function dashLoanRow(p) {
 
 function dashSchedRow(p) {
   const i = personnel.indexOf(p);
-  const labels = { tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR' };
+  const labels = STATUS_LABELS;
   const events = scheduledEventsFor(p);
   const eventLines = events.map(event => {
     const dateRange = (event.from_date || event.to_date)
@@ -5817,6 +5845,38 @@ function onAwayDateChange() {
 }
 
 // ─── Status toggles ───
+// Statuses whose reason is free text rather than a picklist. One control does
+// all three; only the wording changes, so adding a fourth is a list entry.
+const REASON_FIELDS = {
+  other: {
+    label: 'Category',
+    placeholder: 'e.g. Quarters, Staff Duty Recovery',
+    options: ['Quarters', 'Staff Duty Recovery', 'CQ Recovery', 'Appointment', 'Detail'],
+  },
+  late: {
+    label: 'Why are they late?',
+    placeholder: 'e.g. Traffic, vehicle trouble',
+    options: ['Traffic', 'Vehicle trouble', 'Childcare', 'Called ahead', 'Overslept'],
+  },
+  excused: {
+    label: 'Excused for',
+    placeholder: 'e.g. Sick call, appointment',
+    options: ['Sick call', 'Medical appointment', 'Dental appointment',
+              'Family emergency', 'Religious service', 'Excused by CoC'],
+  },
+};
+
+function syncReasonField(status) {
+  const cfg = REASON_FIELDS[status];
+  document.getElementById('reasonRow').style.display = cfg ? 'block' : 'none';
+  if (!cfg) return;
+  document.getElementById('reasonLabel').textContent = cfg.label;
+  const input = document.getElementById('reasonInput');
+  input.placeholder = cfg.placeholder;
+  document.getElementById('reasonSuggestions').innerHTML =
+    cfg.options.map(o => `<option value="${escapeHtml(o)}"></option>`).join('');
+}
+
 function setAwayStatus(status) {
   awayStatus = status;
   document.querySelectorAll('.status-toggle').forEach(btn => {
@@ -5825,7 +5885,7 @@ function setAwayStatus(status) {
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
   document.getElementById('loanRow').style.display = status === 'loan' ? 'block' : 'none';
-  document.getElementById('otherRow').style.display = status === 'other' ? 'block' : 'none';
+  syncReasonField(status);
   // Hide date picker for loan (no dates needed)
   document.querySelector('.date-pick-row').style.display = status === 'loan' ? 'none' : '';
   document.getElementById('notesPreview').closest('div').previousElementSibling.style.display = status === 'loan' ? 'none' : '';
@@ -5909,9 +5969,9 @@ function updateNotesPreview() {
     const location = pickValue('awayLocation');
     if (school) parts.push(school);
     if (location) parts.push(location);
-  } else if (awayStatus === 'other') {
-    const category = document.getElementById('otherCategory').value.trim();
-    if (category) parts.push(category);
+  } else if (REASON_FIELDS[awayStatus]) {
+    const reason = document.getElementById('reasonInput').value.trim();
+    if (reason) parts.push(reason);
   }
 
   if (awayFrom || awayTo) {
@@ -5941,7 +6001,7 @@ function openTdyLeave(i) {
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
   document.getElementById('loanPosition').value = '';
-  document.getElementById('otherCategory').value = '';
+  document.getElementById('reasonInput').value = '';
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
@@ -5953,7 +6013,7 @@ function openTdyLeave(i) {
   } else if (status === 'loan' && p.notes) {
     document.getElementById('loanPosition').value = p.notes;
   } else if (status === 'other' && p.notes) {
-    document.getElementById('otherCategory').value = p.notes;
+    document.getElementById('reasonInput').value = p.notes;
   }
 
   awayFrom = p.from || '';
@@ -5985,7 +6045,7 @@ function bulkAbsenceNotes() {
     return [school, location].filter(Boolean).join(' - ');
   }
   if (awayStatus === 'loan') return document.getElementById('loanPosition').value.trim();
-  if (awayStatus === 'other') return document.getElementById('otherCategory').value.trim();
+  if (REASON_FIELDS[awayStatus]) return document.getElementById('reasonInput').value.trim();
   return '';
 }
 
@@ -6030,8 +6090,8 @@ async function saveTdyLeave() {
     notesVal = [school, location].filter(Boolean).join(' - ');
   } else if (awayStatus === 'loan') {
     notesVal = document.getElementById('loanPosition').value.trim();
-  } else if (awayStatus === 'other') {
-    notesVal = document.getElementById('otherCategory').value.trim();
+  } else if (REASON_FIELDS[awayStatus]) {
+    notesVal = document.getElementById('reasonInput').value.trim();
   }
 
   if (editingAbsenceId !== null) {
@@ -6115,7 +6175,7 @@ function renderScheduledEvents(p) {
     list.innerHTML = '';
     return;
   }
-  const labels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR' };
+  const labels = STATUS_LABELS;
   list.innerHTML = events.map(event => {
     const dateRange = (event.from_date || event.to_date)
       ? `${formatDateShort(event.from_date)} - ${formatDateShort(event.to_date)}` : 'No dates';
@@ -6332,11 +6392,13 @@ function generateStrengthReport() {
   const roster = personnel.filter(p => p.status !== 'loan');
   const onLoan = personnel.length - roster.length;
   const byStatus = [
-    ['TDY',   roster.filter(p => p.status === 'tdy').length],
-    ['Leave', roster.filter(p => p.status === 'leave').length],
-    ['Pass',  roster.filter(p => p.status === 'pass').length],
-    ['Other', roster.filter(p => p.status === 'other').length],
-    ['FTR',   roster.filter(p => p.status === 'ftr').length],
+    ['TDY',     roster.filter(p => p.status === 'tdy').length],
+    ['Leave',   roster.filter(p => p.status === 'leave').length],
+    ['Pass',    roster.filter(p => p.status === 'pass').length],
+    ['Late',    roster.filter(p => p.status === 'late').length],
+    ['Excused', roster.filter(p => p.status === 'excused').length],
+    ['Other',   roster.filter(p => p.status === 'other').length],
+    ['FTR',     roster.filter(p => p.status === 'ftr').length],
   ];
   const parts = [`${roster.length} Assigned`, `${roster.filter(isPresentToday).length} PDY`]
     .concat(byStatus.filter(([, n]) => n > 0).map(([label, n]) => `${n} ${label}`));
@@ -6355,6 +6417,8 @@ function generateReport() {
   const leave = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
   const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
   const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
+  const late = personnel.filter(p => p.status === 'late').sort(rankSort);
+  const excused = personnel.filter(p => p.status === 'excused').sort(rankSort);
   const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
   // loan excluded from report entirely
 
@@ -6403,6 +6467,18 @@ function generateReport() {
       lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
+
+  // Late and excused are same-day, so they list the reason rather than a date
+  // range — a window of today-to-today reads as noise in a report.
+  [['LATE', late], ['EXCUSED', excused]].forEach(([heading, list]) => {
+    if (!list.length) return;
+    lines.push('');
+    lines.push(`${heading} ${list.length}`);
+    list.forEach(p => {
+      const reason = (p.notes || '').trim();
+      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${reason ? '  ' + reason : ''}`);
+    });
+  });
 
   if (other.length) {
     lines.push('');
@@ -6617,7 +6693,7 @@ function openBulkStatusModal(status) {
   setAwayStatus(status);
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  ['loanPosition', 'otherCategory'].forEach(id => {
+  ['loanPosition', 'reasonInput'].forEach(id => {
     document.getElementById(id).value = '';
   });
   awayFrom = ''; awayTo = '';

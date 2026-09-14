@@ -140,7 +140,11 @@ def app_stamp():
     return app_now().strftime('%Y-%m-%d %H:%M:%S')
 
 
-ABSENCE_STATUSES = ('tdy', 'leave', 'pass', 'other', 'ftr')
+# 'late' and 'excused' are same-day states in practice, but they are absences
+# like any other: a reason in notes, a date window, and a row in the soldier's
+# history. Riding the existing lifecycle means they complete themselves
+# overnight and show up in reports and availability without special cases.
+ABSENCE_STATUSES = ('tdy', 'leave', 'pass', 'other', 'ftr', 'late', 'excused')
 
 # ── TDY picklists ──────────────────────────────────────────────────────────
 # Seeded once per platoon into `settings` (keys tdy_schools_<platoon> /

@@ -132,8 +132,8 @@ dropdowns render, so nothing on either side may re-sort these lists.
 
 ### Absence lifecycle (single source of truth)
 
-All TDY/leave/pass/other/FTR absences live in `scheduled_events` with a `state`
-column: `scheduled → active → completed`. Rows are never deleted on activation;
+All TDY/leave/pass/other/FTR/late/excused absences live in `scheduled_events`
+with a `state` column: `scheduled → active → completed`. Rows are never deleted on activation;
 completed rows are the soldier's absence history (shown on the soldier page via
 `GET /api/personnel/<id>/absences`).
 
@@ -160,6 +160,14 @@ the current status on every save, so marking a TDY soldier present-for-today
 still PUTs `status='tdy'` and must stay a no-op. `POST .../schedule` is
 idempotent on (person, status, from_date, to_date) so a double-tapped Save
 cannot book the same absence twice.
+
+`late` and `excused` are same-day states in practice but ordinary absences
+underneath: a reason in `notes`, a today-to-today window, a row in the soldier's
+history, and they complete themselves overnight like everything else. That is
+why they are in `ABSENCE_STATUSES` rather than a separate flag. The roster row
+and the report both drop the date range for them (`isSameDayState`) — a
+today-to-today window is noise. `REASON_FIELDS` in `index.html` is the one place
+that decides which statuses get the free-text reason box and how it is worded.
 
 Two rules it deliberately keeps: `completed` is terminal (history is never
 resurrected), and the cache is only overwritten when it already holds an absence

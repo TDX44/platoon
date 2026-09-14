@@ -242,6 +242,35 @@ def main():
     conn.close()
     assert state == 'active', 'present-for-today must not close a running absence'
 
+    # 15. 'late' and 'excused' are ordinary absences: a reason in notes, a
+    #     same-day window, and they complete themselves overnight like the rest.
+    for status, reason in (('late', 'Traffic'), ('excused', 'Sick call')):
+        clear()
+        r = c.post('/api/personnel/1/schedule',
+                   json={'status': status, 'from_date': day(0), 'to_date': day(0),
+                         'notes': reason})
+        assert r.status_code == 201, (status, r.get_json())
+        assert r.get_json()['state'] == 'active', r.get_json()
+        assert person() == {'status': status, 'from_date': day(0), 'to_date': day(0)}, person()
+        conn = server.get_db()
+        notes = conn.execute('SELECT notes FROM personnel WHERE id = 1').fetchone()[0]
+        conn.close()
+        assert notes == reason, f'{status} lost its reason: {notes!r}'
+
+        # Yesterday's lateness must not still be on the roster this morning.
+        conn = server.get_db()
+        conn.execute('UPDATE scheduled_events SET from_date = ?, to_date = ? WHERE person_id = 1',
+                     (day(-1), day(-1)))
+        conn.commit()
+        conn.close()
+        c.get('/api/personnel?platoon=2nd')
+        assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+
+    # A status that is not a real one is still refused.
+    clear()
+    assert c.post('/api/personnel/1/schedule',
+                  json={'status': 'tardy', 'from_date': day(0)}).status_code == 400
+
     print('ok')
 
 
