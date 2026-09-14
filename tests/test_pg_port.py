@@ -78,10 +78,38 @@ def test_init_db_is_idempotent():
         assert expected in names, f'{expected} table missing after init_db()'
 
 
+def test_seeding_is_idempotent():
+    """init_db() seeds the TDY picklists on every start.
+
+    Under SQLite that was INSERT OR IGNORE. If the ON CONFLICT target is wrong,
+    a second start quietly duplicates every picklist row instead of raising.
+    """
+    schema = dbharness.setup()
+    server.init_db()
+
+    conn = server.get_db()
+    before = conn.execute('SELECT COUNT(*) AS n FROM settings').fetchone()['n']
+    conn.close()
+
+    server.init_db()
+
+    conn = server.get_db()
+    after = conn.execute('SELECT COUNT(*) AS n FROM settings').fetchone()['n']
+    dupes = conn.execute(
+        'SELECT key FROM settings GROUP BY key HAVING COUNT(*) > 1').fetchall()
+    conn.close()
+
+    assert after == before, f're-seeding changed the row count: {before} -> {after}'
+    assert dupes == [], f'duplicate settings keys after re-seed: {dupes}'
+
+    dbharness.teardown(schema)
+
+
 def main():
     try:
         test_harness_isolates()
         test_init_db_is_idempotent()
+        test_seeding_is_idempotent()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

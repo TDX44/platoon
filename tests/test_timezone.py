@@ -8,12 +8,13 @@ Run with: python tests/test_timezone.py
 """
 import os
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 # The bug's exact conditions: a server whose own clock is UTC.
 os.environ['TZ'] = 'UTC'
 try:
@@ -78,7 +79,7 @@ def check_absence_activates_on_the_units_day():
     tomorrow = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
     conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
-        "VALUES (1, '2nd', 'tdy', ?, ?, 'IO - Dothan, AL', 'scheduled')",
+        "VALUES (1, '2nd', 'tdy', %s, %s, 'IO - Dothan, AL', 'scheduled')",
         (tomorrow, tomorrow))
     conn.commit()
     conn.close()
@@ -87,8 +88,8 @@ def check_absence_activates_on_the_units_day():
     assert client.get('/api/personnel?platoon=2nd').status_code == 200
 
     conn = server.get_db()
-    state = conn.execute('SELECT state FROM scheduled_events WHERE person_id = 1').fetchone()[0]
-    status = conn.execute('SELECT status FROM personnel WHERE id = 1').fetchone()[0]
+    state = conn.execute('SELECT state FROM scheduled_events WHERE person_id = 1').fetchone()['state']
+    status = conn.execute('SELECT status FROM personnel WHERE id = 1').fetchone()['status']
     conn.close()
     assert state == 'scheduled', f"tomorrow's TDY activated early (state={state})"
     assert status == 'present', f'roster shows {status}; the course has not started yet'
@@ -112,7 +113,7 @@ def check_timezone_is_an_org_setting():
 
     # One key for the organisation, not one per platoon.
     conn = server.get_db()
-    keys = [r[0] for r in conn.execute(
+    keys = [r['key'] for r in conn.execute(
         "SELECT key FROM settings WHERE key LIKE '%timezone%'")]
     conn.close()
     assert keys == [server.TIMEZONE_KEY], keys
@@ -127,7 +128,7 @@ def check_timezone_is_an_org_setting():
 
     # A bad value already in the database must not stop the app booting.
     conn = server.get_db()
-    conn.execute('UPDATE settings SET value = ? WHERE key = ?', ('Nowhere/Nothing', server.TIMEZONE_KEY))
+    conn.execute('UPDATE settings SET value = %s WHERE key = %s', ('Nowhere/Nothing', server.TIMEZONE_KEY))
     conn.commit()
     conn.close()
     assert server.load_app_timezone() == 'Europe/Berlin', 'a bad stored zone must fall back, not raise'
@@ -155,6 +156,7 @@ def main():
     check_timezone_is_an_org_setting()
     check_config_publishes_the_timezone()
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

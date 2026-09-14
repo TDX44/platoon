@@ -8,11 +8,12 @@ Run with: python tests/test_schedule_edit.py
 """
 import os
 import sys
-import tempfile
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
@@ -39,14 +40,14 @@ def add_event(state, from_off, to_off, status='tdy'):
     conn = server.get_db()
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
-        "VALUES (1, '2nd', ?, ?, ?, 'orig', ?)",
+        "VALUES (1, '2nd', %s, %s, %s, 'orig', %s) RETURNING id",
         (status, day(from_off), day(to_off), state)
     )
+    event_id = cur.fetchone()['id']
     if state == 'active':
-        conn.execute('UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=1',
+        conn.execute('UPDATE personnel SET status=%s, from_date=%s, to_date=%s, notes=%s WHERE id=1',
                      (status, day(from_off), day(to_off), 'orig'))
     conn.commit()
-    event_id = cur.lastrowid
     conn.close()
     return event_id
 
@@ -54,7 +55,7 @@ def add_event(state, from_off, to_off, status='tdy'):
 def person(pid=1):
     conn = server.get_db()
     row = dict(conn.execute(
-        'SELECT status, from_date, to_date FROM personnel WHERE id = ?', (pid,)).fetchone())
+        'SELECT status, from_date, to_date FROM personnel WHERE id = %s', (pid,)).fetchone())
     conn.close()
     return row
 
@@ -70,7 +71,7 @@ def clear():
 
 def states():
     conn = server.get_db()
-    rows = [tuple(r) for r in conn.execute(
+    rows = [(r['id'], r['state']) for r in conn.execute(
         'SELECT id, state FROM scheduled_events WHERE person_id = 1 ORDER BY id')]
     conn.close()
     return rows
@@ -78,7 +79,7 @@ def states():
 
 def event(event_id):
     conn = server.get_db()
-    row = dict(conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone())
+    row = dict(conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone())
     conn.close()
     return row
 
@@ -190,7 +191,7 @@ def main():
     assert first.status_code == 201 and second.status_code == 200, (first.status_code, second.status_code)
     assert first.get_json()['id'] == second.get_json()['id'], 'the retry got a second row'
     conn = server.get_db()
-    n = conn.execute('SELECT COUNT(*) FROM scheduled_events WHERE person_id = 1').fetchone()[0]
+    n = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE person_id = 1').fetchone()['n']
     conn.close()
     assert n == 1, f'expected one absence row, found {n}'
     # A genuinely different window is still a new absence.
@@ -204,7 +205,7 @@ def main():
     assert c.put('/api/personnel/1', json={'status': 'present', 'notes': '',
                                            'from_date': '', 'to_date': ''}).status_code == 200
     conn = server.get_db()
-    row = dict(conn.execute('SELECT state, to_date FROM scheduled_events WHERE id = ?', (eid,)).fetchone())
+    row = dict(conn.execute('SELECT state, to_date FROM scheduled_events WHERE id = %s', (eid,)).fetchone())
     conn.close()
     assert row == {'state': 'completed', 'to_date': day(-1)}, row
     c.get('/api/personnel?platoon=2nd')          # reconcile must leave them present
@@ -215,7 +216,7 @@ def main():
     eid = add_event('active', 0, 4, status='tdy')
     c.put('/api/personnel/1', json={'status': 'present'})
     conn = server.get_db()
-    gone = conn.execute('SELECT COUNT(*) FROM scheduled_events WHERE id = ?', (eid,)).fetchone()[0]
+    gone = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE id = %s', (eid,)).fetchone()['n']
     conn.close()
     assert gone == 0, 'an absence that never started should be removed, not kept'
 
@@ -225,7 +226,7 @@ def main():
     eid = add_event('active', -2, 6, status='tdy')
     c.put('/api/personnel/1', json={'status': 'tdy', 'present_date': day(0)})
     conn = server.get_db()
-    state = conn.execute('SELECT state FROM scheduled_events WHERE id = ?', (eid,)).fetchone()[0]
+    state = conn.execute('SELECT state FROM scheduled_events WHERE id = %s', (eid,)).fetchone()['state']
     conn.close()
     assert state == 'active', 'present-for-today must not close a running absence'
 
@@ -240,13 +241,13 @@ def main():
         assert r.get_json()['state'] == 'active', r.get_json()
         assert person() == {'status': status, 'from_date': day(0), 'to_date': day(0)}, person()
         conn = server.get_db()
-        notes = conn.execute('SELECT notes FROM personnel WHERE id = 1').fetchone()[0]
+        notes = conn.execute('SELECT notes FROM personnel WHERE id = 1').fetchone()['notes']
         conn.close()
         assert notes == reason, f'{status} lost its reason: {notes!r}'
 
         # Yesterday's lateness must not still be on the roster this morning.
         conn = server.get_db()
-        conn.execute('UPDATE scheduled_events SET from_date = ?, to_date = ? WHERE person_id = 1',
+        conn.execute('UPDATE scheduled_events SET from_date = %s, to_date = %s WHERE person_id = 1',
                      (day(-1), day(-1)))
         conn.commit()
         conn.close()
@@ -259,6 +260,7 @@ def main():
                   json={'status': 'tardy', 'from_date': day(0)}).status_code == 400
 
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

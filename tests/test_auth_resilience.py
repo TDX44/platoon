@@ -6,12 +6,13 @@ import base64
 import json
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
-import server  # noqa: E402  (must follow the DATA_DIR override)
+import server  # noqa: E402  (must follow dbharness.setup())
 from jwt.exceptions import PyJWKClientConnectionError  # noqa: E402
 
 
@@ -88,6 +89,7 @@ def main():
     assert server._auth_status_for('Clerk is not configured on the server.') == 500
 
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

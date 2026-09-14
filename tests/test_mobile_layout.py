@@ -24,13 +24,14 @@ Without those installed, this prints "ok (skipped: ...)" and exits 0.
 import os
 import socket
 import sys
-import tempfile
 import threading
 import time
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
 try:
     from playwright.sync_api import Error as PlaywrightError
@@ -365,23 +366,26 @@ def run_checks(page, base_url):
 
 
 def main():
-    httpd, thread, port = start_server()
     try:
-        base_url = f'http://127.0.0.1:{port}'
-        with sync_playwright() as pw:
-            try:
-                browser = pw.chromium.launch()
-            except PlaywrightError:
-                print('ok (skipped: playwright browser binary not installed)')
-                return
-            try:
-                page = browser.new_page()
-                run_checks(page, base_url)
-            finally:
-                browser.close()
+        httpd, thread, port = start_server()
+        try:
+            base_url = f'http://127.0.0.1:{port}'
+            with sync_playwright() as pw:
+                try:
+                    browser = pw.chromium.launch()
+                except PlaywrightError:
+                    print('ok (skipped: playwright browser binary not installed)')
+                    return
+                try:
+                    page = browser.new_page()
+                    run_checks(page, base_url)
+                finally:
+                    browser.close()
+        finally:
+            stop_server(httpd, thread)
+        print('ok')
     finally:
-        stop_server(httpd, thread)
-    print('ok')
+        dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

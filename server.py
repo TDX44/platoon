@@ -189,7 +189,7 @@ def _clean_tdy_list(values):
 
 
 def _get_tdy_list(conn, kind, platoon):
-    row = conn.execute('SELECT value FROM settings WHERE key = ?', (f'tdy_{kind}_{platoon}',)).fetchone()
+    row = conn.execute('SELECT value FROM settings WHERE key = %s', (f'tdy_{kind}_{platoon}',)).fetchone()
     if not row:
         return []
     try:
@@ -496,7 +496,7 @@ def log_action(action, details='', platoon=''):
             pass
         conn.execute(
             'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp) '
-            'VALUES (?, ?, ?, ?, ?, ?)',
+            'VALUES (%s, %s, %s, %s, %s, %s)',
             (user_id, username, action, str(details), platoon, app_stamp())
         )
         conn.commit()
@@ -620,7 +620,7 @@ def get_current_user():
     if not clerk_user_id:
         return None
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
+    user = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
     conn.close()
     g.current_user = dict(user) if user else None
     return g.current_user
@@ -646,8 +646,8 @@ def _valid_invite(conn, token):
     if not token:
         return None
     return conn.execute(
-        "SELECT * FROM invites WHERE token = ? AND accepted_at = '' "
-        'AND expires_at > ?',
+        "SELECT * FROM invites WHERE token = %s AND accepted_at = '' "
+        'AND expires_at > %s',
         (token, app_stamp())
     ).fetchone()
 
@@ -668,10 +668,10 @@ def _should_auto_grant_admin(conn, email):
         return False
 
     synced_admin = conn.execute(
-        'SELECT 1 FROM users WHERE clerk_user_id != "" AND is_admin = 1 LIMIT 1'
+        'SELECT 1 FROM users WHERE clerk_user_id != \'\' AND is_admin = 1 LIMIT 1'
     ).fetchone()
     any_synced = conn.execute(
-        'SELECT 1 FROM users WHERE clerk_user_id != "" LIMIT 1'
+        'SELECT 1 FROM users WHERE clerk_user_id != \'\' LIMIT 1'
     ).fetchone()
     return not synced_admin and not any_synced
 
@@ -697,19 +697,19 @@ def sync_clerk_user(payload):
     conn = get_db()
     invite = None
     try:
-        existing = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
+        existing = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
         username_conflict = conn.execute(
-            'SELECT * FROM users WHERE LOWER(username) = ?',
+            'SELECT * FROM users WHERE LOWER(username) = %s',
             (username.lower(),)
         ).fetchone() if username else None
         email_conflict = conn.execute(
-            'SELECT * FROM users WHERE LOWER(email) = ?',
+            'SELECT * FROM users WHERE LOWER(email) = %s',
             (email,)
         ).fetchone() if email else None
 
         if existing:
             conn.execute(
-                'UPDATE users SET username = ?, email = ?, full_name = ? WHERE clerk_user_id = ?',
+                'UPDATE users SET username = %s, email = %s, full_name = %s WHERE clerk_user_id = %s',
                 (username, email, full_name, clerk_user_id)
             )
         else:
@@ -734,8 +734,8 @@ def sync_clerk_user(payload):
                 if should_be_admin and not platoons:
                     platoons = '*'
                 conn.execute(
-                    'UPDATE users SET username = ?, password_hash = ?, is_admin = ?, platoons = ?, '
-                    'clerk_user_id = ?, email = ?, full_name = ?, pin_hash = "" WHERE id = ?',
+                    'UPDATE users SET username = %s, password_hash = %s, is_admin = %s, platoons = %s, '
+                    'clerk_user_id = %s, email = %s, full_name = %s, pin_hash = \'\' WHERE id = %s',
                     (username, PLACEHOLDER_PASSWORD_HASH, 1 if should_be_admin else 0, platoons,
                      clerk_user_id, email, full_name, legacy['id'])
                 )
@@ -745,19 +745,19 @@ def sync_clerk_user(payload):
                 platoons = '*' if is_admin else (invite['platoons'] if invite else '')
                 conn.execute(
                     'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s)',
                     (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
                 )
         if invite:
             conn.execute(
-                'UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE token = ?',
+                'UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
                 (app_stamp(), clerk_user_id, invite['token'])
             )
         conn.commit()
-        row = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
+        row = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
         g.current_user = dict(row) if row else None
         return g.current_user, None
-    except sqlite3.IntegrityError:
+    except psycopg.errors.UniqueViolation:
         return None, 'That username is already in use locally. Ask an admin to rename or merge the account.'
     finally:
         conn.close()
@@ -894,7 +894,7 @@ def get_users():
     conn = get_db()
     rows = conn.execute(
         'SELECT id, username, email, full_name, is_admin, platoons FROM users '
-        'WHERE clerk_user_id != "" ORDER BY username'
+        'WHERE clerk_user_id != \'\' ORDER BY username'
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
@@ -906,27 +906,27 @@ def update_user(user_id):
     data = request.get_json()
     fields, values = [], []
     if 'is_admin' in data:
-        fields.append('is_admin = ?')
+        fields.append('is_admin = %s')
         values.append(1 if data['is_admin'] else 0)
     if 'platoons' in data:
-        fields.append('platoons = ?')
+        fields.append('platoons = %s')
         values.append(data['platoons'])
     if 'username' in data:
-        fields.append('username = ?')
+        fields.append('username = %s')
         values.append((data['username'] or '').strip())
     if not fields:
         return jsonify({'error': 'Nothing to update'}), 400
     values.append(user_id)
     conn = get_db()
     try:
-        conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = ? AND clerk_user_id != ""', values)
+        conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s AND clerk_user_id != \'\'', values)
         conn.commit()
         row = conn.execute(
-            'SELECT id, username, email, full_name, is_admin, platoons FROM users WHERE id = ?',
+            'SELECT id, username, email, full_name, is_admin, platoons FROM users WHERE id = %s',
             (user_id,)
         ).fetchone()
         return jsonify(dict(row))
-    except sqlite3.IntegrityError:
+    except psycopg.errors.UniqueViolation:
         return jsonify({'error': 'Username already exists'}), 409
     finally:
         conn.close()
@@ -938,7 +938,7 @@ def delete_user(user_id):
     if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
-    conn.execute('DELETE FROM users WHERE id = ? AND clerk_user_id != ""', (user_id,))
+    conn.execute('DELETE FROM users WHERE id = %s AND clerk_user_id != \'\'', (user_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -978,7 +978,7 @@ def create_invite():
     conn = get_db()
     conn.execute(
         'INSERT INTO invites (token, label, platoons, is_admin, created_by, expires_at, created_at) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'VALUES (%s, %s, %s, %s, %s, %s, %s)',
         (token, label, platoons, is_admin, g.current_user['username'],
          (app_now() + timedelta(days=INVITE_EXPIRY_DAYS)).strftime('%Y-%m-%d %H:%M:%S'),
          app_stamp())
@@ -993,8 +993,8 @@ def create_invite():
 @admin_required
 def revoke_invite(token):
     conn = get_db()
-    row = conn.execute('SELECT label FROM invites WHERE token = ?', (token,)).fetchone()
-    conn.execute('DELETE FROM invites WHERE token = ?', (token,))
+    row = conn.execute('SELECT label FROM invites WHERE token = %s', (token,)).fetchone()
+    conn.execute('DELETE FROM invites WHERE token = %s', (token,))
     conn.commit()
     conn.close()
     if row:
@@ -1028,8 +1028,8 @@ def get_platoons():
     for key, default_name in PLATOONS.items():
         if not has_platoon_access(user, key):
             continue
-        row = conn.execute('SELECT value FROM settings WHERE key = ?', (f'unit_name_{key}',)).fetchone()
-        count = conn.execute('SELECT COUNT(*) FROM personnel WHERE platoon = ?', (key,)).fetchone()[0]
+        row = conn.execute('SELECT value FROM settings WHERE key = %s', (f'unit_name_{key}',)).fetchone()
+        count = conn.execute('SELECT COUNT(*) AS n FROM personnel WHERE platoon = %s', (key,)).fetchone()['n']
         result[key] = {'name': row['value'] if row else default_name, 'count': count}
     conn.close()
     return jsonify(result)
@@ -1046,10 +1046,10 @@ def get_personnel():
     _reconcile_absences(conn, app_today())
     conn.commit()
     rows = conn.execute(
-        'SELECT * FROM personnel WHERE platoon = ? ORDER BY rank, last, first', (platoon,)
+        'SELECT * FROM personnel WHERE platoon = %s ORDER BY rank, last, first', (platoon,)
     ).fetchall()
     scheduled_rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE platoon = ? AND state != 'completed' "
+        "SELECT * FROM scheduled_events WHERE platoon = %s AND state != 'completed' "
         'ORDER BY from_date, to_date, id', (platoon,)
     ).fetchall()
     conn.close()
@@ -1074,12 +1074,12 @@ def add_person():
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
     cur = conn.execute(
-        'INSERT INTO personnel (rank, last, first, platoon) VALUES (?, ?, ?, ?)',
+        'INSERT INTO personnel (rank, last, first, platoon) VALUES (%s, %s, %s, %s) RETURNING id',
         (data.get('rank', ''), data.get('last', ''), data.get('first', ''), platoon)
     )
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()['id']
     conn.commit()
-    row = conn.execute('SELECT * FROM personnel WHERE id = ?', (new_id,)).fetchone()
+    row = conn.execute('SELECT * FROM personnel WHERE id = %s', (new_id,)).fetchone()
     conn.close()
     log_action('ADD_PERSON', f'{data.get("rank","")} {data.get("last","")}, {data.get("first","")}', platoon)
     return jsonify(dict(row)), 201
@@ -1092,12 +1092,12 @@ def update_person(person_id):
     fields, values = [], []
     for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date'):
         if col in data:
-            fields.append(f'{col} = ?')
+            fields.append(f'{col} = %s')
             values.append(data[col])
     if not fields:
         return jsonify({'error': 'No fields to update'}), 400
     conn = get_db()
-    person = conn.execute('SELECT rank, last, first, status, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT rank, last, first, status, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1106,14 +1106,14 @@ def update_person(person_id):
         conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     values.append(person_id)
-    conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = ?', values)
+    conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = %s', values)
     # Only the transition matters: apiUpdate() resends the current status on
     # every save, so a TDY soldier being marked present-for-today still PUTs
     # status='tdy' and must not have their absence closed.
     if data.get('status') == 'present' and person['status'] in ABSENCE_STATUSES:
         _end_running_absence(conn, person_id, app_today())
     conn.commit()
-    row = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
     conn.close()
     if 'status' in data and data['status'] != person['status']:
         log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['platoon'])
@@ -1132,7 +1132,7 @@ PROFILE_FIELDS = (
 @login_required
 def get_profile(person_id):
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1140,7 +1140,7 @@ def get_profile(person_id):
     if not has_platoon_access(user, person['platoon']):
         conn.close()
         return jsonify({'error': 'Forbidden'}), 403
-    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = ?', (person_id,)).fetchone()
+    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
     conn.close()
     profile = dict(row) if row else {'person_id': person_id, **{f: '' for f in PROFILE_FIELDS}}
     return jsonify(profile)
@@ -1151,7 +1151,7 @@ def get_profile(person_id):
 def update_profile(person_id):
     data = request.get_json() or {}
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1166,14 +1166,17 @@ def update_profile(person_id):
         return jsonify({'error': 'No fields to update'}), 400
 
     # Ensure a row exists, then update only the provided columns.
-    conn.execute('INSERT OR IGNORE INTO personnel_profile (person_id) VALUES (?)', (person_id,))
-    assignments = ', '.join(f'{col} = ?' for col in updates)
     conn.execute(
-        f'UPDATE personnel_profile SET {assignments} WHERE person_id = ?',
+        'INSERT INTO personnel_profile (person_id) VALUES (%s) ON CONFLICT (person_id) DO NOTHING',
+        (person_id,)
+    )
+    assignments = ', '.join(f'{col} = %s' for col in updates)
+    conn.execute(
+        f'UPDATE personnel_profile SET {assignments} WHERE person_id = %s',
         [*updates.values(), person_id]
     )
     conn.commit()
-    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = ?', (person_id,)).fetchone()
+    row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
     conn.close()
     log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['platoon'])
     return jsonify(dict(row))
@@ -1184,7 +1187,7 @@ def update_profile(person_id):
 def add_scheduled_event(person_id):
     data = request.get_json()
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1205,8 +1208,8 @@ def add_scheduled_event(person_id):
     # four of them once. The same person, status and window is never a real
     # second absence, so hand back the row that already exists.
     dup = conn.execute(
-        'SELECT * FROM scheduled_events WHERE person_id = ? AND status = ? '
-        'AND from_date = ? AND to_date = ?',
+        'SELECT * FROM scheduled_events WHERE person_id = %s AND status = %s '
+        'AND from_date = %s AND to_date = %s',
         (person_id, status, from_date, to_date)
     ).fetchone()
     if dup is not None:
@@ -1215,14 +1218,14 @@ def add_scheduled_event(person_id):
 
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state) '
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, 'scheduled') RETURNING id",
         (person_id, person['platoon'], status, from_date, to_date,
          data.get('notes', ''), data.get('location', ''))
     )
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()['id']
     _sync_person_status(conn, person_id, app_today())
     conn.commit()
-    row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (new_id,)).fetchone()
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
     conn.close()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['platoon'])
     return jsonify(dict(row)), 201
@@ -1242,11 +1245,11 @@ def get_directory():
         'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, '
         '       pp.dod_id, pp.dob, pp.mos, pp.section, pp.phone '
         'FROM personnel p LEFT JOIN personnel_profile pp ON pp.person_id = p.id '
-        'WHERE p.platoon = ? ORDER BY p.rank, p.last, p.first', (platoon,)
+        'WHERE p.platoon = %s ORDER BY p.rank, p.last, p.first', (platoon,)
     ).fetchall()
     upcoming = conn.execute(
         "SELECT person_id, status, from_date, to_date FROM scheduled_events "
-        "WHERE platoon = ? AND state = 'scheduled' ORDER BY from_date, id", (platoon,)
+        "WHERE platoon = %s AND state = 'scheduled' ORDER BY from_date, id", (platoon,)
     ).fetchall()
     conn.close()
     next_by_person = {}
@@ -1329,14 +1332,14 @@ def get_availability():
 
     conn = get_db()
     people = conn.execute(
-        'SELECT id, rank, last, first, status FROM personnel WHERE platoon = ? '
+        'SELECT id, rank, last, first, status FROM personnel WHERE platoon = %s '
         'ORDER BY rank, last, first', (platoon,)
     ).fetchall()
     # Windows that overlap the question at all; _covered_days works out which
     # days exactly. Open bounds are stored as '' and must not be compared.
     events = conn.execute(
-        'SELECT * FROM scheduled_events WHERE platoon = ? '
-        "AND (from_date = '' OR from_date <= ?) AND (to_date = '' OR to_date >= ?) "
+        'SELECT * FROM scheduled_events WHERE platoon = %s '
+        "AND (from_date = '' OR from_date <= %s) AND (to_date = '' OR to_date >= %s) "
         'ORDER BY from_date, id', (platoon, end, start)
     ).fetchall()
     conn.close()
@@ -1381,7 +1384,7 @@ def get_availability():
 @login_required
 def get_absences(person_id):
     conn = get_db()
-    person = conn.execute('SELECT id, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT id, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1392,7 +1395,7 @@ def get_absences(person_id):
     _reconcile_absences(conn, app_today())
     conn.commit()
     rows = conn.execute(
-        'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date DESC, id DESC',
+        'SELECT * FROM scheduled_events WHERE person_id = %s ORDER BY from_date DESC, id DESC',
         (person_id,)
     ).fetchall()
     conn.close()
@@ -1404,7 +1407,7 @@ def get_absences(person_id):
 def update_scheduled_event(event_id):
     data = request.get_json() or {}
     conn = get_db()
-    row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1427,8 +1430,8 @@ def update_scheduled_event(event_id):
     notes = data.get('notes', '')
 
     conn.execute(
-        'UPDATE scheduled_events SET status = ?, from_date = ?, to_date = ?, notes = ?, location = ? '
-        'WHERE id = ?',
+        'UPDATE scheduled_events SET status = %s, from_date = %s, to_date = %s, notes = %s, location = %s '
+        'WHERE id = %s',
         (status, from_date, to_date, notes, data.get('location', ''), event_id)
     )
 
@@ -1436,8 +1439,8 @@ def update_scheduled_event(event_id):
     # re-derives the row's state from its new dates and owns the display cache.
     _sync_person_status(conn, row['person_id'], today)
     conn.commit()
-    updated = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
-    person = conn.execute('SELECT rank, last FROM personnel WHERE id = ?', (row['person_id'],)).fetchone()
+    updated = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
+    person = conn.execute('SELECT rank, last FROM personnel WHERE id = %s', (row['person_id'],)).fetchone()
     conn.close()
     who = f'{person["rank"]} {person["last"]}: ' if person else ''
     log_action('EDIT_SCHEDULE', f'{who}{status} {from_date} - {to_date or "open"}', row['platoon'])
@@ -1448,7 +1451,7 @@ def update_scheduled_event(event_id):
 @login_required
 def delete_scheduled_event(event_id):
     conn = get_db()
-    row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (event_id,)).fetchone()
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1457,7 +1460,7 @@ def delete_scheduled_event(event_id):
         conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
-    conn.execute('DELETE FROM scheduled_events WHERE id = ?', (event_id,))
+    conn.execute('DELETE FROM scheduled_events WHERE id = %s', (event_id,))
     # Cancelling an in-progress absence returns the soldier to duty.
     _sync_person_status(conn, person_id, app_today())
     conn.commit()
@@ -1470,7 +1473,7 @@ def delete_scheduled_event(event_id):
 @login_required
 def delete_person(person_id):
     conn = get_db()
-    row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if row is None:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
@@ -1479,9 +1482,9 @@ def delete_person(person_id):
         conn.close()
         return jsonify({'error': 'Forbidden'}), 403
     log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
-    conn.execute('DELETE FROM scheduled_events WHERE person_id = ?', (person_id,))
-    conn.execute('DELETE FROM personnel_profile WHERE person_id = ?', (person_id,))
-    conn.execute('DELETE FROM personnel WHERE id = ?', (person_id,))
+    conn.execute('DELETE FROM scheduled_events WHERE person_id = %s', (person_id,))
+    conn.execute('DELETE FROM personnel_profile WHERE person_id = %s', (person_id,))
+    conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -1493,7 +1496,7 @@ def get_settings():
     platoon = request.args.get('platoon', '2nd')
     key = f'unit_name_{platoon}'
     conn = get_db()
-    row = conn.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
+    row = conn.execute('SELECT value FROM settings WHERE key = %s', (key,)).fetchone()
     payload = {
         'unit_name': row['value'] if row else PLATOONS.get(platoon, f'{platoon} Platoon'),
         'tdy_schools': _get_tdy_list(conn, 'schools', platoon),
@@ -1529,14 +1532,14 @@ def update_settings():
             conn.close()
             return jsonify({'error': str(exc)}), 400
         conn.execute(
-            'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
             (TIMEZONE_KEY, new_tz, new_tz)
         )
 
     if 'unit_name' in data:
         key = f'unit_name_{platoon}'
         conn.execute(
-            'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
             (key, data['unit_name'], data['unit_name'])
         )
     logs = []
@@ -1550,7 +1553,7 @@ def update_settings():
             return jsonify({'error': str(exc)}), 400
         value = json.dumps(cleaned)
         conn.execute(
-            'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
             (f'tdy_{kind}_{platoon}', value, value)
         )
         logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
@@ -1579,10 +1582,10 @@ def get_audit():
     conn = get_db()
     if platoon:
         rows = conn.execute(
-            'SELECT * FROM audit_log WHERE platoon = ? ORDER BY id DESC LIMIT ?', (platoon, limit)
+            'SELECT * FROM audit_log WHERE platoon = %s ORDER BY id DESC LIMIT %s', (platoon, limit)
         ).fetchall()
     else:
-        rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
+        rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT %s', (limit,)).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -1635,7 +1638,7 @@ def _duty_conflict(conn, person_id, date_str):
     if not person_id or not date_str:
         return None
     rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE person_id = ? AND state != 'completed' "
+        "SELECT * FROM scheduled_events WHERE person_id = %s AND state != 'completed' "
         'ORDER BY from_date, id', (person_id,)
     ).fetchall()
     # Newest window wins when two overlap, the same tie-break _sync_person_status uses.
@@ -1654,12 +1657,12 @@ def get_duty():
     conn = get_db()
     if date_filter:
         rows = conn.execute(
-            'SELECT * FROM duty_roster WHERE platoon = ? AND date = ? ORDER BY duty_type, id',
+            'SELECT * FROM duty_roster WHERE platoon = %s AND date = %s ORDER BY duty_type, id',
             (platoon, date_filter)
         ).fetchall()
     else:
         rows = conn.execute(
-            'SELECT * FROM duty_roster WHERE platoon = ? ORDER BY date DESC, duty_type, id LIMIT 90',
+            'SELECT * FROM duty_roster WHERE platoon = %s ORDER BY date DESC, duty_type, id LIMIT 90',
             (platoon,)
         ).fetchall()
     out = []
@@ -1687,7 +1690,7 @@ def get_duty_conflicts():
     conn = get_db()
     rows = conn.execute(
         'SELECT s.* FROM scheduled_events s JOIN personnel p ON p.id = s.person_id '
-        "WHERE p.platoon = ? AND s.state != 'completed' ORDER BY s.from_date, s.id",
+        "WHERE p.platoon = %s AND s.state != 'completed' ORDER BY s.from_date, s.id",
         (platoon,)
     ).fetchall()
     conn.close()
@@ -1710,7 +1713,7 @@ def add_duty():
         person_id = int(data.get('person_id'))
     except (TypeError, ValueError):
         person_id = 0
-    person = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None or person['platoon'] != platoon:
         conn.close()
         return jsonify({'error': 'Pick a soldier from this platoon.'}), 400
@@ -1721,13 +1724,13 @@ def add_duty():
     # snapshot so the entry still reads correctly once the soldier is gone.
     cur = conn.execute(
         'INSERT INTO duty_roster (date, platoon, duty_type, person_id, rank, last, first, notes) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
         (date_str, platoon, duty_type, person['id'],
          person['rank'], person['last'], person['first'], data.get('notes', ''))
     )
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()['id']
     conn.commit()
-    row = dict(conn.execute('SELECT * FROM duty_roster WHERE id = ?', (new_id,)).fetchone())
+    row = dict(conn.execute('SELECT * FROM duty_roster WHERE id = %s', (new_id,)).fetchone())
     # Warn, never block: assigning someone who is away is sometimes the real
     # answer, and a tool that refuses just gets worked around.
     row['conflict'] = _duty_conflict(conn, person['id'], date_str)
@@ -1743,7 +1746,7 @@ def add_duty():
 @login_required
 def delete_duty(entry_id):
     conn = get_db()
-    row = conn.execute('SELECT * FROM duty_roster WHERE id = ?', (entry_id,)).fetchone()
+    row = conn.execute('SELECT * FROM duty_roster WHERE id = %s', (entry_id,)).fetchone()
     user = get_current_user()
     if not row:
         conn.close()
@@ -1753,7 +1756,7 @@ def delete_duty(entry_id):
         return jsonify({'error': 'Forbidden'}), 403
     if row:
         log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['platoon'])
-    conn.execute('DELETE FROM duty_roster WHERE id = ?', (entry_id,))
+    conn.execute('DELETE FROM duty_roster WHERE id = %s', (entry_id,))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -1780,8 +1783,8 @@ def _import_timestamp(value):
 def _prune_report_history(conn, platoon):
     """Keep only the most recent REPORT_HISTORY_MAX rows for a platoon."""
     conn.execute(
-        'DELETE FROM report_history WHERE platoon = ? AND id NOT IN ('
-        '  SELECT id FROM report_history WHERE platoon = ? ORDER BY id DESC LIMIT ?'
+        'DELETE FROM report_history WHERE platoon = %s AND id NOT IN ('
+        '  SELECT id FROM report_history WHERE platoon = %s ORDER BY id DESC LIMIT %s'
         ')',
         (platoon, platoon, REPORT_HISTORY_MAX)
     )
@@ -1797,7 +1800,7 @@ def get_reports():
     conn = get_db()
     rows = conn.execute(
         'SELECT id, unit_name, created_at, created_by FROM report_history '
-        'WHERE platoon = ? ORDER BY id DESC LIMIT ?',
+        'WHERE platoon = %s ORDER BY id DESC LIMIT %s',
         (platoon, REPORT_HISTORY_MAX)
     ).fetchall()
     conn.close()
@@ -1824,18 +1827,18 @@ def add_report():
     if created_at:
         cur = conn.execute(
             'INSERT INTO report_history (platoon, unit_name, text, created_by, created_at) '
-            'VALUES (?, ?, ?, ?, ?)',
+            'VALUES (%s, %s, %s, %s, %s) RETURNING id',
             (platoon, unit_name, text, user['username'], created_at)
         )
     else:
         cur = conn.execute(
-            'INSERT INTO report_history (platoon, unit_name, text, created_by) VALUES (?, ?, ?, ?)',
+            'INSERT INTO report_history (platoon, unit_name, text, created_by) VALUES (%s, %s, %s, %s) RETURNING id',
             (platoon, unit_name, text, user['username'])
         )
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()['id']
     _prune_report_history(conn, platoon)
     conn.commit()
-    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (new_id,)).fetchone()
+    row = conn.execute('SELECT * FROM report_history WHERE id = %s', (new_id,)).fetchone()
     conn.close()
     log_action('SAVE_REPORT', unit_name, platoon)
     if not row:
@@ -1848,7 +1851,7 @@ def add_report():
 @login_required
 def get_report(report_id):
     conn = get_db()
-    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (report_id,)).fetchone()
+    row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
     conn.close()
     if not row:
         return jsonify({'error': 'Not found'}), 404
@@ -1862,11 +1865,11 @@ def get_report(report_id):
 @admin_required
 def delete_report(report_id):
     conn = get_db()
-    row = conn.execute('SELECT * FROM report_history WHERE id = ?', (report_id,)).fetchone()
+    row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
     if not row:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    conn.execute('DELETE FROM report_history WHERE id = ?', (report_id,))
+    conn.execute('DELETE FROM report_history WHERE id = %s', (report_id,))
     conn.commit()
     conn.close()
     log_action('DELETE_REPORT', row['unit_name'], row['platoon'])
@@ -1897,7 +1900,7 @@ def export_backup():
         if not accessible:
             conn.close()
             return jsonify({'error': 'No platoon access'}), 403
-        placeholders = ','.join('?' * len(accessible))
+        placeholders = ','.join(['%s'] * len(accessible))
         personnel = [dict(r) for r in conn.execute(
             f'SELECT * FROM personnel WHERE platoon IN ({placeholders})', accessible
         ).fetchall()]
@@ -1945,6 +1948,11 @@ def import_backup():
         # Non-admin restores re-insert personnel under fresh ids; map backup id -> new id
         # so scheduled_events and profiles reattach to the right people.
         person_id_map = {}
+        # Tables an explicit id was inserted into. GENERATED BY DEFAULT AS IDENTITY
+        # does not advance its sequence for an explicit-id insert, so any table
+        # added here needs its sequence resynced before commit or the next
+        # ordinary insert collides with a restored id.
+        resync_id_tables = set()
 
         if 'personnel' in payload:
             if user['is_admin']:
@@ -1956,22 +1964,54 @@ def import_backup():
                 conn.execute('DELETE FROM scheduled_events')
                 conn.execute('DELETE FROM personnel')
                 restored_ids = set()
-                for p in payload['personnel']:
+                # Two passes, not one interleaved loop: a row with an explicit
+                # id never advances the identity sequence, so an id-less row
+                # inserted *between* two explicit-id rows can draw an
+                # auto-assigned id that a not-yet-processed explicit row later
+                # collides with. Insert every explicit-id row first, resync the
+                # sequence past all of them, then let the id-less rows
+                # auto-assign — now guaranteed clear of every id this batch uses.
+                explicit_rows = [p for p in payload['personnel'] if p.get('id') is not None]
+                idless_rows = [p for p in payload['personnel'] if p.get('id') is None]
+                for p in explicit_rows:
+                    pid = p['id']
                     conn.execute(
-                        'INSERT INTO personnel (id, rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        (p.get('id'), p.get('rank',''), p.get('last',''), p.get('first',''),
+                        'INSERT INTO personnel (id, rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                        (pid, p.get('rank',''), p.get('last',''), p.get('first',''),
                          p.get('status','present'), p.get('notes',''),
                          p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
                          p.get('platoon','2nd'))
                     )
-                    restored_ids.add(p.get('id'))
+                    restored_ids.add(pid)
+                    restored_personnel += 1
+                if explicit_rows:
+                    resync_id_tables.add('personnel')
+                    conn.execute(
+                        "SELECT setval(pg_get_serial_sequence('personnel', 'id'), "
+                        "COALESCE((SELECT MAX(id) FROM personnel), 1), true)"
+                    )
+                for p in idless_rows:
+                    # No id in the backup row: omit the column entirely so the
+                    # identity assigns one, rather than inserting an explicit
+                    # NULL (which GENERATED BY DEFAULT AS IDENTITY rejects —
+                    # it is NOT NULL, and only an *omitted* column triggers
+                    # identity generation).
+                    conn.execute(
+                        'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                        (p.get('rank',''), p.get('last',''), p.get('first',''),
+                         p.get('status','present'), p.get('notes',''),
+                         p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
+                         p.get('platoon','2nd'))
+                    )
                     restored_personnel += 1
                 cols = ('person_id', *PROFILE_FIELDS)
-                col_ph = ', '.join('?' * len(cols))
+                col_ph = ', '.join(['%s'] * len(cols))
+                update_set = ', '.join(f'{c} = EXCLUDED.{c}' for c in cols[1:])
                 for pp in preserved_profiles:
                     if pp['person_id'] in restored_ids:
                         conn.execute(
-                            f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                            f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
+                            f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
                             [pp.get(c, '') for c in cols]
                         )
             else:
@@ -1979,27 +2019,33 @@ def import_backup():
                     if p.get('platoon') not in accessible:
                         continue
                     conn.execute(
-                        'DELETE FROM scheduled_events WHERE platoon = ? AND person_id IN ('
-                        'SELECT id FROM personnel WHERE platoon = ? AND last = ? AND first = ?'
+                        'DELETE FROM scheduled_events WHERE platoon = %s AND person_id IN ('
+                        'SELECT id FROM personnel WHERE platoon = %s AND last = %s AND first = %s'
                         ')',
                         (p['platoon'], p['platoon'], p.get('last',''), p.get('first',''))
                     )
                     conn.execute(
-                        'DELETE FROM personnel WHERE platoon = ? AND last = ? AND first = ?',
+                        'DELETE FROM personnel WHERE platoon = %s AND last = %s AND first = %s',
                         (p['platoon'], p.get('last',''), p.get('first',''))
                     )
                     cur = conn.execute(
-                        'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                         (p.get('rank',''), p.get('last',''), p.get('first',''),
                          p.get('status','present'), p.get('notes',''),
                          p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
                          p.get('platoon','2nd'))
                     )
                     if p.get('id') is not None:
-                        person_id_map[p['id']] = cur.lastrowid
+                        person_id_map[p['id']] = cur.fetchone()['id']
                     restored_personnel += 1
 
         if 'scheduled_events' in payload:
+            # Resolve person_id / event_id for every row first, then insert in
+            # two passes (explicit ids, then id-less) for the same reason as
+            # the personnel loop above: an id-less row auto-assigned mid-batch
+            # can otherwise collide with an explicit-id row processed later in
+            # the same payload.
+            resolved = []
             for s in payload['scheduled_events']:
                 if user['is_admin']:
                     person_id = s.get('person_id')
@@ -2009,10 +2055,44 @@ def import_backup():
                     person_id = person_id_map.get(s.get('person_id'))
                     if person_id is None:
                         continue
+                # A non-admin restore never carries a trustworthy backup id (the
+                # row is reattached to a remapped person_id), and an admin
+                # backup row may simply lack one. Either way there is no id to
+                # conflict on, so omit the column and let the identity assign —
+                # an explicit NULL there is a NOT NULL violation, not an
+                # auto-assign, under GENERATED BY DEFAULT AS IDENTITY.
+                event_id = s.get('id') if user['is_admin'] else None
+                resolved.append((event_id, person_id, s))
+
+            for event_id, person_id, s in resolved:
+                if event_id is None:
+                    continue
                 conn.execute(
-                    'INSERT OR REPLACE INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    (s.get('id') if user['is_admin'] else None, person_id, s.get('platoon', '2nd'),
+                    'INSERT INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
+                    'ON CONFLICT (id) DO UPDATE SET person_id = EXCLUDED.person_id, platoon = EXCLUDED.platoon, '
+                    'status = EXCLUDED.status, from_date = EXCLUDED.from_date, to_date = EXCLUDED.to_date, '
+                    'notes = EXCLUDED.notes, location = EXCLUDED.location, created_at = EXCLUDED.created_at, '
+                    'state = EXCLUDED.state',
+                    (event_id, person_id, s.get('platoon', '2nd'),
+                     s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
+                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
+                     s.get('state', 'scheduled'))
+                )
+            if any(event_id is not None for event_id, _, _ in resolved):
+                resync_id_tables.add('scheduled_events')
+                conn.execute(
+                    "SELECT setval(pg_get_serial_sequence('scheduled_events', 'id'), "
+                    "COALESCE((SELECT MAX(id) FROM scheduled_events), 1), true)"
+                )
+
+            for event_id, person_id, s in resolved:
+                if event_id is not None:
+                    continue
+                conn.execute(
+                    'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                    (person_id, s.get('platoon', '2nd'),
                      s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
                      s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
                      s.get('state', 'scheduled'))
@@ -2020,12 +2100,14 @@ def import_backup():
 
         if 'personnel_profile' in payload:
             cols = ('person_id', *PROFILE_FIELDS)
-            col_ph = ', '.join('?' * len(cols))
+            col_ph = ', '.join(['%s'] * len(cols))
+            update_set = ', '.join(f'{c} = EXCLUDED.{c}' for c in cols[1:])
             if user['is_admin']:
                 conn.execute('DELETE FROM personnel_profile')
                 for pp in payload['personnel_profile']:
                     conn.execute(
-                        f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                        f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
+                        f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
                         [pp.get(c, '') for c in cols]
                     )
             else:
@@ -2034,7 +2116,8 @@ def import_backup():
                     if new_id is None:
                         continue
                     conn.execute(
-                        f'INSERT OR REPLACE INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph})',
+                        f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
+                        f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
                         [new_id, *[pp.get(c, '') for c in PROFILE_FIELDS]]
                     )
 
@@ -2042,31 +2125,46 @@ def import_backup():
             if user['is_admin']:
                 conn.execute('DELETE FROM settings')
                 for s in payload['settings']:
-                    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
+                    conn.execute('INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', (s['key'], s['value']))
             else:
                 allowed_keys = {f'unit_name_{p}' for p in accessible}
                 for s in payload['settings']:
                     if s.get('key') in allowed_keys:
-                        conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (s['key'], s['value']))
+                        conn.execute('INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', (s['key'], s['value']))
 
         restored_users = 0
         if user['is_admin'] and 'users' in payload:
             current_uid = user['id']
-            conn.execute('DELETE FROM users WHERE id != ?', (current_uid,))
+            conn.execute('DELETE FROM users WHERE id != %s', (current_uid,))
             for u in payload['users']:
                 if u['id'] == current_uid:
                     continue
                 conn.execute(
-                    'INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, platoons, clerk_user_id, email, full_name, pin_hash) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO users (id, username, password_hash, is_admin, platoons, clerk_user_id, email, full_name, pin_hash) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) '
+                    'ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, '
+                    'password_hash = EXCLUDED.password_hash, is_admin = EXCLUDED.is_admin, '
+                    'platoons = EXCLUDED.platoons, clerk_user_id = EXCLUDED.clerk_user_id, '
+                    'email = EXCLUDED.email, full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash',
                     (u['id'], u['username'], PLACEHOLDER_PASSWORD_HASH, u.get('is_admin', 0),
                      u.get('platoons', ''), u.get('clerk_user_id', ''), u.get('email', ''),
                      u.get('full_name', ''), '')
                 )
+                resync_id_tables.add('users')
                 restored_users += 1
 
         # Training data in older (version 1) backups is intentionally ignored —
         # the 350-1 tracker feature was removed.
+        # Explicit-id inserts above (personnel/scheduled_events/users, admin-only)
+        # do not advance GENERATED BY DEFAULT AS IDENTITY's sequence the way a
+        # normal insert does, so the next ordinary insert into that table would
+        # collide with a restored id. Resync before commit, only for tables this
+        # restore actually gave an explicit id to.
+        for table in resync_id_tables:
+            conn.execute(
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
+            )
         conn.commit()
         log_action('BACKUP_RESTORE', f'Backup restored: {restored_personnel} personnel, {restored_users} users')
         return jsonify({'success': True, 'personnel': restored_personnel, 'users': restored_users})
@@ -2105,7 +2203,7 @@ def reset_day():
     conn = get_db()
     if platoon:
         conn.execute(
-            "UPDATE personnel SET present_date = '' WHERE status = 'present' AND platoon = ?",
+            "UPDATE personnel SET present_date = '' WHERE status = 'present' AND platoon = %s",
             (platoon,)
         )
     else:
@@ -2121,7 +2219,7 @@ def reset_day():
 def _absence_audit(conn, action, row, details):
     conn.execute(
         'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp) '
-        'VALUES (0, ?, ?, ?, ?, ?)',
+        'VALUES (0, %s, %s, %s, %s, %s)',
         ('system', action, details, row['platoon'], app_stamp())
     )
 
@@ -2152,18 +2250,18 @@ def _end_running_absence(conn, person_id, today_str):
     """
     yesterday = (date.fromisoformat(today_str) - timedelta(days=1)).isoformat()
     running = conn.execute(
-        "SELECT * FROM scheduled_events WHERE person_id = ? AND state = 'active'",
+        "SELECT * FROM scheduled_events WHERE person_id = %s AND state = 'active'",
         (person_id,)
     ).fetchall()
     for row in running:
         if row['from_date'] and row['from_date'] > yesterday:
-            conn.execute('DELETE FROM scheduled_events WHERE id = ?', (row['id'],))
+            conn.execute('DELETE FROM scheduled_events WHERE id = %s', (row['id'],))
             _absence_audit(conn, 'ABSENCE_CANCELLED', row,
                            f'person {person_id}: {row["status"]} from {row["from_date"]} '
                            'removed — marked present before it began')
         else:
             conn.execute(
-                "UPDATE scheduled_events SET to_date = ?, state = 'completed' WHERE id = ?",
+                "UPDATE scheduled_events SET to_date = %s, state = 'completed' WHERE id = %s",
                 (yesterday, row['id'])
             )
             _absence_audit(conn, 'ABSENCE_ENDED_EARLY', row,
@@ -2188,7 +2286,7 @@ def _sync_person_status(conn, person_id, today_str):
     transitions, which are the ones that get an audit row.
     """
     live = conn.execute(
-        "SELECT * FROM scheduled_events WHERE person_id = ? AND state != 'completed' "
+        "SELECT * FROM scheduled_events WHERE person_id = %s AND state != 'completed' "
         'ORDER BY from_date, id', (person_id,)
     ).fetchall()
 
@@ -2205,7 +2303,7 @@ def _sync_person_status(conn, person_id, today_str):
         want = 'completed' if (natural == 'active' and r['id'] != winner_id) else natural
         if want == r['state']:
             continue
-        conn.execute('UPDATE scheduled_events SET state = ? WHERE id = ?', (want, r['id']))
+        conn.execute('UPDATE scheduled_events SET state = %s WHERE id = %s', (want, r['id']))
         if want == 'active':
             winner_is_new = True
             activated += 1
@@ -2216,7 +2314,7 @@ def _sync_person_status(conn, person_id, today_str):
             _absence_audit(conn, 'ABSENCE_COMPLETE', r,
                            f'person {r["person_id"]}: {r["status"]} ended {r["to_date"]}')
 
-    person = conn.execute('SELECT status FROM personnel WHERE id = ?', (person_id,)).fetchone()
+    person = conn.execute('SELECT status FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if person is None:
         return {'activated': activated, 'completed': completed}
     # Only ever overwrite a cached absence (or a fresh activation). That leaves a
@@ -2227,12 +2325,12 @@ def _sync_person_status(conn, person_id, today_str):
         if winner_is_new or cached_absence:
             w = next(r for r in live if r['id'] == winner_id)
             conn.execute(
-                'UPDATE personnel SET status=?, from_date=?, to_date=?, notes=? WHERE id=?',
+                'UPDATE personnel SET status=%s, from_date=%s, to_date=%s, notes=%s WHERE id=%s',
                 (w['status'], w['from_date'], w['to_date'], w['notes'], person_id)
             )
     elif cached_absence:
         conn.execute(
-            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' WHERE id = ?",
+            "UPDATE personnel SET status='present', from_date='', to_date='', notes='' WHERE id = %s",
             (person_id,)
         )
     return {'activated': activated, 'completed': completed}
