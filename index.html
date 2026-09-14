@@ -1668,8 +1668,14 @@
     font-size: 1.45em; font-weight: 700; cursor: pointer; padding: 18px;
   }
   .fm-btn:active { transform: scale(0.985); }
-  .fm-btn-present { border-color: var(--cp-green); background: var(--cp-green-bg); color: var(--cp-green); }
-  .fm-btn-away { border-color: var(--cp-amber); background: var(--cp-amber-bg); color: var(--cp-amber); }
+  /* Solid green and solid red. At 0630 in the dark this is read at a glance and
+     tapped without looking twice, so the two answers are opposite colours at
+     full strength rather than tints of the roster palette. Both clear 3:1
+     against white for text this size. */
+  .fm-btn-present { border-color: transparent; background: #0f9d58; color: #fff; }
+  .fm-btn-away { border-color: transparent; background: #d92d20; color: #fff; }
+  .fm-btn-present:active { background: #0c8249; }
+  .fm-btn-away:active { background: #b42318; }
   .fm-reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .fm-reasons .fm-btn { min-height: 13vh; font-size: 1.2em; }
   .fm-back {
@@ -1815,6 +1821,20 @@
     min-height: 40px; cursor: pointer;
   }
   .settings-select:disabled { opacity: 0.6; cursor: default; }
+  .switch {
+    flex: none; margin-left: auto; position: relative; cursor: pointer;
+    width: 52px; height: 32px; padding: 0; border-radius: 999px;
+    border: 1px solid var(--theme_border); background: var(--theme_surface-soft, var(--theme_border));
+    transition: background 0.18s ease-out, border-color 0.18s ease-out;
+  }
+  .switch .switch-knob {
+    position: absolute; top: 2px; left: 2px; width: 26px; height: 26px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: transform 0.18s ease-out;
+  }
+  .switch.on { background: var(--theme_action, #1b61c9); border-color: transparent; }
+  .switch.on .switch-knob { transform: translateX(20px); }
+  .switch:focus-visible { outline: 2px solid var(--theme_action, #1b61c9); outline-offset: 2px; }
   @media (max-width: 900px) {
     /* On a phone the row stacks, and a right-aligned control ends up floating
        under the hint with a gap; full width reads as part of the row. */
@@ -3958,6 +3978,21 @@ async function saveOrgTimezone(zone) {
   renderSettings();
 }
 
+// A switch says what the setting IS. The button it replaces said what it would
+// become, which reads backwards next to every other row on the page.
+function settingsToggle(label, hint, on, fn) {
+  return `<div class="settings-row">
+    <div class="settings-row-text">
+      <div class="settings-row-label">${label}</div>
+      <div class="settings-row-hint">${hint}</div>
+    </div>
+    <button type="button" class="switch${on ? ' on' : ''}" role="switch"
+            aria-checked="${on}" aria-label="${label}" onclick="${fn}">
+      <span class="switch-knob"></span>
+    </button>
+  </div>`;
+}
+
 function renderSettings() {
   const view = document.getElementById('settingsView');
   if (!view) return;
@@ -3971,8 +4006,8 @@ function renderSettings() {
     <div class="soldier-cards settings-cards">
       <section class="soldier-card">
         <h3>Appearance</h3>
-        ${settingsRow('Theme', isDark ? 'Currently dark.' : 'Currently light.',
-                      isDark ? 'Switch to light' : 'Switch to dark', 'toggleTheme();renderSettings()')}
+        ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar.',
+                         isDark, 'toggleTheme();renderSettings()')}
       </section>
       <section class="soldier-card">
         <h3>Organisation</h3>
@@ -5040,6 +5075,20 @@ function renderSoldierPage() {
     <div class="soldier-panel" data-panel="overview">
       <div class="soldier-cards">
         <section class="soldier-card">
+          <h3>Name &amp; rank</h3>
+          <label class="pf-label" for="pf_identity_rank">Rank</label>
+          <select id="pf_identity_rank">
+            ${RANK_ORDER.map(r =>
+              `<option value="${r}"${r === p.rank ? ' selected' : ''}>${r}</option>`).join('')}
+            ${RANK_ORDER.includes(p.rank) ? '' :
+              `<option value="${escapeHtml(p.rank)}" selected>${escapeHtml(p.rank)}</option>`}
+          </select>
+          <label class="pf-label" for="pf_identity_last">Last name</label>
+          <input type="text" id="pf_identity_last" value="${escapeHtml(p.last)}" autocomplete="off">
+          <label class="pf-label" for="pf_identity_first">First name</label>
+          <input type="text" id="pf_identity_first" value="${escapeHtml(p.first)}" autocomplete="off">
+        </section>
+        <section class="soldier-card">
           <h3>Contact</h3>
           ${profileField('Phone', 'phone', 'tel')}
           ${profileField('Email', 'email', 'email')}
@@ -5093,8 +5142,43 @@ function renderSoldierPage() {
   renderProfileAbsences();
 }
 
+// Rank and name live on `personnel`, not `personnel_profile`, so they are a
+// second request. Only sent when they actually changed, and only the three
+// fields — PUT /api/personnel builds its UPDATE from the keys present, so
+// posting the whole person here would let a stale page overwrite a status
+// someone changed on the roster in the meantime.
+async function saveIdentity(person) {
+  const rank = (document.getElementById('pf_identity_rank') || {}).value;
+  const last = ((document.getElementById('pf_identity_last') || {}).value || '').trim();
+  const first = ((document.getElementById('pf_identity_first') || {}).value || '').trim();
+  if (rank === undefined) return true;
+  if (!last) { alert('A last name is required.'); return false; }
+  if (rank === person.rank && last === person.last && first === person.first) return true;
+
+  const res = await api('PUT', `/personnel/${person.id}`, { rank, last, first });
+  if (!res || res.error) {
+    alert(res && res.error ? res.error : 'Could not save the name.');
+    return false;
+  }
+  person.rank = rank; person.last = last; person.first = first;
+  // Update the hero in place rather than re-rendering the page: a re-render
+  // rebuilds the profile inputs empty and would throw away whatever else the
+  // user had typed but not yet saved.
+  const hero = document.querySelector('#soldierView .soldier-hero-name');
+  if (hero) {
+    hero.innerHTML = `${escapeHtml(rank)} ${escapeHtml(last)}, ${escapeHtml(first)} ` +
+                     dashPill(person.status);
+  }
+  const avatar = document.querySelector('#soldierView .soldier-avatar');
+  if (avatar) avatar.textContent = soldierInitials(person);
+  render();                // every roster row carries the name too
+  return true;
+}
+
 async function saveProfile() {
   if (!currentSoldierId) return;
+  const person = currentSoldierPerson();
+  if (person && !(await saveIdentity(person))) return;
   const body = {};
   PROFILE_FIELD_IDS.forEach(f => {
     const el = document.getElementById('pf_' + f);
