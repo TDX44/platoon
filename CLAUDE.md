@@ -31,6 +31,7 @@ python tests/test_duty_roster.py      # duty roster / absence conflict detection
 python tests/test_report_history.py   # report history persistence
 python tests/test_availability.py     # who is free on date X (date-window rules)
 python tests/test_formation_order.py  # formation queue rule (runs the JS under node)
+python tests/test_timezone.py          # the duty day follows the unit, not the server
 python tests/test_mobile_layout.py    # layout geometry: overflow, duplicated row
                                       # metadata, modal control fit, tap targets
 ```
@@ -176,6 +177,23 @@ because `completed` is a claim about today, not about the day being asked
 about. `loan` is reported separately, as in `generateStrengthReport()`. Range
 mode means "unavailable on any day of the range" and each person carries the
 `days` they are out. Tests: `tests/test_availability.py`.
+
+### Time
+
+The duty day is the **unit's**, not the server's or the viewer's. prodsrv02 runs
+UTC, so `date.today()` rolled the roster over at 1900 Central and activated
+absences for courses starting the next morning. `APP_TZ` (env `PLATOON_TZ`,
+default `America/Chicago`) is the one clock: `app_today()`, `app_now()` and
+`app_stamp()` are the only ways the backend asks what time it is, and
+`tests/test_timezone.py` fails the build if a raw `date.today()` reappears.
+Stored timestamps (audit log, invites) are written from `app_stamp()` rather
+than SQLite's `datetime('now')`, which is always UTC; the surviving column
+DEFAULTs use `datetime('now', 'localtime')` and rely on the container's `TZ`,
+which `docker-compose.yml` pins to the same zone.
+
+The frontend has its own `APP_TZ` with the same default and adopts the server's
+value from `/api/auth/config`, so a phone in Germany reports the same duty day
+as the roster back home. Keep the two defaults in step.
 
 ### Multi-platoon model
 

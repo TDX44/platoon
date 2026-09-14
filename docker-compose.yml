@@ -8,6 +8,12 @@ services:
     environment:
       DATA_DIR: /data
       HTTPS: "true"
+      # The host runs UTC. The app reads dates through app_today() so it is
+      # correct either way, but SQLite column DEFAULTs use datetime('now',
+      # 'localtime'), which follows the container clock — and container logs
+      # are far easier to read against the duty day. PLATOON_TZ must match.
+      TZ: America/Chicago
+      PLATOON_TZ: America/Chicago
     volumes:
       - ./data:/data
     # Resolve directly against the LAN resolvers instead of inheriting the

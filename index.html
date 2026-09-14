@@ -3437,6 +3437,12 @@ const RANK_ORDER = [
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 
+// The duty day is the unit's, not the device's. A phone in Germany was six
+// hours into tomorrow while the roster back home was still on today, so every
+// date read goes through the unit's timezone rather than the browser's. The
+// server sends the authoritative value in /api/auth/config; this default only
+// covers the moment before that lands, and must match APP_TZ in server.py.
+let APP_TZ = 'America/Chicago';
 let personnel = [];
 let tdyLeaveIndex = -1;
 let bulkTdyIds = [];   // when non-empty, the status modal applies to all of these ids
@@ -3855,7 +3861,10 @@ function refreshData() {
 function updateAsOf() {
   const el = document.getElementById('dashAsOf');
   if (!el) return;
+  // Stamped in the unit's timezone so "as of" means the same thing to everyone
+  // reading the roster, wherever they happen to be standing.
   el.textContent = new Date().toLocaleString(undefined, {
+    timeZone: APP_TZ,
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 }
@@ -5305,9 +5314,22 @@ function dashSchedRow(p) {
   </div>`;
 }
 
+function appDateParts(d = new Date()) {
+  // en-CA gives YYYY-MM-DD, which is the format the whole app stores dates in.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(d);
+}
+
 function getTodayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return appDateParts();
+}
+
+// A Date is a point in time, so "what calendar day is this in the unit's
+// timezone" has to go through the formatter too, not through getDate().
+function appDate(d = new Date()) {
+  const [y, m, day] = appDateParts(d).split('-').map(Number);
+  return new Date(y, m - 1, day);
 }
 
 
@@ -6007,7 +6029,8 @@ async function confirmImport() {
 
 // ─── Report ───
 function formatDate(d) {
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const t = appDate(d);
+  return `${t.getDate()} ${MONTHS[t.getMonth()]} ${t.getFullYear()}`;
 }
 
 // Both reports refuse to render while anyone is unaccounted — the PDY count
@@ -6704,6 +6727,8 @@ async function loadAuthConfig() {
   if (authConfig) return authConfig;
   const res = await fetch('/api/auth/config', { credentials: 'same-origin' });
   authConfig = await res.json();
+  // The server owns the duty-day clock; adopt it so the two cannot drift.
+  if (authConfig && authConfig.timezone) APP_TZ = authConfig.timezone;
   return authConfig;
 }
 

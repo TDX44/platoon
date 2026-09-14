@@ -9,6 +9,7 @@ import base64
 from datetime import datetime, date
 from functools import wraps
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 from urllib.error import URLError
 from flask import Flask, request, jsonify, send_from_directory, session, g
 from werkzeug.security import generate_password_hash
@@ -68,6 +69,27 @@ PLATOONS = {
 # Every dated absence lives in scheduled_events and is mirrored onto
 # personnel.status by _sync_person_status(). 'loan' is deliberately absent: it
 # has no dates, is never a scheduled event, and must never be reconciled away.
+# The duty day belongs to the unit, not to the server or the viewer. prodsrv02
+# runs UTC, so date.today() rolled over at 1900 local and marked people away for
+# a course starting the next morning. Every "what day is it" question goes
+# through app_today(); nothing reads date.today() directly.
+# Keep APP_TZ in index.html in step with this.
+APP_TZ = ZoneInfo(os.environ.get('PLATOON_TZ', 'America/Chicago'))
+
+
+def app_now():
+    return datetime.now(APP_TZ)
+
+
+def app_today():
+    return app_now().date().isoformat()
+
+
+def app_stamp():
+    """Wall-clock timestamp for stored rows, in the unit's timezone."""
+    return app_now().strftime('%Y-%m-%d %H:%M:%S')
+
+
 ABSENCE_STATUSES = ('tdy', 'leave', 'pass', 'other', 'ftr')
 
 # ── TDY picklists ──────────────────────────────────────────────────────────
@@ -170,7 +192,7 @@ def init_db():
     cur.execute('''
         CREATE TABLE IF NOT EXISTS audit_log (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT DEFAULT (datetime('now')),
+            timestamp TEXT DEFAULT (datetime('now', 'localtime')),
             user_id   INTEGER DEFAULT 0,
             username  TEXT DEFAULT '',
             action    TEXT DEFAULT '',
@@ -202,7 +224,7 @@ def init_db():
             from_date  TEXT DEFAULT '',
             to_date    TEXT DEFAULT '',
             notes      TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
             state      TEXT DEFAULT 'scheduled',
             FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
         )
@@ -240,7 +262,7 @@ def init_db():
             platoons    TEXT DEFAULT '',
             is_admin    INTEGER DEFAULT 0,
             created_by  TEXT DEFAULT '',
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', 'localtime')),
             expires_at  TEXT DEFAULT '',
             accepted_at TEXT DEFAULT '',
             accepted_by TEXT DEFAULT ''
@@ -253,7 +275,7 @@ def init_db():
             platoon    TEXT NOT NULL,
             unit_name  TEXT DEFAULT '',
             text       TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
             created_by TEXT DEFAULT ''
         )
     ''')
@@ -405,8 +427,9 @@ def log_action(action, details='', platoon=''):
         except Exception:
             pass
         conn.execute(
-            'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (?, ?, ?, ?, ?)',
-            (user_id, username, action, str(details), platoon)
+            'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (user_id, username, action, str(details), platoon, app_stamp())
         )
         conn.commit()
         conn.close()
@@ -556,8 +579,8 @@ def _valid_invite(conn, token):
         return None
     return conn.execute(
         "SELECT * FROM invites WHERE token = ? AND accepted_at = '' "
-        "AND expires_at > datetime('now')",
-        (token,)
+        'AND expires_at > ?',
+        (token, app_stamp())
     ).fetchone()
 
 
@@ -659,8 +682,8 @@ def sync_clerk_user(payload):
                 )
         if invite:
             conn.execute(
-                "UPDATE invites SET accepted_at = datetime('now'), accepted_by = ? WHERE token = ?",
-                (clerk_user_id, invite['token'])
+                'UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE token = ?',
+                (app_stamp(), clerk_user_id, invite['token'])
             )
         conn.commit()
         row = conn.execute('SELECT * FROM users WHERE clerk_user_id = ?', (clerk_user_id,)).fetchone()
@@ -753,6 +776,7 @@ def auth_config():
         'enabled': CLERK_ENABLED,
         'publishable_key': CLERK_PUBLISHABLE_KEY,
         'frontend_api_url': CLERK_FRONTEND_API_URL,
+        'timezone': str(APP_TZ),
     })
 
 
@@ -858,7 +882,7 @@ def delete_user(user_id):
 def get_invites():
     conn = get_db()
     rows = conn.execute('SELECT * FROM invites ORDER BY created_at DESC LIMIT 50').fetchall()
-    now = conn.execute("SELECT datetime('now')").fetchone()[0]
+    now = app_stamp()
     conn.close()
     return jsonify([{
         'token': r['token'],
@@ -884,9 +908,11 @@ def create_invite():
     token = secrets.token_urlsafe(24)
     conn = get_db()
     conn.execute(
-        'INSERT INTO invites (token, label, platoons, is_admin, created_by, expires_at) '
-        "VALUES (?, ?, ?, ?, ?, datetime('now', ?))",
-        (token, label, platoons, is_admin, g.current_user['username'], f'+{INVITE_EXPIRY_DAYS} days')
+        'INSERT INTO invites (token, label, platoons, is_admin, created_by, expires_at, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (token, label, platoons, is_admin, g.current_user['username'],
+         (app_now() + timedelta(days=INVITE_EXPIRY_DAYS)).strftime('%Y-%m-%d %H:%M:%S'),
+         app_stamp())
     )
     conn.commit()
     conn.close()
@@ -948,7 +974,7 @@ def get_personnel():
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
-    _reconcile_absences(conn, date.today().isoformat())
+    _reconcile_absences(conn, app_today())
     conn.commit()
     rows = conn.execute(
         'SELECT * FROM personnel WHERE platoon = ? ORDER BY rank, last, first', (platoon,)
@@ -1016,7 +1042,7 @@ def update_person(person_id):
     # every save, so a TDY soldier being marked present-for-today still PUTs
     # status='tdy' and must not have their absence closed.
     if data.get('status') == 'present' and person['status'] in ABSENCE_STATUSES:
-        _end_running_absence(conn, person_id, date.today().isoformat())
+        _end_running_absence(conn, person_id, app_today())
     conn.commit()
     row = conn.execute('SELECT * FROM personnel WHERE id = ?', (person_id,)).fetchone()
     conn.close()
@@ -1103,7 +1129,7 @@ def add_scheduled_event(person_id):
         conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
-    from_date = (data.get('from_date') or '').strip() or date.today().isoformat()
+    from_date = (data.get('from_date') or '').strip() or app_today()
     to_date = (data.get('to_date') or '').strip()
 
     # ponytail: a double-tapped Save used to insert a second identical row —
@@ -1125,7 +1151,7 @@ def add_scheduled_event(person_id):
          data.get('notes', ''), data.get('location', ''))
     )
     new_id = cur.lastrowid
-    _sync_person_status(conn, person_id, date.today().isoformat())
+    _sync_person_status(conn, person_id, app_today())
     conn.commit()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = ?', (new_id,)).fetchone()
     conn.close()
@@ -1141,7 +1167,7 @@ def get_directory():
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
-    _reconcile_absences(conn, date.today().isoformat())
+    _reconcile_absences(conn, app_today())
     conn.commit()
     rows = conn.execute(
         'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, '
@@ -1221,7 +1247,7 @@ def get_availability():
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
 
-    start = (request.args.get('date') or '').strip() or date.today().isoformat()
+    start = (request.args.get('date') or '').strip() or app_today()
     end = (request.args.get('to') or '').strip() or start
     try:
         span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
@@ -1299,7 +1325,7 @@ def get_absences(person_id):
     if not has_platoon_access(user, person['platoon']):
         conn.close()
         return jsonify({'error': 'Forbidden'}), 403
-    _reconcile_absences(conn, date.today().isoformat())
+    _reconcile_absences(conn, app_today())
     conn.commit()
     rows = conn.execute(
         'SELECT * FROM scheduled_events WHERE person_id = ? ORDER BY from_date DESC, id DESC',
@@ -1331,7 +1357,7 @@ def update_scheduled_event(event_id):
         conn.close()
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
-    today = date.today().isoformat()
+    today = app_today()
     from_date = (data.get('from_date') or '').strip() or today
     to_date = (data.get('to_date') or '').strip()
     notes = data.get('notes', '')
@@ -1369,7 +1395,7 @@ def delete_scheduled_event(event_id):
     person_id = row['person_id']
     conn.execute('DELETE FROM scheduled_events WHERE id = ?', (event_id,))
     # Cancelling an in-progress absence returns the soldier to duty.
-    _sync_person_status(conn, person_id, date.today().isoformat())
+    _sync_person_status(conn, person_id, app_today())
     conn.commit()
     conn.close()
     log_action('DELETE_SCHEDULE', f'{row["status"]} on {row["from_date"]}', row['platoon'])
@@ -1570,7 +1596,7 @@ def get_duty_conflicts():
     user = get_current_user()
     if not has_platoon_access(user, platoon):
         return jsonify({'error': 'Forbidden'}), 403
-    date_str = request.args.get('date', '') or date.today().isoformat()
+    date_str = request.args.get('date', '') or app_today()
     conn = get_db()
     rows = conn.execute(
         'SELECT s.* FROM scheduled_events s JOIN personnel p ON p.id = s.person_id '
@@ -1813,7 +1839,7 @@ def export_backup():
     return Response(
         json.dumps(payload, indent=2),
         mimetype='application/json',
-        headers={'Content-Disposition': f'attachment; filename=platoon-backup-{label}-{date.today()}.json'}
+        headers={'Content-Disposition': f'attachment; filename=platoon-backup-{label}-{app_today()}.json'}
     )
 
 
@@ -1967,7 +1993,7 @@ def import_backup():
 @app.route('/api/activate-scheduled', methods=['POST'])
 @login_required
 def activate_scheduled():
-    today_str = date.today().isoformat()
+    today_str = app_today()
     conn = get_db()
     result = _reconcile_absences(conn, today_str)
     conn.commit()
@@ -2007,8 +2033,9 @@ def reset_day():
 
 def _absence_audit(conn, action, row, details):
     conn.execute(
-        'INSERT INTO audit_log (user_id, username, action, details, platoon) VALUES (0, ?, ?, ?, ?)',
-        ('system', action, details, row['platoon'])
+        'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp) '
+        'VALUES (0, ?, ?, ?, ?, ?)',
+        ('system', action, details, row['platoon'], app_stamp())
     )
 
 
@@ -2145,7 +2172,7 @@ def _reconcile_absences(conn, today_str):
 def _midnight_reset_worker():
     last_reset_date = None
     while True:
-        now = datetime.now()
+        now = app_now()
         today = now.date()
         today_str = today.isoformat()
         if now.hour == 0 and now.minute == 0 and today != last_reset_date:

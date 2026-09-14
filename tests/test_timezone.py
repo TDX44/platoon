@@ -1,0 +1,113 @@
+"""The duty day belongs to the unit, not to the server.
+
+prodsrv02 runs UTC, so date.today() rolled over at 1900 Central and marked four
+people away for a course that started the next morning. Every "what day is it"
+question now goes through app_today(), which reads a fixed timezone.
+
+Run with: python tests/test_timezone.py
+"""
+import os
+import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ['DATA_DIR'] = tempfile.mkdtemp()
+# The bug's exact conditions: a server whose own clock is UTC.
+os.environ['TZ'] = 'UTC'
+try:
+    import time
+    time.tzset()
+except AttributeError:          # not POSIX; the assertions below still hold
+    pass
+os.environ['PLATOON_TZ'] = 'America/Chicago'
+
+import server  # noqa: E402  (must follow the env overrides above)
+
+CENTRAL = ZoneInfo('America/Chicago')
+
+
+def check_today_is_the_units_day():
+    """The evening hours are the whole bug: 1931 Central is already tomorrow UTC."""
+    from datetime import date
+    server_day = date.today().isoformat()
+    unit_day = server.app_today()
+    now_central = datetime.now(CENTRAL)
+    assert unit_day == now_central.date().isoformat(), (
+        f'app_today() returned {unit_day}, expected {now_central.date().isoformat()}'
+    )
+    # Only meaningful during the UTC-offset window, but free to assert always.
+    if now_central.hour >= 19:
+        assert unit_day != server_day, (
+            'after 1900 Central the server is already on tomorrow in UTC; '
+            'app_today() must still say today'
+        )
+
+
+def check_stamp_is_the_units_clock():
+    stamp = server.app_stamp()
+    parsed = datetime.strptime(stamp, '%Y-%m-%d %H:%M:%S')
+    expected = datetime.now(CENTRAL).replace(tzinfo=None)
+    drift = abs((parsed - expected).total_seconds())
+    assert drift < 5, f'app_stamp() is {drift:.0f}s off the unit clock: {stamp}'
+    # ...and demonstrably not UTC, which is what it used to be.
+    utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((parsed - utc_naive).total_seconds()) > 3000, (
+        'app_stamp() is still writing UTC'
+    )
+
+
+def check_no_raw_date_today_remains():
+    """One missed call reintroduces the bug on that one code path."""
+    source = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'server.py')).read()
+    code = [ln for ln in source.splitlines()
+            if 'date.today()' in ln and not ln.lstrip().startswith('#')]
+    assert not code, f'these lines still read the server clock directly: {code}'
+
+
+def check_absence_activates_on_the_units_day():
+    """The actual failure: an absence starting tomorrow must not be active tonight."""
+    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
+    conn = server.get_db()
+    conn.execute('DELETE FROM personnel')
+    conn.execute('DELETE FROM scheduled_events')
+    conn.execute("INSERT INTO personnel (id, rank, last, first, status, platoon) "
+                 "VALUES (1, 'CW2', 'Boundy', 'Ray', 'present', '2nd')")
+    tomorrow = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
+    conn.execute(
+        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
+        "VALUES (1, '2nd', 'tdy', ?, ?, 'IO - Dothan, AL', 'scheduled')",
+        (tomorrow, tomorrow))
+    conn.commit()
+    conn.close()
+
+    client = server.app.test_client()
+    assert client.get('/api/personnel?platoon=2nd').status_code == 200
+
+    conn = server.get_db()
+    state = conn.execute('SELECT state FROM scheduled_events WHERE person_id = 1').fetchone()[0]
+    status = conn.execute('SELECT status FROM personnel WHERE id = 1').fetchone()[0]
+    conn.close()
+    assert state == 'scheduled', f"tomorrow's TDY activated early (state={state})"
+    assert status == 'present', f'roster shows {status}; the course has not started yet'
+
+
+def check_config_publishes_the_timezone():
+    """The frontend adopts this so the two clocks cannot drift apart."""
+    payload = server.app.test_client().get('/api/auth/config').get_json()
+    assert payload.get('timezone') == 'America/Chicago', payload
+
+
+def main():
+    check_today_is_the_units_day()
+    check_stamp_is_the_units_clock()
+    check_no_raw_date_today_remains()
+    check_absence_activates_on_the_units_day()
+    check_config_publishes_the_timezone()
+    print('ok')
+
+
+if __name__ == '__main__':
+    main()
