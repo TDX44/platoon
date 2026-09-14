@@ -228,7 +228,11 @@
     -webkit-appearance: none; appearance: none;
     max-width: 100%; min-width: 0; box-sizing: border-box;
   }
-  .rp-field::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
+  /* With appearance:none, iOS sizes a date input from this inner value box
+     rather than from the padding, so profile dates rendered visibly shorter
+     than the text fields beside them. .rp-field already carried the fix; every
+     date field needs it. */
+  input[type="date"]::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
   .rp-field::-webkit-calendar-picker-indicator { display: none; }
   .rp-pop {
     position: fixed; z-index: 4000;
@@ -2086,7 +2090,12 @@
     color: var(--theme_text);
     border: 1px solid var(--theme_border);
     border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; font-family: inherit;
+    line-height: 1.25;
   }
+  /* An explicit height, so a date, a text field and a select are the same row
+     whatever the browser decides their intrinsic height should be. 40px also
+     puts them within reach of a thumb. */
+  .soldier-card input, .soldier-card select { height: 40px; }
   .soldier-card input:focus, .soldier-card textarea:focus, .soldier-card select:focus {
     outline: none; border-color: var(--theme_accent, #1b61c9);
     box-shadow: 0 0 0 3px rgba(27,97,201,0.12);
