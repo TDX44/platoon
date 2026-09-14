@@ -7,3 +7,6 @@ __pycache__/
 
 # Local DB snapshots written by scripts/backup-db.sh on the server
 backups/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
