@@ -1656,7 +1656,11 @@
     text-transform: uppercase; color: var(--cp-muted); margin-bottom: 2px;
   }
   .fm-sub { text-align: center; color: var(--cp-text-weak); font-size: 0.95em; }
-  .fm-actions { display: flex; flex-direction: column; gap: 14px; }
+  /* Side by side, not stacked: "Not here" on the left, Present green on the
+     right under the thumb. Two targets across a phone are still far bigger
+     than anything else in the app. */
+  .fm-actions { display: flex; gap: 12px; }
+  .fm-actions .fm-btn { flex: 1 1 0; min-width: 0; }
   .fm-btn {
     width: 100%; box-sizing: border-box; min-height: 19vh;
     border-radius: var(--cp-radius-lg); border: 2px solid var(--cp-border);
@@ -4454,8 +4458,8 @@ function renderFormation() {
         ? `<div class="fm-reasons">${FORMATION_REASONS.map(s =>
              `<button class="fm-btn" onclick="formationMark('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
         : `<div class="fm-actions">
-             <button class="fm-btn fm-btn-present" onclick="formationMark('present')">Present</button>
              <button class="fm-btn fm-btn-away" onclick="formationAsk()">Not here</button>
+             <button class="fm-btn fm-btn-present" onclick="formationMark('present')">Present</button>
            </div>`}
     </div>
     ${back}`;
