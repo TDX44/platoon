@@ -238,7 +238,7 @@ def _columns(cur, table):
 
 
 def init_db():
-    conn = get_db()
+    conn = psycopg.connect(MIGRATION_DATABASE_URL, row_factory=dict_row)
     cur = conn.cursor()
 
     cur.execute('''

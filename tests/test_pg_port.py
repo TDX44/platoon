@@ -264,6 +264,25 @@ def test_200_response_commits():
     assert row is not None and row['value'] == 'WROTE', 'a successful request must commit'
 
 
+def test_app_role_cannot_change_schema():
+    """The application connects as a non-owner.
+
+    In A1 the RLS policies live on these tables, and a table owner bypasses its
+    own policies without error. Proving the app is not the owner now means that
+    failure mode cannot appear later.
+    """
+    app_url = os.environ.get('TEST_APP_DATABASE_URL')
+    if not app_url:
+        print('  (skipped: TEST_APP_DATABASE_URL not set)')
+        return
+    with psycopg.connect(app_url, autocommit=True) as conn:
+        try:
+            conn.execute('CREATE TABLE should_not_exist (id int)')
+            assert False, 'the application role must not be able to create tables'
+        except psycopg.errors.InsufficientPrivilege:
+            pass
+
+
 def main():
     try:
         test_harness_isolates()
@@ -274,6 +293,7 @@ def main():
         test_failed_request_rolls_back_partial_writes()
         test_4xx_response_rolls_back_partial_writes()
         test_200_response_commits()
+        test_app_role_cannot_change_schema()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

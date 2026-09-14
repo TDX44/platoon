@@ -16,6 +16,7 @@ services:
       TZ: America/Chicago
       PLATOON_TZ: America/Chicago
       DATABASE_URL: postgresql://platoon_app:${DB_APP_PASSWORD}@db:5432/platoon
+      MIGRATION_DATABASE_URL: postgresql://platoon_owner:${DB_OWNER_PASSWORD}@db:5432/platoon
     volumes:
       - ./data:/data
     # Resolve directly against the LAN resolvers instead of inheriting the
