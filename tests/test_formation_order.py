@@ -94,10 +94,6 @@ def main():
     assert out['queue'] == [1], out['queue']
     assert out['known'] == [2, 3], out['known']
 
-    # 4. On loan is not this platoon's to count, and never appears at all.
-    out = run([soldier(1), soldier(2, status='loan')])
-    assert out['queue'] == [1] and out['known'] == [], out
-
     # 5. Every away status lands in known, never in the queue.
     away = [soldier(i + 2, status=s) for i, s in enumerate(['tdy', 'leave', 'pass', 'other', 'ftr'])]
     out = run([soldier(1)] + away)
@@ -106,7 +102,7 @@ def main():
 
     # 6. A fully accounted-for platoon produces an empty queue rather than
     #    walking the user through 29 pointless taps.
-    out = run([soldier(1, present_date=TODAY), soldier(2, status='tdy'), soldier(3, status='loan')])
+    out = run([soldier(1, present_date=TODAY), soldier(2, status='tdy')])
     assert out['queue'] == [], out['queue']
 
     # 7. An empty roster is not a crash.

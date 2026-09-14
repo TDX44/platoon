@@ -147,7 +147,6 @@
   .badge-tdy { background: #0984e3; color: #fff; }
   .badge-other { background: #e17055; color: #fff; }
   .badge-ftr { background: #d63031; color: #fff; }
-  .badge-loan { background: #6c5ce7; color: #fff; }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -201,7 +200,6 @@
   .status-toggle.active-pass { border-color: #ffeaa7; background: #ffeaa722; color: #ffeaa7; }
   .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
   .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
-  .status-toggle.active-loan { border-color: #6c5ce7; background: #6c5ce722; color: #a29bfe; }
   .status-toggle.active-late { border-color: #e17055; background: #e1705522; color: #ff9f7f; }
   .status-toggle.active-excused { border-color: #00b894; background: #00b89422; color: #55efc4; }
 
@@ -994,7 +992,6 @@
     color: var(--theme_danger);
     border-color: #6f2d2f;
   }
-  body.dark-mode .badge-loan,
   body.dark-mode .platoon-badge.admin-badge {
     background: #252a32;
     color: #d6deea;
@@ -1416,7 +1413,6 @@
     background: #fff5f4;
     color: var(--theme_danger);
   }
-  .badge-loan,
   .platoon-badge.admin-badge {
     background: #f1f5f9;
     color: #334155;
@@ -2063,7 +2059,6 @@
   .status-cell.s-leave::before,
   .status-cell.s-pass::before    { background: var(--cp-amber); }
   .status-cell.s-ftr::before     { background: var(--cp-red); }
-  .status-cell.s-loan::before    { background: var(--dash-purple); }
   .status-cell.s-late::before    { background: var(--cp-red); }
   .status-cell.s-excused::before { background: var(--cp-steel); }
 
@@ -2820,7 +2815,6 @@
   .sec-away .dash-section-count { background: var(--dash-blue-bg); color: var(--dash-blue); border-color: transparent; }
   .sec-ftr .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
   .sec-sched .dash-section-count { background: var(--dash-amber-bg); color: var(--dash-amber); border-color: transparent; }
-  .sec-loan .dash-section-count { background: var(--dash-purple-bg); color: var(--dash-purple); border-color: transparent; }
   .dash-section-spacer { flex: 1; }
   .dash-section-chev { color: var(--dash-faint); font-size: 0.8em; transition: transform 0.15s; }
   .dash-section.collapsed .dash-section-chev { transform: rotate(-90deg); }
@@ -2858,7 +2852,6 @@
   .dash-pill.p-tdy { background: var(--dash-blue-bg); color: var(--dash-blue); }
   .dash-pill.p-other { background: var(--dash-hover); color: var(--dash-muted); }
   .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
-  .dash-pill.p-loan { background: var(--dash-purple-bg); color: var(--dash-purple); }
   .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
   /* Late borrows FTR's red at low strength — it is a problem, just a smaller
      one. Excused sits with the accounted-for blues. */
@@ -3277,7 +3270,6 @@
       <option value="excused">Excused</option>
       <option value="other">Other / FTR</option>
       <option value="scheduled">Scheduled</option>
-      <option value="loan">On Loan</option>
     </select>
     <label class="dash-filter-label" for="sortSel">Sort by</label>
     <select id="sortSel" onchange="setSortFromSel(this.value)">
@@ -3405,12 +3397,6 @@
       <button class="status-toggle" data-status="late" onclick="setAwayStatus('late')">Running Late</button>
       <button class="status-toggle" data-status="excused" onclick="setAwayStatus('excused')">Excused</button>
       <button class="status-toggle" data-status="ftr" onclick="setAwayStatus('ftr')">FTR</button>
-      <button class="status-toggle" data-status="loan" onclick="setAwayStatus('loan')">On Loan</button>
-    </div>
-
-    <div id="loanRow" style="display:none;">
-      <label>Position</label>
-      <input type="text" id="loanPosition" placeholder="e.g. S2 NCOIC, BN Intel Officer" oninput="updateNotesPreview()" />
     </div>
 
     <div id="reasonRow" style="display:none;">
@@ -3766,7 +3752,6 @@ function statusFilterMatches(p, filter) {
   if (filter === 'late') return p.status === 'late';
   if (filter === 'excused') return p.status === 'excused';
   if (filter === 'scheduled') return scheduledEventsFor(p).length > 0;
-  if (filter === 'loan') return p.status === 'loan';
   return true;
 }
 
@@ -3805,7 +3790,7 @@ function renderMetrics(counts, total, todayStr) {
   const accounted = Math.max(0, total - (counts.unaccounted || 0));
   const percent = total ? Math.round((accounted / total) * 100) : 100;
   const nextWeek = addDaysStr(todayStr, 7);
-  const unaccounted = personnel.filter(p => p.status !== 'loan' && isUnaccounted(p));
+  const unaccounted = personnel.filter(isUnaccounted);
   const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek);
 
   const R = 26, C = 2 * Math.PI * R;
@@ -3852,7 +3837,6 @@ function renderReportPreview(counts, total) {
     ['TDY / School', counts.tdy || 0, ''],
     ['Other', counts.other || 0, ''],
     ['FTR', counts.ftr || 0, counts.ftr ? 'warn' : ''],
-    ['On Loan (excluded)', counts.loan || 0, ''],
     ['Returning this week', returningSoon, '']
   ];
   el.innerHTML = `<div class="dash-preview-head">${escapeHtml(unitName)}</div>
@@ -4342,8 +4326,7 @@ function renderAvailabilityResults() {
     : formatDateShort(d.date);
   el.innerHTML = `
     <p class="avail-summary"><strong>${freeList.length}</strong> available &middot;
-      <strong>${outList.length}</strong> out &middot; ${when}${
-      d.on_loan.length ? ` &middot; ${d.on_loan.length} on loan (not assigned)` : ''}</p>
+      <strong>${outList.length}</strong> out &middot; ${when}</p>
     <div class="avail-cols">
       <section class="avail-card">
         <h3>Available <span class="avail-n">${freeList.length}</span></h3>
@@ -4354,8 +4337,6 @@ function renderAvailabilityResults() {
         <h3>Not available <span class="avail-n">${outList.length}</span></h3>
         ${outList.map(p => availabilityRow(p, d.span)).join('') ||
           '<div class="dash-section-empty">Nobody is out.</div>'}
-        ${d.on_loan.length ? `<h3>On loan &mdash; not assigned <span class="avail-n">${d.on_loan.length}</span></h3>` +
-          [...d.on_loan].sort(rankSort).map(availabilityNameRow).join('') : ''}
       </section>
     </div>`;
 }
@@ -4375,9 +4356,6 @@ const FORMATION_REASONS = ['late', 'excused', 'leave', 'pass', 'tdy', 'other', '
 function formationQueue(people, todayStr) {
   const queue = [], known = [];
   for (const p of people) {
-    // On loan: not assigned to this platoon. The strength report and the
-    // standard report both leave them out, and so does formation.
-    if (p.status === 'loan') continue;
     // Already away on a current absence: the app knows where they are, and
     // asking about someone who is on leave in front of the platoon is pure
     // tax. Skipped from the queue, NOT dropped — the finish screen lists them
@@ -4480,7 +4458,7 @@ async function formationKnownPresent(id) {
 }
 
 function formationTally() {
-  const roster = personnel.filter(p => p.status !== 'loan');
+  const roster = personnel;
   const present = roster.filter(isPresentToday).length;
   const away = roster.filter(p => p.status !== 'present').length;
   return { total: roster.length, present, away, left: roster.length - present - away };
@@ -4527,7 +4505,7 @@ function formationDoneHTML() {
   const t = formationTally();
   const known = formation.known
     .map(id => personnel.find(p => p.id === id))
-    .filter(p => p && p.status !== 'present' && p.status !== 'loan');
+    .filter(p => p && p.status !== 'present');
   const counted = formation.ids.length;
   return `
     <div class="fm-top">
@@ -5267,12 +5245,10 @@ function openAbsenceModal(eventId = null) {
   updateNotesPreview();
 }
 
-// Editing one absence: On Loan is not an absence, and the person-level scheduled
-// list / Clear button would act on other rows, so hide them for this mode.
+// Editing one absence: the person-level scheduled list and Clear button would
+// act on other rows, so hide them for this mode.
 function syncAbsenceEditMode() {
   const editing = editingAbsenceId !== null;
-  const loanToggle = document.querySelector('#statusToggles [data-status="loan"]');
-  if (loanToggle) loanToggle.style.display = editing ? 'none' : '';
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').style.display = editing ? 'none' : '';
   document.getElementById('clearScheduleBtn').style.display = 'none';
@@ -5376,21 +5352,19 @@ function render() {
   const ftrList         = sortCol !== 'rank'
     ? applySort(visible.filter(p => p.status === 'ftr'))
     : visible.filter(p => p.status === 'ftr').sort(endDateSort);
-  const loanList        = applySort(visible.filter(p => p.status === 'loan'));
   const scheduledList   = applySort(visible.filter(p => scheduledEventsFor(p).length));
 
   const body = document.getElementById('personnelBody');
   body.innerHTML = '';
 
-  // Counts always use full (unfiltered) personnel — loan excluded from accountability counts
-  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, loan:0, late:0, excused:0, scheduled:0 };
+  // Counts always use full (unfiltered) personnel.
+  let counts = { present:0, unaccounted:0, leave:0, pass:0, tdy:0, other:0, ftr:0, late:0, excused:0, scheduled:0 };
   personnel.forEach(p => {
     counts.scheduled += scheduledEventsFor(p).length;
-    if (p.status === 'loan') { counts.loan++; }
-    else if (isUnaccounted(p)) { counts.unaccounted++; }
+    if (isUnaccounted(p)) { counts.unaccounted++; }
     else { counts[p.status] = (counts[p.status] || 0) + 1; }
   });
-  const total = personnel.filter(p => p.status !== 'loan').length;
+  const total = personnel.length;
 
   syncNavActive();
   renderMetrics(counts, total, todayStr);
@@ -5440,12 +5414,6 @@ function render() {
     html += dashSection('sched', 'Scheduled', 'sec-sched', schedRows, secCount(scheduledList.length, counts.scheduled));
   }
 
-  // On Loan — excluded from accountability counts
-  if (loanList.length) {
-    const loanRows = loanList.map(p => dashLoanRow(p)).join('');
-    html += dashSection('loan', 'On Loan', 'sec-loan', loanRows, secCount(loanList.length, counts.loan));
-  }
-
   body.innerHTML = html;
 
   updateSortHeaders();
@@ -5469,7 +5437,7 @@ function dashSection(key, title, secClass, rowsHtml, count, opts = {}) {
 
 const STATUS_LABELS = {
   present: 'Present', leave: 'Leave', pass: 'Pass', tdy: 'TDY', other: 'Other',
-  ftr: 'FTR', loan: 'On Loan', late: 'Late', excused: 'Excused'
+  ftr: 'FTR', late: 'Late', excused: 'Excused'
 };
 
 function dashPill(status) {
@@ -5572,25 +5540,6 @@ function dashAwayRow(p, todayStr) {
       ['Edit person', `openEditModal(${i})`]
     ])}</div>
     ${dashMobileDetail([escapeHtml(p.notes || ''), dateRange])}
-  </div>`;
-}
-
-function dashLoanRow(p) {
-  const i = personnel.indexOf(p);
-  return `<div class="dash-row">
-    ${dashCheckbox(p)}
-    <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}${dashMobileTop(dashPill('loan'))}</div>
-    <div class="dash-row-meta">
-      <span>${dashPill('loan')}</span>
-      ${p.notes ? `<span title="${escapeHtml(p.notes)}">${escapeHtml(p.notes)}</span>` : ''}
-    </div>
-    <div class="dash-row-actions">${dashRowMenu([
-      ['View profile', `openProfile(${i})`],
-      ['Update status…', `openTdyLeave(${i})`],
-      ['Edit person', `openEditModal(${i})`]
-    ])}</div>
-    ${dashMobileDetail(escapeHtml(p.notes || ''))}
   </div>`;
 }
 
@@ -5889,12 +5838,7 @@ function setAwayStatus(status) {
     if (btn.dataset.status === status) btn.classList.add(`active-${status}`);
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
-  document.getElementById('loanRow').style.display = status === 'loan' ? 'block' : 'none';
   syncReasonField(status);
-  // Hide date picker for loan (no dates needed)
-  document.querySelector('.date-pick-row').style.display = status === 'loan' ? 'none' : '';
-  document.getElementById('notesPreview').closest('div').previousElementSibling.style.display = status === 'loan' ? 'none' : '';
-  document.getElementById('notesPreview').closest('div').style.display = status === 'loan' ? 'none' : '';
   updateNotesPreview();
 }
 
@@ -5966,7 +5910,7 @@ function applyTdyLists(settings) {
 
 // ─── Notes preview ───
 function updateNotesPreview() {
-  const statusLabels = { tdy:'TDY', leave:'Leave', pass:'Pass', other:'Other', ftr:'FTR', loan:'On Loan' };
+  const statusLabels = STATUS_LABELS;
   const parts = [statusLabels[awayStatus] || awayStatus];
 
   if (awayStatus === 'tdy') {
@@ -6005,7 +5949,6 @@ function openTdyLeave(i) {
   // Restore school/location, position, or category from notes
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  document.getElementById('loanPosition').value = '';
   document.getElementById('reasonInput').value = '';
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
@@ -6015,8 +5958,6 @@ function openTdyLeave(i) {
     } else {
       pickSet('awaySchool', p.notes);
     }
-  } else if (status === 'loan' && p.notes) {
-    document.getElementById('loanPosition').value = p.notes;
   } else if (status === 'other' && p.notes) {
     document.getElementById('reasonInput').value = p.notes;
   }
@@ -6049,7 +5990,6 @@ function bulkAbsenceNotes() {
     const location = pickValue('awayLocation');
     return [school, location].filter(Boolean).join(' - ');
   }
-  if (awayStatus === 'loan') return document.getElementById('loanPosition').value.trim();
   if (REASON_FIELDS[awayStatus]) return document.getElementById('reasonInput').value.trim();
   return '';
 }
@@ -6057,25 +5997,14 @@ function bulkAbsenceNotes() {
 async function saveBulkTdyLeave() {
   const ids = [...bulkTdyIds];
   const notesVal = bulkAbsenceNotes();
-  if (awayStatus === 'loan') {
-    const updates = [];
-    for (const id of ids) {
-      const p = personnel.find(x => x.id === id);
-      if (!p) continue;
-      p.status = 'loan'; p.notes = notesVal; p.from = ''; p.to = '';
-      updates.push(apiUpdate(p));
-    }
-    await Promise.all(updates);
-  } else {
-    const results = await Promise.all(ids.map(id =>
-      api('POST', `/personnel/${id}/schedule`, {
-        status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal
-      })
-    ));
-    const failed = results.filter(r => !r || r.error).length;
-    if (failed) alert(`${failed} of ${ids.length} could not be saved.`);
-    await load();   // server reconciled; pull the truth
-  }
+  const results = await Promise.all(ids.map(id =>
+    api('POST', `/personnel/${id}/schedule`, {
+      status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal
+    })
+  ));
+  const failed = results.filter(r => !r || r.error).length;
+  if (failed) alert(`${failed} of ${ids.length} could not be saved.`);
+  await load();   // server reconciled; pull the truth
   clearBulkSelect();
   closeTdyLeaveModal();
   render();
@@ -6093,8 +6022,6 @@ async function saveTdyLeave() {
     const school = pickValue('awaySchool');
     const location = pickValue('awayLocation');
     notesVal = [school, location].filter(Boolean).join(' - ');
-  } else if (awayStatus === 'loan') {
-    notesVal = document.getElementById('loanPosition').value.trim();
   } else if (REASON_FIELDS[awayStatus]) {
     notesVal = document.getElementById('reasonInput').value.trim();
   }
@@ -6120,28 +6047,19 @@ async function saveTdyLeave() {
     return;
   }
 
-  if (awayStatus === 'loan') {
-    // Loan has no dates and is never a scheduled event.
-    p.status = 'loan';
-    p.notes  = notesVal;
-    p.from   = '';
-    p.to     = '';
-    await apiUpdate(p);
-  } else {
-    // Every dated absence is a lifecycle event; the server activates it
-    // immediately when from_date is today (or blank) and schedules it otherwise.
-    const event = await api('POST', `/personnel/${p.id}/schedule`, {
-      status: awayStatus,
-      from_date: awayFrom,
-      to_date: awayTo,
-      notes: notesVal
-    });
-    if (!event || event.error) {
-      alert(event && event.error ? event.error : 'Could not save absence.');
-      return;
-    }
-    await load();   // server reconciled; pull the truth
+  // Every dated absence is a lifecycle event; the server activates it
+  // immediately when from_date is today (or blank) and schedules it otherwise.
+  const event = await api('POST', `/personnel/${p.id}/schedule`, {
+    status: awayStatus,
+    from_date: awayFrom,
+    to_date: awayTo,
+    notes: notesVal
+  });
+  if (!event || event.error) {
+    alert(event && event.error ? event.error : 'Could not save absence.');
+    return;
   }
+  await load();   // server reconciled; pull the truth
 
   closeTdyLeaveModal();
   render();
@@ -6211,7 +6129,7 @@ async function deleteScheduledEvent(eventId) {
 
 function updateFutureNotice() {
   const today = getTodayStr();
-  const isFuture = awayFrom && awayFrom > today && awayStatus !== 'loan';
+  const isFuture = !!awayFrom && awayFrom > today;
   document.getElementById('futureScheduleNotice').style.display = isFuture ? 'block' : 'none';
 }
 
@@ -6373,9 +6291,9 @@ function formatDate(d) {
 }
 
 // Both reports refuse to render while anyone is unaccounted — the PDY count
-// would be wrong. Loan is excluded from accountability entirely.
+// would be wrong.
 function reportBlockedByUnaccounted() {
-  const unaccounted = personnel.filter(p => p.status !== 'loan' && isUnaccounted(p));
+  const unaccounted = personnel.filter(isUnaccounted);
   if (!unaccounted.length) return false;
   const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
   alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
@@ -6394,8 +6312,7 @@ function generateStrengthReport() {
   if (reportBlockedByUnaccounted()) return;
 
   const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
-  const roster = personnel.filter(p => p.status !== 'loan');
-  const onLoan = personnel.length - roster.length;
+  const roster = personnel;
   const byStatus = [
     ['TDY',     roster.filter(p => p.status === 'tdy').length],
     ['Leave',   roster.filter(p => p.status === 'leave').length],
@@ -6407,7 +6324,6 @@ function generateStrengthReport() {
   ];
   const parts = [`${roster.length} Assigned`, `${roster.filter(isPresentToday).length} PDY`]
     .concat(byStatus.filter(([, n]) => n > 0).map(([label, n]) => `${n} ${label}`));
-  if (onLoan) parts.push(`${onLoan} on Loan (not assigned)`);
 
   showReportModal('Formation Report', [unitName, formatDate(new Date()), '', parts.join(', ')].join('\n'));
 }
@@ -6425,9 +6341,8 @@ function generateReport() {
   const late = personnel.filter(p => p.status === 'late').sort(rankSort);
   const excused = personnel.filter(p => p.status === 'excused').sort(rankSort);
   const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
-  // loan excluded from report entirely
 
-  const assignedCount = personnel.filter(p => p.status !== 'loan').length;
+  const assignedCount = personnel.length;
   let lines = [];
   lines.push(unitName);
   lines.push(today);
@@ -6698,7 +6613,7 @@ function openBulkStatusModal(status) {
   setAwayStatus(status);
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  ['loanPosition', 'reasonInput'].forEach(id => {
+  ['reasonInput'].forEach(id => {
     document.getElementById(id).value = '';
   });
   awayFrom = ''; awayTo = '';
@@ -6806,7 +6721,7 @@ function renderDutyPersonOptions() {
   const select = document.getElementById('dutyPerson');
   if (!select) return;
   const keep = select.value;
-  const available = personnel.filter(p => p.status !== 'loan').sort(rankSort);
+  const available = [...personnel].sort(rankSort);
   if (!available.length) {
     select.innerHTML = '<option value="">No personnel loaded</option>';
     return;
@@ -8041,7 +7956,7 @@ window.addEventListener('popstate', () => {
 function exportCSV() {
   const today = getTodayStr();
   const rows = [['#','Rank','Last','First','Status','Notes','From','To']];
-  personnel.filter(p => p.status !== 'loan').forEach((p, i) => {
+  personnel.forEach((p, i) => {
     const status = p.status === 'present'
       ? (p.present_date === today ? 'Present' : 'Unaccounted')
       : p.status.charAt(0).toUpperCase() + p.status.slice(1);

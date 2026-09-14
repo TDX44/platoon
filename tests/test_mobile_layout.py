@@ -79,9 +79,6 @@ PERSONNEL_FIXTURE = [
     {'id': 7, 'rank': 'SGT', 'last': 'Mockridge', 'first': 'Dev',
      'status': 'ftr', 'notes': '', 'from': day(-3), 'to': day(-1),
      'present_date': '', 'scheduled_events': []},
-    {'id': 8, 'rank': 'CW2', 'last': 'Stubbins', 'first': 'Aki',
-     'status': 'loan', 'notes': 'S2 NCOIC', 'from': '', 'to': '',
-     'present_date': '', 'scheduled_events': []},
     {'id': 9, 'rank': 'SPC', 'last': 'Placeholderman', 'first': 'Ola',
      'status': 'present', 'notes': '', 'from': '', 'to': '',
      'present_date': TODAY.isoformat(),
@@ -118,8 +115,6 @@ AVAILABILITY_FIXTURE = {
                      'days': [day(3), day(4)], 'whole_range': False}
                     for p in PERSONNEL_FIXTURE
                     if p['status'] in ('tdy', 'leave', 'pass', 'other', 'ftr')],
-    'on_loan': [{'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']}
-                for p in PERSONNEL_FIXTURE if p['status'] == 'loan'],
 }
 
 WIDTHS = [320, 390, 1280]

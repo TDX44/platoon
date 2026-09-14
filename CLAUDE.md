@@ -96,7 +96,7 @@ full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
 route, because it is a transient task and there must be nothing behind it to
 hit by accident at 0630. `formationQueue(people, todayStr)` is a pure function
 and the whole rule about who gets asked — unaccounted only, sorted by
-`rankSort()`; `loan` is dropped, and anyone already away on a current absence
+`rankSort()`; anyone already away on a current absence
 is skipped but handed back as `known` so the finish screen can show them and
 let a wrong one be corrected. It writes only through the existing APIs (`PUT
 /api/personnel/<id>` with `status: 'present'`, `POST
@@ -171,8 +171,8 @@ that decides which statuses get the free-text reason box and how it is worded.
 
 Two rules it deliberately keeps: `completed` is terminal (history is never
 resurrected), and the cache is only overwritten when it already holds an absence
-or when an absence has just activated — which is what keeps `loan` (no dates,
-never a scheduled event) and a hand-set "present" from being reconciled away.
+or when an absence has just activated — which is what keeps a hand-set
+"present" from being reconciled away.
 Completed absences reject edits. Tests: `tests/test_schedule_edit.py`.
 
 **Planning off the same table**: `GET /api/availability?platoon=&date=[&to=]`
@@ -182,8 +182,7 @@ answers "who is free on date X" (the Availability page, `openAvailability()` /
 `from_date <= D` and (`to_date = '' or to_date >= D`) — the same open-ended
 bounds `_derive_state()` uses — and the dates decide regardless of `state`,
 because `completed` is a claim about today, not about the day being asked
-about. `loan` is reported separately, as in `generateStrengthReport()`. Range
-mode means "unavailable on any day of the range" and each person carries the
+about. Range mode means "unavailable on any day of the range" and each person carries the
 `days` they are out. Tests: `tests/test_availability.py`.
 
 ### Time

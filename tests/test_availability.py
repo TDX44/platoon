@@ -144,18 +144,6 @@ def main():
     assert out(ask(c, 6, 8)) == [1], 'unavailable on any one day of the range counts'
     assert reason(ask(c, 6, 10), 1)['days'] == [day(8)]
 
-    # ── On loan is reported separately, exactly like the strength report ─────
-    clear()
-    conn = server.get_db()
-    conn.execute("UPDATE personnel SET status='loan', notes='S2 NCOIC' WHERE id = 2")
-    conn.commit()
-    conn.close()
-    data = ask(c, 0)
-    assert free(data) == [1], 'a loaned soldier is not available manpower'
-    assert [p['id'] for p in data['on_loan']] == [2], data['on_loan']
-    assert out(data) == [], 'on loan is not an absence'
-    clear()
-
     # ── State never overrides the dates ──────────────────────────────────────
     # A completed row whose window still covers the day asked about is a real
     # booking that was never cancelled, so it must not silently vanish.

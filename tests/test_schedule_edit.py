@@ -168,19 +168,6 @@ def main():
     assert c.delete(f'/api/schedules/{eid}').status_code == 200
     assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
-    # 11. 'loan' has no dates and is never a scheduled event: reconciliation
-    #     must not touch it, even when a stale absence row expires under it.
-    clear()
-    conn = server.get_db()
-    conn.execute("INSERT OR REPLACE INTO personnel (id, rank, last, first, status, notes, platoon) "
-                 "VALUES (2, 'SPC', 'Boone', 'Rae', 'loan', 'S2 NCOIC', '2nd')")
-    conn.execute("INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, state) "
-                 "VALUES (2, '2nd', 'tdy', ?, ?, 'active')", (day(-9), day(-1)))
-    conn.commit()
-    conn.close()
-    c.get('/api/personnel?platoon=2nd')
-    assert person(2)['status'] == 'loan', 'a loaned soldier must never be reconciled to present'
-
     # 12. A new absence booked for today activates on creation.
     clear()
     r = c.post('/api/personnel/1/schedule',

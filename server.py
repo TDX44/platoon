@@ -67,8 +67,6 @@ PLATOONS = {
 }
 
 # Every dated absence lives in scheduled_events and is mirrored onto
-# personnel.status by _sync_person_status(). 'loan' is deliberately absent: it
-# has no dates, is never a scheduled event, and must never be reconciled away.
 # The duty day belongs to the unit, not to the server or the viewer. prodsrv02
 # runs UTC, so date.today() rolled over at 1900 local and marked people away for
 # a course starting the next morning. Every "what day is it" question goes
@@ -1333,14 +1331,9 @@ def get_availability():
     for e in events:
         by_person.setdefault(e['person_id'], []).append(e)
 
-    available, unavailable, on_loan = [], [], []
+    available, unavailable = [], []
     for p in people:
         who = {'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']}
-        # Loaned soldiers are not assigned to this platoon. The strength report
-        # counts them separately (generateStrengthReport) and so does this.
-        if p['status'] == 'loan':
-            on_loan.append(who)
-            continue
         covering = []
         for e in by_person.get(p['id'], []):
             hit = _covered_days(e, start, end)
@@ -1366,7 +1359,7 @@ def get_availability():
 
     return jsonify({
         'platoon': platoon, 'date': start, 'to': end, 'span': span,
-        'available': available, 'unavailable': unavailable, 'on_loan': on_loan,
+        'available': available, 'unavailable': unavailable,
     })
 
 
@@ -2212,9 +2205,9 @@ def _sync_person_status(conn, person_id, today_str):
     person = conn.execute('SELECT status FROM personnel WHERE id = ?', (person_id,)).fetchone()
     if person is None:
         return {'activated': activated, 'completed': completed}
-    # Only ever overwrite a cached absence (or a fresh activation). That leaves
-    # 'loan' alone, and leaves a soldier someone marked present by hand alone
-    # until the absence that is still running actually ends.
+    # Only ever overwrite a cached absence (or a fresh activation). That leaves a
+    # soldier someone marked present by hand alone until the absence that is
+    # still running actually ends.
     cached_absence = person['status'] in ABSENCE_STATUSES
     if winner_id is not None:
         if winner_is_new or cached_absence:
