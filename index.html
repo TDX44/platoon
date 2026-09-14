@@ -1641,7 +1641,15 @@
     background: var(--cp-hairline); overflow: hidden;
   }
   .fm-bar span { display: block; height: 100%; background: var(--cp-accent); transition: width 0.18s ease-out; }
-  .fm-body { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+  /* Name up top, answers at the bottom where a thumb actually reaches — the
+     pair used to sit mid-screen with a third of the display empty below them. */
+  .fm-body {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    justify-content: flex-end; gap: 16px; padding-bottom: 5vh;
+  }
+  /* The name takes whatever is left and centres itself in it, so the answers
+     stay low for the thumb without leaving a void above them. */
+  .fm-head { flex: 1; display: flex; flex-direction: column; justify-content: center; }
   .fm-name {
     text-align: center; font-weight: 800; line-height: 1.05;
     /* 11vw alone is sized off width only, so a wide-but-short window (a resized
@@ -1651,10 +1659,6 @@
     font-size: clamp(1.9em, min(11vw, 8.5vh), 3.4em); color: var(--cp-text-strong);
     word-break: break-word;
   }
-  .fm-rank {
-    text-align: center; font-size: 1.2em; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--cp-muted); margin-bottom: 2px;
-  }
   .fm-sub { text-align: center; color: var(--cp-text-weak); font-size: 0.95em; }
   /* Side by side, not stacked: "Not here" on the left, Present green on the
      right under the thumb. Two targets across a phone are still far bigger
@@ -1662,7 +1666,7 @@
   .fm-actions { display: flex; gap: 12px; }
   .fm-actions .fm-btn { flex: 1 1 0; min-width: 0; }
   .fm-btn {
-    width: 100%; box-sizing: border-box; min-height: 19vh;
+    width: 100%; box-sizing: border-box; min-height: 13vh;
     border-radius: var(--cp-radius-lg); border: 2px solid var(--cp-border);
     background: var(--cp-surface); color: var(--cp-text-strong);
     font-size: 1.45em; font-weight: 700; cursor: pointer; padding: 18px;
@@ -1672,9 +1676,11 @@
      tapped without looking twice, so the two answers are opposite colours at
      full strength rather than tints of the roster palette. Both clear 3:1
      against white for text this size. */
-  .fm-btn-present { border-color: transparent; background: #0f9d58; color: #fff; }
+  /* The app's blue, not a one-off green: --cp-accent-text flips with the theme,
+     so the label stays legible on both the light-mode and dark-mode blue. */
+  .fm-btn-present { border-color: transparent; background: var(--cp-accent); color: var(--cp-accent-text); }
   .fm-btn-away { border-color: transparent; background: #d92d20; color: #fff; }
-  .fm-btn-present:active { background: #0c8249; }
+  .fm-btn-present:active { background: var(--cp-accent-active, var(--cp-accent)); }
   .fm-btn-away:active { background: #b42318; }
   .fm-reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .fm-reasons .fm-btn { min-height: 13vh; font-size: 1.2em; }
@@ -1689,9 +1695,9 @@
      falling off the bottom where a thumb cannot reach it. */
   @media (max-height: 660px) {
     body.formation-active .formation { padding-top: max(6px, env(safe-area-inset-top)); }
-    .fm-body { gap: 10px; }
+    .fm-body { gap: 10px; padding-bottom: 3vh; }
     .fm-bar { margin-top: 6px; }
-    .fm-btn { min-height: 16vh; }
+    .fm-btn { min-height: max(64px, 11vh); }
     .fm-actions { gap: 10px; }
     .fm-reasons { gap: 8px; }
     .fm-reasons .fm-btn { min-height: max(44px, 10vh); font-size: 1.05em; }
@@ -4484,9 +4490,8 @@ function renderFormation() {
     </div>
     <div class="fm-bar"><span style="width:${Math.round(formation.i / total * 100)}%"></span></div>
     <div class="fm-body">
-      <div>
-        <div class="fm-rank">${escapeHtml(p.rank)}</div>
-        <div class="fm-name">${escapeHtml(p.last)}, ${escapeHtml(p.first)}</div>
+      <div class="fm-head">
+        <div class="fm-name">${escapeHtml(p.first)} ${escapeHtml(p.last)}</div>
         ${formation.asking ? '<div class="fm-sub">Why are they not here?</div>' : ''}
       </div>
       ${formation.asking
