@@ -94,6 +94,53 @@ def check_absence_activates_on_the_units_day():
     assert status == 'present', f'roster shows {status}; the course has not started yet'
 
 
+def check_timezone_is_an_org_setting():
+    """One zone for the whole organisation, stored, admin-only, validated."""
+    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
+    c = server.app.test_client()
+
+    assert c.put('/api/settings?platoon=2nd', json={'timezone': 'Europe/Berlin'}).status_code == 200
+    assert server.app_timezone() == 'Europe/Berlin'
+    # It changes the duty day, which is the whole point of storing it.
+    berlin_day = datetime.now(ZoneInfo('Europe/Berlin')).date().isoformat()
+    assert server.app_today() == berlin_day, (server.app_today(), berlin_day)
+
+    # Published on both the public config and the roster's own settings call,
+    # so a client picks it up whichever it loads first.
+    assert c.get('/api/auth/config').get_json()['timezone'] == 'Europe/Berlin'
+    assert c.get('/api/settings?platoon=2nd').get_json()['timezone'] == 'Europe/Berlin'
+
+    # One key for the organisation, not one per platoon.
+    conn = server.get_db()
+    keys = [r[0] for r in conn.execute(
+        "SELECT key FROM settings WHERE key LIKE '%timezone%'")]
+    conn.close()
+    assert keys == [server.TIMEZONE_KEY], keys
+
+    # Survives a restart: the stored value is adopted, not the env fallback.
+    server.set_app_timezone(server.FALLBACK_TZ)
+    assert server.load_app_timezone() == 'Europe/Berlin'
+
+    # A nonsense zone is refused and changes nothing.
+    assert c.put('/api/settings?platoon=2nd', json={'timezone': 'Mars/Olympus'}).status_code == 400
+    assert server.app_timezone() == 'Europe/Berlin'
+
+    # A bad value already in the database must not stop the app booting.
+    conn = server.get_db()
+    conn.execute('UPDATE settings SET value = ? WHERE key = ?', ('Nowhere/Nothing', server.TIMEZONE_KEY))
+    conn.commit()
+    conn.close()
+    assert server.load_app_timezone() == 'Europe/Berlin', 'a bad stored zone must fall back, not raise'
+
+    # Non-admins cannot move the duty day for everyone else.
+    server.get_current_user = lambda: {'is_admin': 0, 'id': 2, 'username': 'joe', 'platoons': '2nd'}
+    assert c.put('/api/settings?platoon=2nd', json={'timezone': 'UTC'}).status_code == 403
+    assert server.app_timezone() == 'Europe/Berlin'
+
+    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
+    c.put('/api/settings?platoon=2nd', json={'timezone': 'America/Chicago'})
+
+
 def check_config_publishes_the_timezone():
     """The frontend adopts this so the two clocks cannot drift apart."""
     payload = server.app.test_client().get('/api/auth/config').get_json()
@@ -105,6 +152,7 @@ def main():
     check_stamp_is_the_units_clock()
     check_no_raw_date_today_remains()
     check_absence_activates_on_the_units_day()
+    check_timezone_is_an_org_setting()
     check_config_publishes_the_timezone()
     print('ok')
 

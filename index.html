@@ -1784,6 +1784,19 @@
   .settings-row-label { font-weight: 600; color: var(--theme_text); font-size: 0.9rem; }
   .settings-row-hint { color: var(--theme_text-muted); font-size: 0.78rem; margin-top: 2px; }
   .settings-row .dash-btn { flex: none; margin-left: auto; }
+  .settings-select {
+    flex: none; margin-left: auto; max-width: 100%;
+    padding: 9px 12px; border-radius: var(--theme_radius);
+    border: 1px solid var(--theme_border); background: var(--theme_surface);
+    color: var(--theme_text); font-family: inherit; font-size: 0.85rem;
+    min-height: 40px; cursor: pointer;
+  }
+  .settings-select:disabled { opacity: 0.6; cursor: default; }
+  @media (max-width: 900px) {
+    /* On a phone the row stacks, and a right-aligned control ends up floating
+       under the hint with a gap; full width reads as part of the row. */
+    .settings-select { margin-left: 0; width: 100%; }
+  }
   body.audit-active #dashMetrics,
   body.audit-active #bulkBar,
   body.audit-active #personnelBody { display: none; }
@@ -3546,6 +3559,9 @@ async function load() {
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
+    // The organisation owns the duty day; adopt it before anything renders a
+    // date, so an admin changing it elsewhere reaches this device on next load.
+    if (settings.timezone) APP_TZ = settings.timezone;
     applyTdyLists(settings);
     // A failed list write resyncs through here — redraw so the page can't keep
     // showing an entry the server rejected.
@@ -3777,6 +3793,85 @@ function settingsRow(label, hint, action, fn, variant = 'dash-btn-secondary') {
   </div>`;
 }
 
+// The organisation has exactly one timezone. The full IANA list is authoritative
+// but unusable as a phone picker, so the zones this unit actually spans are
+// pinned at the top and the rest follow.
+const COMMON_TZ = [
+  ['America/New_York', 'Eastern'],
+  ['America/Chicago', 'Central'],
+  ['America/Denver', 'Mountain'],
+  ['America/Phoenix', 'Arizona (no DST)'],
+  ['America/Los_Angeles', 'Pacific'],
+  ['America/Anchorage', 'Alaska'],
+  ['Pacific/Honolulu', 'Hawaii'],
+  ['Europe/London', 'United Kingdom'],
+  ['Europe/Berlin', 'Germany'],
+  ['Europe/Bucharest', 'Romania'],
+  ['Asia/Seoul', 'Korea'],
+  ['Asia/Tokyo', 'Japan'],
+  ['UTC', 'UTC / Zulu'],
+];
+
+function allTimeZones() {
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') return Intl.supportedValuesOf('timeZone');
+  } catch (e) { /* older browser: the common list is enough */ }
+  return [];
+}
+
+function tzOffsetLabel(zone) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, timeZoneName: 'shortOffset'
+    }).formatToParts(new Date());
+    const tzn = parts.find(p => p.type === 'timeZoneName');
+    return tzn ? tzn.value : '';
+  } catch (e) { return ''; }
+}
+
+function timezoneSettingsRow(isAdmin) {
+  const common = COMMON_TZ.map(([zone, label]) =>
+    `<option value="${escapeHtml(zone)}"${zone === APP_TZ ? ' selected' : ''}>${escapeHtml(label)} — ${escapeHtml(zone)}</option>`).join('');
+  const pinned = new Set(COMMON_TZ.map(([z]) => z));
+  const rest = allTimeZones().filter(z => !pinned.has(z)).map(zone =>
+    `<option value="${escapeHtml(zone)}"${zone === APP_TZ ? ' selected' : ''}>${escapeHtml(zone)}</option>`).join('');
+  // A stored zone that is not in either list would otherwise select nothing.
+  const known = pinned.has(APP_TZ) || allTimeZones().includes(APP_TZ);
+  const current = known ? '' :
+    `<option value="${escapeHtml(APP_TZ)}" selected>${escapeHtml(APP_TZ)}</option>`;
+  const now = new Date().toLocaleString(undefined, {
+    timeZone: APP_TZ, weekday: 'short', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit'
+  });
+  return `<div class="settings-row">
+    <div class="settings-row-text">
+      <div class="settings-row-label">Time zone</div>
+      <div class="settings-row-hint">
+        The duty day for the whole organisation &mdash; every platoon shares it.
+        Right now it is <strong id="tzNow">${escapeHtml(now)}</strong> ${escapeHtml(tzOffsetLabel(APP_TZ))}.
+        ${isAdmin ? '' : 'Only an administrator can change this.'}
+      </div>
+    </div>
+    <select class="settings-select" id="orgTimezone" onchange="saveOrgTimezone(this.value)"
+            ${isAdmin ? '' : 'disabled'} aria-label="Organisation time zone">
+      ${current}${common}${rest ? `<optgroup label="All time zones">${rest}</optgroup>` : ''}
+    </select>
+  </div>`;
+}
+
+async function saveOrgTimezone(zone) {
+  const res = await api('PUT', `/settings?platoon=${currentPlatoon}`, { timezone: zone });
+  if (!res || res.error) {
+    alert(res && res.error ? res.error : 'Could not change the time zone.');
+    renderSettings();            // put the control back to the stored value
+    return;
+  }
+  APP_TZ = res.timezone || zone;
+  // Dates everywhere were rendered in the old zone; redraw from the roster up.
+  await load();
+  renderSettings();
+}
+
 function renderSettings() {
   const view = document.getElementById('settingsView');
   if (!view) return;
@@ -3792,6 +3887,10 @@ function renderSettings() {
         <h3>Appearance</h3>
         ${settingsRow('Theme', isDark ? 'Currently dark.' : 'Currently light.',
                       isDark ? 'Switch to light' : 'Switch to dark', 'toggleTheme();renderSettings()')}
+      </section>
+      <section class="soldier-card">
+        <h3>Organisation</h3>
+        ${timezoneSettingsRow(isAdmin)}
       </section>
       <section class="soldier-card">
         <h3>Lists &amp; rosters</h3>

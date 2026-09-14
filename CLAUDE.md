@@ -180,20 +180,35 @@ mode means "unavailable on any day of the range" and each person carries the
 
 ### Time
 
-The duty day is the **unit's**, not the server's or the viewer's. prodsrv02 runs
-UTC, so `date.today()` rolled the roster over at 1900 Central and activated
-absences for courses starting the next morning. `APP_TZ` (env `PLATOON_TZ`,
-default `America/Chicago`) is the one clock: `app_today()`, `app_now()` and
-`app_stamp()` are the only ways the backend asks what time it is, and
-`tests/test_timezone.py` fails the build if a raw `date.today()` reappears.
+The duty day is the **organisation's**, not the server's or the viewer's.
+prodsrv02 runs UTC, so `date.today()` rolled the roster over at 1900 Central and
+activated absences for courses starting the next morning. `app_today()`,
+`app_now()` and `app_stamp()` are the only ways the backend asks what time it
+is, and `tests/test_timezone.py` fails the build if a raw `date.today()`
+reappears.
+
+The zone is a **setting**, not config: `settings` key `org_timezone`, changed by
+an admin from Settings → Organisation, validated as a real IANA zone, and
+audited as `ORG_TIMEZONE`. It is deliberately **unsuffixed** while
+`unit_name_<platoon>` and the TDY lists are per-platoon — every platoon shares
+one duty day. When a second organisation arrives it becomes
+`org_timezone_<org>`, and only `load_app_timezone()` / `set_app_timezone()` need
+to change. `PLATOON_TZ` is just the fallback before that row exists.
+
+The live zone is cached in a module global and `set_app_timezone()` is its only
+writer: `app_now()` runs inside open transactions, so reading the setting from a
+second connection there would deadlock the way `log_action()` documents. A
+stored value that is not a valid zone logs a warning and falls back rather than
+stopping the app from booting.
 Stored timestamps (audit log, invites) are written from `app_stamp()` rather
 than SQLite's `datetime('now')`, which is always UTC; the surviving column
 DEFAULTs use `datetime('now', 'localtime')` and rely on the container's `TZ`,
 which `docker-compose.yml` pins to the same zone.
 
 The frontend has its own `APP_TZ` with the same default and adopts the server's
-value from `/api/auth/config`, so a phone in Germany reports the same duty day
-as the roster back home. Keep the two defaults in step.
+value from **both** `/api/auth/config` and every `GET /api/settings`, so a phone
+in Germany reports the same duty day as the roster back home and picks up an
+admin's change on the next load. Keep the two defaults in step.
 
 ### Multi-platoon model
 

@@ -73,12 +73,62 @@ PLATOONS = {
 # runs UTC, so date.today() rolled over at 1900 local and marked people away for
 # a course starting the next morning. Every "what day is it" question goes
 # through app_today(); nothing reads date.today() directly.
-# Keep APP_TZ in index.html in step with this.
-APP_TZ = ZoneInfo(os.environ.get('PLATOON_TZ', 'America/Chicago'))
+#
+# The zone belongs to the ORGANISATION and there is exactly one of it: every
+# platoon shares a duty day, so this key is deliberately unsuffixed while
+# unit_name_<platoon> and the TDY lists are per-platoon. When a second
+# organisation arrives this becomes org_timezone_<org> and only
+# load_app_timezone()/set_app_timezone() need to learn about it.
+#
+# It falls back to PLATOON_TZ and then Central, and is cached in a module global
+# because app_now() is called from inside open transactions, where opening a
+# second connection to read it would deadlock the way log_action() documents.
+FALLBACK_TZ = os.environ.get('PLATOON_TZ', 'America/Chicago')
+TIMEZONE_KEY = 'org_timezone'
+
+_app_tz_name = FALLBACK_TZ
+_app_tz = ZoneInfo(FALLBACK_TZ)
+
+
+def app_timezone():
+    """The organisation's timezone name, e.g. 'America/Chicago'."""
+    return _app_tz_name
+
+
+def set_app_timezone(name):
+    """Adopt a timezone. Raises ValueError if it is not a real IANA zone."""
+    global _app_tz_name, _app_tz
+    name = (name or '').strip()
+    try:
+        zone = ZoneInfo(name)
+    except Exception:
+        raise ValueError(f'{name!r} is not a known timezone')
+    _app_tz_name, _app_tz = name, zone
+    return name
+
+
+def load_app_timezone(conn=None):
+    """Read the stored zone at startup. A bad stored value must not stop the
+    app booting, so it falls back and logs instead of raising."""
+    owned = conn is None
+    conn = conn or get_db()
+    try:
+        row = conn.execute('SELECT value FROM settings WHERE key = ?', (TIMEZONE_KEY,)).fetchone()
+    finally:
+        if owned:
+            conn.close()
+    if not row or not row['value']:
+        return _app_tz_name
+    try:
+        return set_app_timezone(row['value'])
+    except ValueError:
+        app.logger.warning('Stored timezone %r is not valid; using %s',
+                           row['value'], _app_tz_name)
+        return _app_tz_name
 
 
 def app_now():
-    return datetime.now(APP_TZ)
+    return datetime.now(_app_tz)
 
 
 def app_today():
@@ -404,6 +454,9 @@ def init_db():
 
 
 init_db()
+# Adopt the organisation's stored timezone before the first request; until this
+# runs the module falls back to PLATOON_TZ.
+load_app_timezone()
 
 
 # ── Audit log helper ──
@@ -776,7 +829,7 @@ def auth_config():
         'enabled': CLERK_ENABLED,
         'publishable_key': CLERK_PUBLISHABLE_KEY,
         'frontend_api_url': CLERK_FRONTEND_API_URL,
-        'timezone': str(APP_TZ),
+        'timezone': app_timezone(),
     })
 
 
@@ -1434,6 +1487,8 @@ def get_settings():
         'unit_name': row['value'] if row else PLATOONS.get(platoon, f'{platoon} Platoon'),
         'tdy_schools': _get_tdy_list(conn, 'schools', platoon),
         'tdy_locations': _get_tdy_list(conn, 'locations', platoon),
+        # Organisation-wide, not platoon-scoped: one duty day for everyone.
+        'timezone': app_timezone(),
     }
     conn.close()
     return jsonify(payload)
@@ -1448,6 +1503,25 @@ def update_settings():
         return jsonify({'error': 'Forbidden'}), 403
     data = request.get_json()
     conn = get_db()
+
+    # The timezone is the organisation's, so it is not gated on platoon access
+    # like the rest of this route — it changes the duty day for every platoon,
+    # which makes it an admin decision.
+    new_tz = None
+    if 'timezone' in data:
+        if not (user and user.get('is_admin')):
+            conn.close()
+            return jsonify({'error': 'Only an administrator can change the organisation timezone.'}), 403
+        try:
+            new_tz = set_app_timezone(data['timezone'])
+        except ValueError as exc:
+            conn.close()
+            return jsonify({'error': str(exc)}), 400
+        conn.execute(
+            'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+            (TIMEZONE_KEY, new_tz, new_tz)
+        )
+
     if 'unit_name' in data:
         key = f'unit_name_{platoon}'
         conn.execute(
@@ -1469,6 +1543,8 @@ def update_settings():
             (f'tdy_{kind}_{platoon}', value, value)
         )
         logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
+    if new_tz:
+        logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
     conn.commit()
     conn.close()
     # log_action opens its own connection — it must run only after ours is
