@@ -540,15 +540,65 @@ Expected: no matches.
     if cur.fetchone()['n'] == 0 and not CLERK_ENABLED:
 ```
 
-- [ ] **Step 7: Run the test**
+- [ ] **Step 7: Convert the two seed statements inside `init_db()`**
+
+`init_db()` ends by seeding the TDY picklists and, when Clerk is unconfigured, a legacy admin user. Both use SQLite syntax:
+
+```python
+                'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+```
+
+```python
+            'INSERT OR IGNORE INTO users (username, password_hash, is_admin, platoons) VALUES (?, ?, 1, ?)',
+```
+
+These are inside `init_db()`, so they run at import and raise before any test can assert anything. Convert them here rather than in Task 4:
+
+```python
+                'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING',
+```
+
+```python
+            'INSERT INTO users (username, password_hash, is_admin, platoons) '
+            'VALUES (%s, %s, 1, %s) ON CONFLICT (username) DO NOTHING',
+```
+
+`settings` conflicts on its primary key `key`; `users` on its `UNIQUE` constraint on `username`.
+
+The seeded TDY values are JSON arrays whose **order is significant** — it is the order the TDY modal's dropdowns render. Nothing here may re-sort them.
+
+There is one more statement on the same footing. `server.py` runs exactly two things at module import:
+
+```python
+init_db()
+load_app_timezone()
+```
+
+`load_app_timezone()` reads the stored duty-day zone, and it too uses a `?`:
+
+```python
+        row = conn.execute('SELECT value FROM settings WHERE key = ?', (TIMEZONE_KEY,)).fetchone()
+```
+
+becomes
+
+```python
+        row = conn.execute('SELECT value FROM settings WHERE key = %s', (TIMEZONE_KEY,)).fetchone()
+```
+
+**Scope rule:** Task 3 owns every SQL statement reachable from module import — `init_db()` and `load_app_timezone()`, and nothing else. Task 4 owns the rest.
+
+The deliverable that makes this task independently testable is precisely: **`import server` succeeds against Postgres.** Until that holds, no test in the file can run at all.
+
+- [ ] **Step 8: Run the test**
 
 ```bash
 python tests/test_pg_port.py
 ```
 
-Expected: PASS — `ok`. A failure mentioning a `?` placeholder is Task 4's work and is expected to still be present elsewhere in the file; this test only exercises `init_db()`.
+Expected: PASS — `ok`. The ~150 `?` placeholders elsewhere in `server.py` are still unconverted and are Task 4's work; this test only exercises `init_db()`, which is now self-consistent.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add server.py tests/test_pg_port.py
@@ -613,7 +663,9 @@ Expected: no matches.
 
 - [ ] **Step 3: Convert `INSERT OR IGNORE` and `INSERT OR REPLACE`**
 
-Ten sites: lines 417, 426, 1155, 1960, 1999, 2014, 2023, 2031, 2036, 2046.
+Eight sites: lines 1155, 1960, 1999, 2014, 2023, 2031, 2036, 2046.
+
+The two seeds at former lines 417 and 426 are **inside `init_db()` and were converted in Task 3** — Task 3 owns every SQL statement inside `init_db()`, Task 4 owns everything outside it. Do not convert them twice.
 
 `INSERT OR IGNORE INTO settings (key, value) VALUES (%s, %s)` becomes:
 
@@ -1016,7 +1068,7 @@ In `docker-compose.yml`, add to the `app` service's `environment:`:
 
 ```bash
 docker exec -i platoon-test-pg psql -U platoon_owner -d platoon \
-  -v app_password="'platoon_app_pw'" -f - < scripts/pg-roles.sql
+  -v app_password=platoon_app_pw -f - < scripts/pg-roles.sql
 TEST_APP_DATABASE_URL='postgresql://platoon_app:platoon_app_pw@127.0.0.1:5432/platoon' \
   python tests/test_pg_port.py
 ```
@@ -1031,7 +1083,7 @@ In `.github/workflows/ci.yml`, add a step before "Run tests":
       - name: Create the application role
         run: |
           PGPASSWORD=platoon psql -h 127.0.0.1 -U platoon_owner -d platoon \
-            -v app_password="'platoon_app_pw'" -f scripts/pg-roles.sql
+            -v app_password=platoon_app_pw -f scripts/pg-roles.sql
 ```
 
 and add to the "Run tests" `env:` block:
@@ -1316,7 +1368,7 @@ docker compose down -v
 docker compose up -d --build
 sleep 10
 docker compose exec -T db psql -U platoon_owner -d platoon \
-  -v app_password="'$DB_APP_PASSWORD'" -f - < scripts/pg-roles.sql
+  -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
 docker compose exec -T app python scripts/sqlite-to-pg.py /tmp/rehearsal.db
 ```
 
@@ -1333,6 +1385,10 @@ At `https://platoondev.carr7.com`, with the amber DEV bar visible, check in orde
 5. The audit log shows those three actions with correct timestamps.
 6. Settings → Time zone still reads Central and the clock is right.
 7. Export a backup, then restore it.
+8. **Settings → Manage access loads, and an invite can be created and revoked.**
+9. **Sign out and sign back in.**
+
+Steps 8 and 9 exist because the user-management and Clerk-sync paths have no automated coverage — the smoke test stops at the auth guard. Task 4 shipped six SQL statements that Postgres rejected outright (`""` is a zero-length identifier there, not an empty string) and every one of them lived on exactly these two paths. Twelve passing tests did not see them. Click them by hand.
 
 Any failure means fix, `docker compose down -v`, and repeat from Step 1. Continue until two consecutive rehearsals are clean.
 
@@ -1381,7 +1437,7 @@ docker compose up -d --build db
 sleep 10
 docker compose run --rm app python -c "import server"
 docker compose exec -T db psql -U platoon_owner -d platoon \
-  -v app_password="'$DB_APP_PASSWORD'" -f - < scripts/pg-roles.sql
+  -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
 docker compose run --rm app python scripts/sqlite-to-pg.py /data/accountability.db
 ```
 
