@@ -233,10 +233,15 @@ The live zone is cached in a module global and `set_app_timezone()` is its only
 writer, so `app_now()` never needs a query of its own — including when it runs
 inside a transaction already in progress. A stored value that is not a valid
 zone logs a warning and falls back rather than stopping the app from booting.
-Stored timestamps (audit log, invites) are written from `app_stamp()` rather
-than the database's own `now()`, which is always UTC; `docker-compose.yml`
-pins the container's `TZ` to the same zone so logs read against the same duty
-day.
+**Every** stored timestamp — audit log, invites, `scheduled_events.created_at`,
+`report_history.created_at` — is written from `app_stamp()` and passed
+explicitly, never left to a column DEFAULT. The `to_char(now(), ...)` DEFAULTs
+still on those columns run in the **db** container, whose `timezone` GUC was
+baked as UTC at initdb; a report saved 2130 Sunday would be filed under Monday.
+`docker-compose.yml` pins that GUC (`-c timezone=`) so the unreachable backstop
+is at least not wrong, and pins the app container's `TZ` so its logs read
+against the same duty day — but the `TZ` env var affects nothing that is
+stored.
 
 The frontend has its own `APP_TZ` with the same default and adopts the server's
 value from **both** `/api/auth/config` and every `GET /api/settings`, so a phone

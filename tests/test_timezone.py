@@ -142,6 +142,54 @@ def check_timezone_is_an_org_setting():
     c.put('/api/settings?platoon=2nd', json={'timezone': 'America/Chicago'})
 
 
+def _assert_unit_clock(stamp, what):
+    parsed = datetime.strptime(str(stamp)[:19], '%Y-%m-%d %H:%M:%S')
+    central = datetime.now(CENTRAL).replace(tzinfo=None)
+    assert abs((parsed - central).total_seconds()) < 120, \
+        f'{what} is {stamp}, which is not the unit clock'
+    utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((parsed - utc_naive).total_seconds()) > 3000, \
+        f'{what} is still on the database server clock (UTC): {stamp}'
+
+
+def check_stored_timestamps_use_the_units_clock():
+    """A column DEFAULT runs in the DATABASE, whose clock is the wrong one.
+
+    report_history.created_at and scheduled_events.created_at both defaulted to
+    to_char(now(), ...). now() is the db container's clock — UTC here and in
+    production, where the GUC was baked at initdb — so a report generated 2130
+    Sunday was stamped 0230 Monday: the wrong duty day, on a page people read
+    by date. Both call sites now pass app_stamp() explicitly, which is what
+    CLAUDE.md's Time rule already required.
+    """
+    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
+    c = server.app.test_client()
+
+    r = c.post('/api/reports', json={'platoon': '2nd', 'unit_name': 'Alpha', 'text': 'tz probe'})
+    assert r.status_code == 201, r.get_json()
+    _assert_unit_clock(r.get_json()['created_at'], 'report_history.created_at')
+
+    conn = server.get_db()
+    person_id = conn.execute(
+        "INSERT INTO personnel (rank, last, first, platoon) "
+        "VALUES ('SGT', 'Tzprobe', 'Sam', '2nd') RETURNING id").fetchone()['id']
+    conn.commit()
+    conn.close()
+
+    # Far-future window: it stays 'scheduled' and cannot disturb the absence
+    # checks that run before this one.
+    r = c.post(f'/api/personnel/{person_id}/schedule',
+               json={'status': 'leave', 'from_date': '2099-01-01', 'to_date': '2099-01-05'})
+    assert r.status_code == 201, r.get_json()
+    _assert_unit_clock(r.get_json()['created_at'], 'scheduled_events.created_at')
+
+    conn = server.get_db()
+    conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
+    conn.execute("DELETE FROM report_history WHERE text = 'tz probe'")
+    conn.commit()
+    conn.close()
+
+
 def check_config_publishes_the_timezone():
     """The frontend adopts this so the two clocks cannot drift apart."""
     payload = server.app.test_client().get('/api/auth/config').get_json()
@@ -154,6 +202,7 @@ def main():
     check_no_raw_date_today_remains()
     check_absence_activates_on_the_units_day()
     check_timezone_is_an_org_setting()
+    check_stored_timestamps_use_the_units_clock()
     check_config_publishes_the_timezone()
     print('ok')
     dbharness.teardown(_schema)

@@ -10,9 +10,12 @@ services:
       HTTPS: "true"
       # The host runs UTC. The duty day is an ORGANISATION setting stored in the
       # database (settings key org_timezone) and changed from Settings, so
-      # PLATOON_TZ is only the fallback used before that row exists. TZ is what
-      # SQLite's datetime('now','localtime') column DEFAULTs follow, and it
-      # makes container logs readable against the duty day.
+      # PLATOON_TZ is only the fallback used before that row exists. TZ affects
+      # nothing the database stores — every stored timestamp is written from
+      # app_stamp() in Python — it only makes this container's logs readable
+      # against the duty day. (It used to be described as what SQLite's
+      # datetime('now','localtime') DEFAULTs follow; there is no SQLite now,
+      # and the Postgres DEFAULTs run in the db container, not this one.)
       TZ: America/Chicago
       PLATOON_TZ: America/Chicago
       DATABASE_URL: postgresql://platoon_app:${DB_APP_PASSWORD}@db:5432/platoon
@@ -43,6 +46,14 @@ services:
 
   db:
     image: postgres:17
+    # The cluster was initdb'd as UTC, so to_char(now(), ...) in the column
+    # DEFAULTs stamped five hours ahead of the duty day. Nothing on a normal
+    # path reaches those DEFAULTs any more (app_stamp() is passed explicitly),
+    # but a backstop that is wrong is not a backstop — pin the GUC so anything
+    # that ever does fall through lands on the right day. -c timezone is the
+    # knob that works on an already-initialised cluster; a TZ env var here
+    # would not, the GUC is baked at initdb.
+    command: postgres -c timezone=America/Chicago
     environment:
       POSTGRES_DB: platoon
       POSTGRES_USER: platoon_owner

@@ -110,16 +110,29 @@ def app_timezone():
     return _app_tz_name
 
 
+def validate_timezone(name):
+    """The normalised zone name, or ValueError. Changes nothing.
+
+    Separate from set_app_timezone() because adopting a zone mutates a module
+    global that no rollback can undo: update_settings() has to know the value
+    is good *before* it commits to anything, and only adopt it once the whole
+    request has succeeded. Otherwise a later validation failure 4xxs, the
+    rollback-on-4xx discards the settings row, and the worker keeps serving
+    the new zone until restart — with -w 2, one worker on a different duty
+    day from the other.
+    """
+    name = (name or '').strip()
+    try:
+        return name, ZoneInfo(name)
+    except Exception:
+        raise ValueError(f'{name!r} is not a known timezone')
+
+
 def set_app_timezone(name):
     """Adopt a timezone. Raises ValueError if it is not a real IANA zone."""
     global _app_tz_name, _app_tz
-    name = (name or '').strip()
-    try:
-        zone = ZoneInfo(name)
-    except Exception:
-        raise ValueError(f'{name!r} is not a known timezone')
-    _app_tz_name, _app_tz = name, zone
-    return name
+    _app_tz_name, _app_tz = validate_timezone(name)
+    return _app_tz_name
 
 
 def load_app_timezone(conn=None):
@@ -428,9 +441,16 @@ def init_db():
             cur.execute("ALTER TABLE scheduled_events ADD COLUMN state TEXT DEFAULT 'scheduled'")
             # Old-model rows whose whole window already passed were never activated
             # (activation was broken in production); file them as history.
+            # The cutoff comes from Python, not from date('now','localtime') —
+            # that is SQLite syntax Postgres has no function for, and the
+            # database's own clock is the wrong clock anyway (the db container
+            # is UTC). init_db() runs before load_app_timezone(), so this is
+            # PLATOON_TZ rather than the stored org zone; for a one-shot
+            # backfill of windows that already ended, a few hours either side
+            # of midnight is immaterial, and it beats UTC.
             cur.execute(
                 "UPDATE scheduled_events SET state = 'completed' "
-                "WHERE to_date != '' AND to_date < date('now', 'localtime')"
+                "WHERE to_date != '' AND to_date < %s", (app_today(),)
             )
         # Soldiers already away have no event row under the old model (activation
         # deleted it); backfill an active event so reconciliation owns their return.
@@ -524,7 +544,15 @@ def log_action(action, details='', platoon=''):
     """Write one audit row onto the caller's transaction.
 
     It commits with the change it describes, so an audit row can never survive
-    a change that failed.
+    a change that failed. The converse is the trap: under SQLite this had its
+    own connection, so a failed audit insert hurt nobody. On the shared
+    request connection a failed statement ABORTS the whole transaction —
+    including the change being audited — and Postgres then turns the COMMIT in
+    _close_db() into a silent ROLLBACK. Swallowing that exception used to mean
+    the user marked a soldier present, got a 200, and lost the change with
+    nothing written anywhere. It still must not raise (an audit failure is not
+    worth breaking a request over), but it is never invisible again, and
+    _close_db() no longer reports success on an aborted transaction.
     """
     try:
         conn = get_db()
@@ -541,7 +569,10 @@ def log_action(action, details='', platoon=''):
             (user_id, username, action, str(details), platoon, app_stamp())
         )
     except Exception:
-        pass
+        app.logger.exception(
+            'audit log write failed for action %r (platoon %r) — the request '
+            'transaction is now aborted and its change will NOT be committed',
+            action, platoon)
 
 
 # ── Auth helpers ──
@@ -865,7 +896,30 @@ def _mark_db_success(response):
     # is skipped when an exception escapes with no handler, so this flag is
     # the signal teardown actually needs: set only for a response that says
     # the request succeeded.
+    #
+    # ...and only if the transaction can actually still commit. A statement
+    # that failed earlier (log_action swallows its own on purpose) leaves the
+    # connection INERROR, where Postgres answers COMMIT with ROLLBACK and
+    # raises nothing. A success response there tells the user their soldier is
+    # marked present when nothing was saved. This is the last point that can
+    # still change the answer, so change it.
+    #
+    # Only a success response, deliberately. A 4xx on an aborted transaction
+    # is a route that already knows: update_user() and sync_clerk_user() both
+    # catch a UniqueViolation and answer 409 / "username already in use", and
+    # those answers are correct and must keep their status code.
     if response.status_code < 400:
+        conn = g.get('db')
+        if conn is not None and conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
+            app.logger.error(
+                'Aborted transaction on %s %s: an earlier statement failed, so nothing '
+                'from this request can be saved — answering 500 instead of %s',
+                request.method, request.path, response.status_code)
+            # after_request must hand back a real response object, not a tuple.
+            body = (jsonify({'error': 'Something went wrong on the server.'})
+                    if request.path.startswith('/api/')
+                    else 'Something went wrong on the server.')
+            return app.make_response((body, 500))
         g.db_commit = True
     return response
 
@@ -876,7 +930,19 @@ def _close_db(exc):
     if conn is None:
         return
     try:
-        if exc is None and g.get('db_commit'):
+        # A statement that failed earlier in the request (log_action swallows
+        # its own, deliberately) leaves the transaction INERROR. Postgres
+        # answers COMMIT on such a transaction with ROLLBACK and raises
+        # nothing, so without this check the request would report success
+        # while discarding the user's change. Say so loudly instead.
+        aborted = conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR
+        if aborted:
+            app.logger.error(
+                '%s %s: transaction was aborted by an earlier failed statement; '
+                'rolling back — nothing from this request was saved',
+                request.method, request.path)
+            conn.rollback()
+        elif exc is None and g.get('db_commit'):
             conn.commit()
         else:
             conn.rollback()
@@ -1264,11 +1330,14 @@ def add_scheduled_event(person_id):
     if dup is not None:
         return jsonify(dict(dup)), 200
 
+    # created_at comes from app_stamp(), not the column DEFAULT: the DEFAULT's
+    # now() runs in the db container, whose timezone is UTC, which would stamp
+    # a 2130 absence with tomorrow's date. See the Time section of CLAUDE.md.
     cur = conn.execute(
-        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state) '
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, 'scheduled') RETURNING id",
+        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state, created_at) '
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) RETURNING id",
         (person_id, person['platoon'], status, from_date, to_date,
-         data.get('notes', ''), data.get('location', ''))
+         data.get('notes', ''), data.get('location', ''), app_stamp())
     )
     new_id = cur.fetchone()['id']
     _sync_person_status(conn, person_id, app_today())
@@ -1550,7 +1619,7 @@ def update_settings():
         if not (user and user.get('is_admin')):
             return jsonify({'error': 'Only an administrator can change the organisation timezone.'}), 403
         try:
-            new_tz = set_app_timezone(data['timezone'])
+            new_tz, _ = validate_timezone(data['timezone'])
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
         conn.execute(
@@ -1578,7 +1647,11 @@ def update_settings():
             (f'tdy_{kind}_{platoon}', value, value)
         )
         logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
+    # Adopt the zone only now: every 4xx above it would have rolled the row
+    # back while leaving this worker — and only this worker — on the new duty
+    # day until the next restart.
     if new_tz:
+        set_app_timezone(new_tz)
         logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
     for action, details in logs:
         log_action(action, details, platoon)
@@ -1827,19 +1900,17 @@ def add_report():
     # The one-time localStorage import sends the report's original save time.
     # Without it every migrated report lands stamped today, which makes the
     # history actively misleading for a record people read by date.
-    created_at = _import_timestamp(data.get('created_at'))
+    # Otherwise it is now, in the UNIT's timezone. Not the column DEFAULT:
+    # that now() runs in the db container, which is UTC, so a report generated
+    # at 2130 Sunday would be filed under Monday — the wrong duty day, on a
+    # page people read by date. See the Time section of CLAUDE.md.
+    created_at = _import_timestamp(data.get('created_at')) or app_stamp()
     conn = get_db()
-    if created_at:
-        cur = conn.execute(
-            'INSERT INTO report_history (platoon, unit_name, text, created_by, created_at) '
-            'VALUES (%s, %s, %s, %s, %s) RETURNING id',
-            (platoon, unit_name, text, user['username'], created_at)
-        )
-    else:
-        cur = conn.execute(
-            'INSERT INTO report_history (platoon, unit_name, text, created_by) VALUES (%s, %s, %s, %s) RETURNING id',
-            (platoon, unit_name, text, user['username'])
-        )
+    cur = conn.execute(
+        'INSERT INTO report_history (platoon, unit_name, text, created_by, created_at) '
+        'VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        (platoon, unit_name, text, user['username'], created_at)
+    )
     new_id = cur.fetchone()['id']
     _prune_report_history(conn, platoon)
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (new_id,)).fetchone()

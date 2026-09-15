@@ -26,11 +26,22 @@ that specific, exactly-fingerprinted placeholder row before copying anything,
 instead of leaving a collision to either silently swallow the real row (were
 this using ON CONFLICT DO NOTHING) or permanently block the migration.
 
+init_db() seeds `settings` the same way: six TDY picklist rows
+(tdy_{schools,locations}_{1st,2nd,hq}). Production's SQLite holds those same
+six keys — with the real lists — so all six collide on settings_pkey and abort
+the cutover. Same disease as the personnel placeholder, same cure: the seeded
+rows the source is about to replace are deleted first (see
+_clear_seeded_settings). Deliberately NOT `ON CONFLICT (key) DO UPDATE` — the
+verifier below compares each table's row delta against len(source rows), and
+an upsert of six existing keys would produce a delta of 4 against an expected
+10, i.e. a false MISMATCH and an abort anyway.
+
 Row counts are verified per table as (destination count) - (destination count
 captured for that table immediately before its insert), not an absolute
-count, because the destination is not guaranteed empty going in (see above,
-plus settings' seeded TDY picklists) — an absolute comparison would report a
-false mismatch on a normal cutover. Every insert is a plain INSERT with no
+count, because the destination is not guaranteed empty going in (see above) —
+an absolute comparison would report a false mismatch on a normal cutover.
+Both clearing steps therefore run BEFORE their table's baseline is taken, so
+the delta arithmetic stays correct. Every insert is a plain INSERT with no
 ON CONFLICT clause: any remaining collision (e.g. a users.username clash with
 a legacy bootstrap admin row, which only exists when Clerk is disabled) raises
 immediately and aborts loudly rather than silently dropping the row.
@@ -88,6 +99,24 @@ def _clear_init_db_placeholder(dest):
         print(f'  cleared {len(removed)} placeholder personnel row(s) seeded by init_db()')
 
 
+def _clear_seeded_settings(dest, keys):
+    """Remove the settings rows the source is about to replace.
+
+    init_db() seeds the six TDY picklists; production carries the same six
+    keys plus unit_name_* and org_timezone. Without this every one of the six
+    raises on settings_pkey and the whole cutover rolls back. Only keys the
+    source actually supplies are cleared, so a destination-only seed is never
+    dropped on the floor. Must run before this table's row-count baseline.
+    """
+    if not keys:
+        return
+    removed = dest.execute(
+        'DELETE FROM settings WHERE key = ANY(%s) RETURNING key',
+        (list(keys),)).fetchall()
+    if removed:
+        print(f'  cleared {len(removed)} settings row(s) seeded by init_db()')
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -108,6 +137,8 @@ def main():
         except sqlite3.OperationalError:
             print(f'  {table}: absent in source, skipped')
             continue
+        if table == 'settings':
+            _clear_seeded_settings(dest, [r['key'] for r in rows])
         baseline[table] = _count(dest, table)
         if not rows:
             counts[table] = 0

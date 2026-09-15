@@ -47,6 +47,42 @@ def _probe_400():
     return server.jsonify({'error': 'deliberate'}), 400
 
 
+_audit_probe_returned_200 = False
+
+
+@server.app.route('/__test_probe_audit_fails')
+def _probe_audit_fails():
+    global _audit_probe_returned_200
+    conn = server.get_db()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_audit', 'WROTE') "
+                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    # Break the audit insert from inside this very transaction, so the
+    # rollback undoes the damage too. This is the shape of the real failure:
+    # log_action's statement errors, Postgres marks the whole transaction
+    # aborted, and log_action swallows the exception.
+    conn.execute('ALTER TABLE audit_log RENAME TO audit_log_hidden')
+    server.log_action('PROBE_AUDIT', 'this insert cannot land')
+    _audit_probe_returned_200 = True   # log_action must not have raised
+    return server.jsonify({'ok': True}), 200
+
+
+@server.app.route('/__test_probe_409')
+def _probe_409():
+    """A route that deliberately answers 4xx on an aborted transaction.
+
+    update_user() and sync_clerk_user() both do exactly this: catch a
+    UniqueViolation and answer 409 / "username already in use". Those answers
+    are already honest about nothing having been saved, so the
+    aborted-transaction guard must leave their status code alone.
+    """
+    conn = server.get_db()
+    try:
+        conn.execute('SELECT 1 / 0')
+    except Exception:
+        pass
+    return server.jsonify({'error': 'Username already exists'}), 409
+
+
 @server.app.route('/__test_probe_200')
 def _probe_200():
     conn = server.get_db()
@@ -312,6 +348,47 @@ def test_200_response_commits():
     assert row is not None and row['value'] == 'WROTE', 'a successful request must commit'
 
 
+def test_failed_audit_write_is_never_a_silent_200():
+    """A failed log_action must not cost the user their change in silence.
+
+    Under SQLite log_action had its own connection, so `except Exception: pass`
+    isolated the damage. On the shared request connection it does not: the
+    failed audit INSERT aborts the whole transaction, the exception is
+    swallowed, the route returns 200, after_request sets g.db_commit, and
+    _close_db issues COMMIT — which Postgres turns into a silent ROLLBACK on
+    an aborted transaction, raising nothing. The soldier is marked present,
+    the user is told it worked, and nothing was saved.
+
+    So: the handler still completes (an audit failure must not break a
+    request), but the response is a 500, not a 200 — and the write really is
+    gone, which is the honest outcome, now reported as such.
+    """
+    client = server.app.test_client()
+    resp = client.get('/__test_probe_audit_fails')
+
+    assert _audit_probe_returned_200, 'log_action must not raise out of the route'
+    assert resp.status_code == 500, (
+        f'a request whose transaction was aborted must not answer success; got '
+        f'{resp.status_code}')
+
+    conn = server.get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_audit'").fetchone()
+    tables = conn.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = current_schema() AND table_name LIKE 'audit_log%'").fetchall()
+    conn.close()
+    assert row is None, 'the aborted transaction really did discard the write'
+    names = {r['table_name'] for r in tables}
+    assert names == {'audit_log'}, f'the rollback must undo the probe rename too, got {names}'
+
+    # ...and the guard must not swallow a deliberate 4xx on the same condition.
+    resp = client.get('/__test_probe_409')
+    assert resp.status_code == 409, (
+        'a route that catches a DB error and answers 409 (update_user, '
+        f'sync_clerk_user) must keep that status; got {resp.status_code}')
+    assert resp.get_json() == {'error': 'Username already exists'}, resp.get_json()
+
+
 def test_app_role_cannot_change_schema():
     """The application connects as a non-owner.
 
@@ -347,6 +424,18 @@ def _migration_env():
     return env
 
 
+# Production's settings table, exactly: the six TDY picklists init_db() also
+# seeds (so the copy has to survive the collision) plus the four keys it does
+# not. Values are deliberately unlike the seeds so a surviving seed is
+# visible as a wrong value, not just a right row count.
+_PROD_SETTINGS = {
+    **{f'tdy_schools_{p}': f'["REAL SCHOOL {p}"]' for p in ('1st', '2nd', 'hq')},
+    **{f'tdy_locations_{p}': f'["REAL LOCATION {p}"]' for p in ('1st', '2nd', 'hq')},
+    **{f'unit_name_{p}': f'{p} Real Unit' for p in ('1st', '2nd', 'hq')},
+    'org_timezone': 'America/Chicago',
+}
+
+
 def test_migration_moves_rows_and_resets_sequences():
     """A row count match is the obvious check; the next INSERT is the real one.
 
@@ -376,6 +465,13 @@ def test_migration_moves_rows_and_resets_sequences():
     personnel row (the fix for the real bug this test caught first: a fresh
     schema seeds a soldier on id 1, which collides with production's own
     lowest real ids and would otherwise silently swallow that soldier).
+
+    The `settings` fixture uses production's REAL ten keys, seed collisions
+    and all. It used to use offset-suffixed keys chosen not to collide, which
+    is precisely why this test stayed green while the cutover was blocked
+    100% of the time: init_db() seeds six tdy_* rows, production has those
+    same six, and a plain INSERT over them raises on settings_pkey. A fixture
+    that avoids the collision tests nothing about the collision.
     """
     import sqlite3
     import subprocess
@@ -446,7 +542,8 @@ def test_migration_moves_rows_and_resets_sequences():
     old.execute(
         "INSERT INTO personnel_profile (person_id, phone, email) VALUES (?, '555-0100', 'a@b.com')",
         (person_id,))
-    old.execute("INSERT INTO settings (key, value) VALUES (?, 'Alpha')", (f'unit_name_test_{offset}',))
+    old.executemany('INSERT INTO settings (key, value) VALUES (?, ?)',
+                    list(_PROD_SETTINGS.items()))
     old.execute(
         "INSERT INTO users (id, username, password_hash, is_admin, platoons) "
         "VALUES (?, ?, 'hash', 1, '2nd')", (offset + 1, f'migrated_user_{offset}'))
@@ -508,9 +605,14 @@ def _assert_migration_landed(conn, offset, person_id, duty_roster_before):
     assert placeholder_after == 0, \
         'the migration must clear init_db()\'s placeholder personnel row before copying real data'
 
-    settings_row = conn.execute(
-        'SELECT value FROM settings WHERE key = %s', (f'unit_name_test_{offset}',)).fetchone()
-    assert settings_row is not None and settings_row['value'] == 'Alpha'
+    # All ten of production's settings rows, each holding the SOURCE's value.
+    # The six tdy_* keys collide with init_db()'s seeds; a seed left standing
+    # would show up here as the seeded picklist instead of the real one.
+    for key, expected in _PROD_SETTINGS.items():
+        row = conn.execute('SELECT value FROM settings WHERE key = %s', (key,)).fetchone()
+        assert row is not None, f'settings key {key} did not survive the migration'
+        assert row['value'] == expected, \
+            f'settings[{key}] is {row["value"]!r}, expected the source value {expected!r}'
 
     user_row = conn.execute(
         'SELECT username FROM users WHERE id = %s', (offset + 1,)).fetchone()
@@ -632,6 +734,7 @@ def main():
         test_failed_request_rolls_back_partial_writes()
         test_4xx_response_rolls_back_partial_writes()
         test_200_response_commits()
+        test_failed_audit_write_is_never_a_silent_200()
         test_app_role_cannot_change_schema()
         test_migration_moves_rows_and_resets_sequences()
         test_migration_fails_loudly_on_unknown_source_column()
