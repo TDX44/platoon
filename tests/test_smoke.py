@@ -78,6 +78,17 @@ def check_public_pages(client):
         'the public stylesheet must be served'
 
 
+def check_no_unit_identifier(client):
+    """The app is a generic company-formation accountability tool. Nothing served
+    to a browser may name the unit that happens to run this instance -- the unit
+    name belongs in the `unit_name_<platoon>` setting, not in shipped markup."""
+    banned = ('15th', 'MI BN', 'A Co')
+    for path in ('/', '/welcome', '/privacy', '/terms', '/manifest.json'):
+        body = client.get(path).get_data(as_text=True)
+        hits = [b for b in banned if b in body]
+        assert not hits, f'{path} names the unit: {hits}'
+
+
 def check_source_is_not_served(client):
     """spa_fallback serves assets only. It used to serve any file that existed on
     disk, which handed out server.py to anyone who asked."""
@@ -151,6 +162,7 @@ def main():
     check_index(client)
     check_spa_fallback(client)
     check_public_pages(client)
+    check_no_unit_identifier(client)
     check_source_is_not_served(client)
     check_auth_config(client)
     check_unauthenticated_routes(client)

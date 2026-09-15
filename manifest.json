@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Platoon Accountability",
   "short_name": "Accountability",
-  "description": "Platoon accountability tracker for A Co. 15th MI BN (AE)",
+  "description": "Personnel accountability tracker for company formations",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
