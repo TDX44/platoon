@@ -818,11 +818,19 @@ def index():
 @app.route('/welcome')
 @app.route('/privacy')
 @app.route('/terms')
+@app.route('/legal/privacy')
+@app.route('/legal/terms')
 def public_page():
     """The signed-out pages: the marketing placeholder plus the two legal pages
     Google's OAuth consent screen links to. They live outside index.html because
-    they have to render with no Clerk, no session and no JS."""
-    return send_from_directory('public', request.path.strip('/') + '.html')
+    they have to render with no Clerk, no session and no JS.
+
+    /legal/* answers the same pages because that is the shape the sibling apps
+    use and it is the URL people reach for; without it the path falls through to
+    spa_fallback and quietly serves the app shell instead. The filename comes
+    from the last segment, and only the literal paths above reach this function.
+    """
+    return send_from_directory('public', request.path.rsplit('/', 1)[-1] + '.html')
 
 
 # Everything the browser may fetch from the repo root. The fallback below used to

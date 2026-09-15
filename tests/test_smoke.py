@@ -64,6 +64,15 @@ def check_public_pages(client):
         assert marker in body, f'{path} did not render its own page'
         assert '<script' not in body.lower(), f'{path} must render with no JS at all'
 
+    # /legal/* is the URL shape people actually reach for. Before these aliases
+    # existed it fell through to spa_fallback and served the app shell with a
+    # 200, which looks like the page is simply missing.
+    index = client.get('/').get_data()
+    for path in ('/legal/privacy', '/legal/terms'):
+        body = client.get(path).get_data()
+        assert body != index, f'{path} served the SPA shell instead of the legal page'
+        assert b'Platoon Accountability' in body, f'{path} did not render a legal page'
+
     r = client.get('/public/site.css')
     assert r.status_code == 200 and 'cp-accent' in r.get_data(as_text=True), \
         'the public stylesheet must be served'
