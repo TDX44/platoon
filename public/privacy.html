@@ -47,8 +47,8 @@
         <ul>
           <li><strong>Account information:</strong> your name, email address, authentication identifiers from our sign-in provider, the platoons you may access, and whether you hold administrative access.</li>
           <li><strong>Roster information:</strong> soldier name, rank, platoon, section, and current duty status.</li>
-          <li><strong>Absence information:</strong> leave, passes, TDY, schools, failure to report, late arrivals and excused absences, including start and end dates and any reason recorded with them.</li>
-          <li><strong>Personnel profile information:</strong> phone number, email, home address, emergency contact, next of kin, spouse and dependents, DoD ID number, date of rank, MOS, security clearance, ETS date, medical and dental dates, weapons qualification, profile notes and flags.</li>
+          <li><strong>Absence information:</strong> leave, passes, TDY, schools, failure to report, late arrivals and excused absences, including their dates and any reason recorded with them.</li>
+          <li><strong>Personnel profile information:</strong> contact and address details, emergency contact and family information, government identifiers, service record details such as date of rank and military occupational specialty, administrative and readiness dates, clearance status, and any notes an administrator records.</li>
           <li><strong>Operational records:</strong> duty roster entries, saved accountability reports, and unit settings.</li>
           <li><strong>Audit and technical information:</strong> an audit log of changes and the account that made them, sign-in events, timestamps, and ordinary server and error logs.</li>
         </ul>
@@ -185,9 +185,8 @@
         <h2>11. Security</h2>
         <p>
           Access requires an invitation and an authenticated account. Traffic is
-          encrypted in transit. The application is not exposed directly to the public
-          internet; it is reached through a Cloudflare tunnel. Every change is recorded
-          in an audit log.
+          encrypted in transit, the application is not exposed directly to the public
+          internet, and every change is recorded in an audit log.
         </p>
         <p>
           No system is perfectly secure. If you believe an account has been compromised
