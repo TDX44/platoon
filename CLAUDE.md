@@ -80,7 +80,20 @@ Two files hold essentially the entire app:
 
 `server.py` serves `index.html` at `/`. The `spa_fallback` route returns
 `index.html` for any non-`api/`, non-static path so client-side routes survive a
-hard reload (this is the "SPA reload 404" fix).
+hard reload (this is the "SPA reload 404" fix). It serves a real file only when
+the path is on the `STATIC_DIRS` / `STATIC_FILES` allowlist — it used to serve
+anything that existed on disk, which handed out `server.py` to anyone who asked
+for it. **A new asset directory has to be added to `STATIC_DIRS` or it 404s into
+the SPA.**
+
+`public/` is the one part of the frontend that is not `index.html`: the
+signed-out pages `/welcome`, `/privacy` and `/terms`, plus `public/site.css`.
+They are plain HTML with no JS and no Clerk, because Google's OAuth consent
+screen links straight at `/privacy` and `/terms` and they have to render for a
+stranger with no session. Their `--cp-*` tokens are a copy of the ones in
+`index.html`; keep the two in step. Google will not leave Testing without a
+reachable privacy-policy URL, so if those routes break, Google sign-in
+eventually breaks with them.
 
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
 `availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
@@ -295,6 +308,7 @@ ssh tdx44@10.10.50.200 'cd /opt/homelab/platoon && git pull && docker compose up
 
 - The frontend is intentionally one file — add views as `render*()` functions and
   wire them into `render()` / the History-API router, not as separate modules.
+  The exception is `public/`: pages that must render signed-out, with no JS.
 - New API routes go under `/api/`, return JSON, and use the existing auth
   decorators and `log_action()` for the audit trail.
 - `.env` holds all secrets (`SECRET_KEY`, Clerk keys, `TUNNEL_TOKEN`) and is

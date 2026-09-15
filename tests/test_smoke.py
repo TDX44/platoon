@@ -55,6 +55,35 @@ def check_spa_fallback(client):
     assert r.is_json, 'unknown /api/ path must return JSON, not HTML'
 
 
+def check_public_pages(client):
+    """The signed-out pages must render standalone, not as the SPA shell: Google's
+    OAuth consent screen links straight at /privacy and /terms."""
+    for path, marker in (('/welcome', 'Platoon Accountability'),
+                         ('/privacy', 'Privacy Policy'),
+                         ('/terms', 'Terms of Service')):
+        r = client.get(path)
+        assert r.status_code == 200, f'{path} should render, got {r.status_code}'
+        body = r.get_data(as_text=True)
+        assert marker in body, f'{path} did not render its own page'
+        assert '<script' not in body.lower(), f'{path} must render with no JS at all'
+
+    r = client.get('/public/site.css')
+    assert r.status_code == 200 and 'cp-accent' in r.get_data(as_text=True), \
+        'the public stylesheet must be served'
+
+
+def check_source_is_not_served(client):
+    """spa_fallback serves assets only. It used to serve any file that existed on
+    disk, which handed out server.py to anyone who asked."""
+    index = client.get('/').get_data()
+    for path in ('/server.py', '/requirements.txt', '/Dockerfile', '/CLAUDE.md'):
+        body = client.get(path).get_data()
+        assert body == index, f'{path} is being served from disk; it must fall back to index.html'
+
+    for path in ('/images/icon-32.png', '/manifest.json', '/public/site.css'):
+        assert client.get(path).get_data() != index, f'{path} should be served as an asset'
+
+
 def check_auth_config(client):
     r = client.get('/api/auth/config')
     assert r.status_code == 200, f'/api/auth/config must be public, got {r.status_code}'
@@ -115,6 +144,8 @@ def main():
     client = server.app.test_client()
     check_index(client)
     check_spa_fallback(client)
+    check_public_pages(client)
+    check_source_is_not_served(client)
     check_auth_config(client)
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()

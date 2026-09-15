@@ -870,13 +870,31 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
+@app.route('/welcome')
+@app.route('/privacy')
+@app.route('/terms')
+def public_page():
+    """The signed-out pages: the marketing placeholder plus the two legal pages
+    Google's OAuth consent screen links to. They live outside index.html because
+    they have to render with no Clerk, no session and no JS."""
+    return send_from_directory('public', request.path.strip('/') + '.html')
+
+
+# Everything the browser may fetch from the repo root. The fallback below used to
+# serve any file that existed, which handed server.py to anyone who asked for it;
+# only these are assets.
+STATIC_DIRS = ('images/', 'public/')
+STATIC_FILES = ('manifest.json', 'sw.js')
+
+
 @app.route('/<path:path>')
 def spa_fallback(path):
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-    static_path = os.path.join(app.static_folder or '.', path)
-    if os.path.isfile(static_path):
-        return send_from_directory(app.static_folder or '.', path)
+    root = app.static_folder or '.'
+    is_asset = path in STATIC_FILES or path.startswith(STATIC_DIRS)
+    if is_asset and os.path.isfile(os.path.join(root, path)):
+        return send_from_directory(root, path)
     return send_from_directory('.', 'index.html')
 
 
