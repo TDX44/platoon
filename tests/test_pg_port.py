@@ -331,6 +331,296 @@ def test_app_role_cannot_change_schema():
             pass
 
 
+def _migration_env():
+    """Env for the migration subprocess, pinned to the module-level schema.
+
+    Several tests above call dbharness.setup() for their own throwaway schema
+    and leave os.environ['DATABASE_URL'] pointing at it (already dropped) once
+    they finish — harmless for them because `server` cached its own
+    DATABASE_URL/MIGRATION_DATABASE_URL at import time and never re-reads the
+    environment. A subprocess has no such cache: it reads os.environ fresh, so
+    it must be pointed explicitly at the values `server` is actually using.
+    """
+    env = dict(os.environ)
+    env['DATABASE_URL'] = server.DATABASE_URL
+    env['MIGRATION_DATABASE_URL'] = server.MIGRATION_DATABASE_URL
+    return env
+
+
+def test_migration_moves_rows_and_resets_sequences():
+    """A row count match is the obvious check; the next INSERT is the real one.
+
+    Copying rows with explicit ids leaves Postgres' identity sequences at 1, so
+    the first insert after a migration collides with a copied id. That is the
+    bug this test exists for.
+
+    Builds a source database meant to look like production's, not a toy one:
+    all nine tables, rows in several, a personnel/personnel_profile/
+    scheduled_events foreign-key chain that must survive, non-contiguous ids,
+    an empty table (duty_roster), a column the Postgres schema has that this
+    source table lacks (scheduled_events.location — the kind of thing an
+    `ALTER TABLE ... ADD COLUMN` added after this row was written), and a
+    legacy table (training_completions) the TABLES allowlist must ignore.
+
+    Runs on the shared module-level schema (per the controller ruling — no
+    private dbharness.setup() here), which by this point in the file already
+    carries init_db()'s own seed data (a placeholder soldier per platoon, a
+    bootstrap admin user) plus committed rows earlier tests in this file left
+    behind. So: read the baseline first, pick source ids guaranteed to sit
+    above every table's current max (still deliberately non-contiguous
+    relative to each other), and assert by looking up the exact rows this
+    test inserted rather than comparing whole-table counts against a moving,
+    shared baseline.
+
+    Also asserts the migration script cleared init_db()'s placeholder
+    personnel row (the fix for the real bug this test caught first: a fresh
+    schema seeds a soldier on id 1, which collides with production's own
+    lowest real ids and would otherwise silently swallow that soldier).
+    """
+    import sqlite3
+    import subprocess
+    import tempfile
+
+    probe = server.get_db()
+    placeholder_before = probe.execute(
+        "SELECT COUNT(*) AS n FROM personnel WHERE rank = 'WO1' AND last = 'Smith' "
+        "AND first = 'John' AND status = 'present'").fetchone()['n']
+    duty_roster_before = probe.execute('SELECT COUNT(*) AS n FROM duty_roster').fetchone()['n']
+    id_tables = ('personnel', 'users', 'audit_log', 'scheduled_events', 'report_history')
+    baseline_max = max(
+        probe.execute(f'SELECT COALESCE(MAX(id), 0) AS m FROM {t}').fetchone()['m']
+        for t in id_tables)
+    probe.close()
+    assert placeholder_before > 0, \
+        'expected init_db() to have seeded at least one placeholder personnel row by now'
+    offset = baseline_max + 1000  # clears every table's current max with room to spare
+
+    src_path = os.path.join(tempfile.mkdtemp(), 'old.db')
+    old = sqlite3.connect(src_path)
+    old.executescript('''
+        CREATE TABLE personnel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rank TEXT, last TEXT, first TEXT, status TEXT, notes TEXT,
+            from_date TEXT, to_date TEXT, present_date TEXT, platoon TEXT
+        );
+        CREATE TABLE personnel_profile (
+            person_id INTEGER PRIMARY KEY, phone TEXT, email TEXT
+        );
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT, password_hash TEXT, is_admin INTEGER, platoons TEXT
+        );
+        CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT, user_id INTEGER, username TEXT, action TEXT,
+            details TEXT, platoon TEXT
+        );
+        CREATE TABLE duty_roster (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT, platoon TEXT, duty_type TEXT
+        );
+        CREATE TABLE scheduled_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER, platoon TEXT, status TEXT, from_date TEXT,
+            to_date TEXT, notes TEXT, created_at TEXT, state TEXT
+        );
+        CREATE TABLE invites (
+            token TEXT PRIMARY KEY, label TEXT, platoons TEXT, is_admin INTEGER
+        );
+        CREATE TABLE report_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platoon TEXT, unit_name TEXT, text TEXT, created_at TEXT
+        );
+        CREATE TABLE training_completions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER, course TEXT
+        );
+    ''')
+
+    person_id = offset + 1
+    for pid in (person_id, offset + 2, offset + 7, offset + 50):
+        old.execute(
+            "INSERT INTO personnel (id, rank, last, first, status, notes, "
+            "from_date, to_date, present_date, platoon) VALUES "
+            "(?, 'SGT', 'Doe', 'John', 'present', '', '', '', '', '2nd')", (pid,))
+    old.execute(
+        "INSERT INTO personnel_profile (person_id, phone, email) VALUES (?, '555-0100', 'a@b.com')",
+        (person_id,))
+    old.execute("INSERT INTO settings (key, value) VALUES (?, 'Alpha')", (f'unit_name_test_{offset}',))
+    old.execute(
+        "INSERT INTO users (id, username, password_hash, is_admin, platoons) "
+        "VALUES (?, ?, 'hash', 1, '2nd')", (offset + 1, f'migrated_user_{offset}'))
+    old.execute(
+        "INSERT INTO audit_log (id, timestamp, user_id, username, action, details, platoon) "
+        "VALUES (?, '2026-01-01 00:00:00', 1, 'admin', 'TEST', '', '2nd')", (offset + 1,))
+    # No 'location' column here -- the schema-drift case. Non-contiguous ids,
+    # both tied to the same personnel row.
+    old.execute(
+        "INSERT INTO scheduled_events (id, person_id, platoon, status, from_date, "
+        "to_date, notes, created_at, state) VALUES "
+        "(?, ?, '2nd', 'tdy', '2026-01-01', '2026-01-05', '', '2026-01-01 00:00:00', 'completed')",
+        (offset + 3, person_id))
+    old.execute(
+        "INSERT INTO scheduled_events (id, person_id, platoon, status, from_date, "
+        "to_date, notes, created_at, state) VALUES "
+        "(?, ?, '2nd', 'leave', '2026-02-01', '2026-02-03', '', '2026-01-01 00:00:00', 'scheduled')",
+        (offset + 9, person_id))
+    old.execute(
+        "INSERT INTO invites (token, label, platoons, is_admin) VALUES (?, 'invite', '2nd', 0)",
+        (f'tok_{offset}',))
+    old.execute(
+        "INSERT INTO report_history (id, platoon, unit_name, text, created_at) VALUES "
+        "(?, '2nd', 'Alpha', 'report text', '2026-01-01 00:00:00')", (offset + 4,))
+    old.execute("INSERT INTO training_completions (person_id, course) VALUES (?, 'legacy')",
+                (person_id,))
+    # duty_roster stays empty on purpose.
+    old.commit()
+    old.close()
+
+    repo = os.path.dirname(_HERE)
+    subprocess.run(
+        [sys.executable, os.path.join(repo, 'scripts', 'sqlite-to-pg.py'), src_path],
+        check=True, cwd=repo, env=_migration_env())
+
+    # Everything from here on must run inside try/finally: closing conn on
+    # any exit path -- including an assertion failure -- rolls back its open
+    # transaction. Without that, a failing assertion here (e.g. the mutation
+    # check below with setval removed) leaves this connection idle-in-
+    # transaction, which then hangs main()'s teardown() forever waiting to
+    # DROP SCHEMA against a lock this connection is still holding.
+    conn = server.get_db()
+    try:
+        _assert_migration_landed(conn, offset, person_id, duty_roster_before)
+    finally:
+        conn.close()
+
+
+def _assert_migration_landed(conn, offset, person_id, duty_roster_before):
+    personnel_ids = conn.execute(
+        'SELECT id FROM personnel WHERE id IN (%s, %s, %s, %s)',
+        (person_id, offset + 2, offset + 7, offset + 50)).fetchall()
+    assert {r['id'] for r in personnel_ids} == {person_id, offset + 2, offset + 7, offset + 50}, \
+        'expected all 4 migrated personnel rows, non-contiguous ids included'
+
+    placeholder_after = conn.execute(
+        "SELECT COUNT(*) AS n FROM personnel WHERE rank = 'WO1' AND last = 'Smith' "
+        "AND first = 'John' AND status = 'present'").fetchone()['n']
+    assert placeholder_after == 0, \
+        'the migration must clear init_db()\'s placeholder personnel row before copying real data'
+
+    settings_row = conn.execute(
+        'SELECT value FROM settings WHERE key = %s', (f'unit_name_test_{offset}',)).fetchone()
+    assert settings_row is not None and settings_row['value'] == 'Alpha'
+
+    user_row = conn.execute(
+        'SELECT username FROM users WHERE id = %s', (offset + 1,)).fetchone()
+    assert user_row is not None and user_row['username'] == f'migrated_user_{offset}'
+
+    audit_row = conn.execute(
+        'SELECT action FROM audit_log WHERE id = %s', (offset + 1,)).fetchone()
+    assert audit_row is not None and audit_row['action'] == 'TEST'
+
+    invite_row = conn.execute(
+        'SELECT label FROM invites WHERE token = %s', (f'tok_{offset}',)).fetchone()
+    assert invite_row is not None
+
+    report_row = conn.execute(
+        'SELECT text FROM report_history WHERE id = %s', (offset + 4,)).fetchone()
+    assert report_row is not None and report_row['text'] == 'report text'
+
+    duty_roster_after = conn.execute('SELECT COUNT(*) AS n FROM duty_roster').fetchone()['n']
+    assert duty_roster_after == duty_roster_before, \
+        'an empty source table must not change the destination row count'
+
+    leftover = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() "
+        "AND table_name = 'training_completions'").fetchall()
+    assert leftover == [], 'the allowlist must not create or copy a legacy table'
+
+    profile = conn.execute(
+        'SELECT person_id FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
+    assert profile is not None, 'personnel_profile row for the migrated person is missing'
+
+    events = conn.execute(
+        'SELECT id, person_id, location FROM scheduled_events WHERE id IN (%s, %s) ORDER BY id',
+        (offset + 3, offset + 9)).fetchall()
+    assert [e['id'] for e in events] == [offset + 3, offset + 9]
+    assert [e['person_id'] for e in events] == [person_id, person_id], \
+        'scheduled_events must still point at the right person'
+    assert events[0]['location'] == '', \
+        'a column missing from the source row must fall back to the destination default'
+
+    new_person = conn.execute(
+        "INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, "
+        "present_date, platoon) VALUES ('PFC','New','Guy','present','','','','','2nd') "
+        "RETURNING id").fetchone()
+    assert new_person['id'] > offset + 50, \
+        f'personnel sequence not reset: next id was {new_person["id"]}'
+
+    new_user = conn.execute(
+        "INSERT INTO users (username, password_hash) VALUES (%s, 'h') RETURNING id",
+        (f'post_migration_user_{offset}',)).fetchone()
+    assert new_user['id'] > offset + 1, f'users sequence not reset: next id was {new_user["id"]}'
+
+    new_audit = conn.execute('INSERT INTO audit_log DEFAULT VALUES RETURNING id').fetchone()
+    assert new_audit['id'] > offset + 1, \
+        f'audit_log sequence not reset: next id was {new_audit["id"]}'
+
+    new_event = conn.execute(
+        "INSERT INTO scheduled_events (person_id, platoon, status) VALUES (%s, '2nd', 'present') "
+        "RETURNING id", (person_id,)).fetchone()
+    assert new_event['id'] > offset + 9, \
+        f'scheduled_events sequence not reset: next id was {new_event["id"]}'
+
+    new_report = conn.execute(
+        "INSERT INTO report_history (platoon, text) VALUES ('2nd', 'x') RETURNING id").fetchone()
+    assert new_report['id'] > offset + 4, \
+        f'report_history sequence not reset: next id was {new_report["id"]}'
+
+    conn.commit()
+
+
+def test_migration_fails_loudly_on_unknown_source_column():
+    """A source column the destination has never heard of must abort, not vanish.
+
+    Production's SQLite file has accumulated ad-hoc columns over months
+    (CLAUDE.md). Silently omitting one Postgres doesn't recognize would drop
+    that data with no trace; the script must instead name the table and column
+    and exit non-zero without writing anything.
+    """
+    import sqlite3
+    import subprocess
+    import tempfile
+
+    before = server.get_db()
+    before_count = before.execute('SELECT COUNT(*) AS n FROM personnel').fetchone()['n']
+    before.close()
+
+    src_path = os.path.join(tempfile.mkdtemp(), 'drift.db')
+    old = sqlite3.connect(src_path)
+    old.execute(
+        "CREATE TABLE personnel (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "rank TEXT, bogus_legacy_column TEXT)")
+    old.execute(
+        "INSERT INTO personnel (id, rank, bogus_legacy_column) VALUES (999999, 'SGT', 'x')")
+    old.commit()
+    old.close()
+
+    repo = os.path.dirname(_HERE)
+    result = subprocess.run(
+        [sys.executable, os.path.join(repo, 'scripts', 'sqlite-to-pg.py'), src_path],
+        cwd=repo, env=_migration_env(), capture_output=True, text=True)
+
+    assert result.returncode != 0, 'must exit non-zero on an unrecognized source column'
+    combined = result.stdout + result.stderr
+    assert 'bogus_legacy_column' in combined, 'the error must name the offending column'
+
+    conn = server.get_db()
+    after_count = conn.execute('SELECT COUNT(*) AS n FROM personnel').fetchone()['n']
+    conn.close()
+    assert after_count == before_count, 'the aborted table must not have partially written rows'
+
+
 def main():
     try:
         test_harness_isolates()
@@ -343,6 +633,8 @@ def main():
         test_4xx_response_rolls_back_partial_writes()
         test_200_response_commits()
         test_app_role_cannot_change_schema()
+        test_migration_moves_rows_and_resets_sequences()
+        test_migration_fails_loudly_on_unknown_source_column()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)
