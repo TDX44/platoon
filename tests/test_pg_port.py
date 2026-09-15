@@ -10,6 +10,7 @@ here that import server; they must not call dbharness.setup() themselves.
 """
 import os
 import sys
+import threading
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
@@ -131,6 +132,53 @@ def test_seeding_is_idempotent():
 
     assert after == before, f're-seeding changed the row count: {before} -> {after}'
     assert dupes == [], f'duplicate settings keys after re-seed: {dupes}'
+
+    dbharness.teardown(schema)
+
+
+def test_init_db_failure_surfaces_the_real_error():
+    """A failed migration must not be masked by the advisory-unlock cleanup.
+
+    init_db()'s finally unlocks the session-level advisory lock before
+    closing the connection. If the body raised, that connection's
+    transaction is already aborted, so the unlock itself can raise
+    InFailedSqlTransaction -- and if that escaped from finally it would
+    replace the real cause. Task 9 runs init_db() against production data
+    for the first time; an operator debugging a failed migration needs the
+    real exception, not "current transaction is aborted".
+    """
+    schema = dbharness.setup()
+    real_columns = server._columns
+
+    def _broken_columns(cur, table):
+        if table == 'users':
+            cur.execute('SELECT * FROM this_table_does_not_exist')
+        return real_columns(cur, table)
+
+    server._columns = _broken_columns
+    try:
+        try:
+            server.init_db()
+            assert False, 'init_db() should have raised'
+        except psycopg.errors.UndefinedTable:
+            pass  # the real cause -- not InFailedSqlTransaction
+    finally:
+        server._columns = real_columns
+
+    # The failed call must still have released the advisory lock: a fresh
+    # connection calling init_db() again must not block waiting for it. Runs
+    # on a thread with a timeout so a regression fails loudly instead of
+    # hanging the whole test suite.
+    done = threading.Event()
+
+    def _second_call():
+        server.init_db()
+        done.set()
+
+    t = threading.Thread(target=_second_call, daemon=True)
+    t.start()
+    t.join(timeout=5)
+    assert done.is_set(), 'init_db() blocked -- the advisory lock was not released after the failure'
 
     dbharness.teardown(schema)
 
@@ -288,6 +336,7 @@ def main():
         test_harness_isolates()
         test_init_db_is_idempotent()
         test_seeding_is_idempotent()
+        test_init_db_failure_surfaces_the_real_error()
         test_audit_row_commits_with_its_change()
         test_audit_row_survives_a_successful_change()
         test_failed_request_rolls_back_partial_writes()
