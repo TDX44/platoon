@@ -13,3 +13,6 @@ backups/
 
 # Dev-stack-only port override; must never reach production
 docker-compose.override.yml
+
+# Secrets (SECRET_KEY, Clerk keys, TUNNEL_TOKEN, DB passwords) - never commit
+.env
