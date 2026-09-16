@@ -1,103 +1,108 @@
-"""User management (Manage Access) — run with: python tests/test_user_admin.py
+"""Manage Access on the unit tree — run with: python tests/test_user_admin.py
 
-Covers the paths a Postgres-port defect hid in for this whole task: no test
-reached get_users() or _should_auto_grant_admin() before this file, both of
-which query `users.clerk_user_id != ""` — a SQLite compatibility quirk that
-Postgres parses as an empty *identifier*, not an empty string, and fails to
-parse at all. See task-4-report.md Finding 1.
+Who a leader may see and change is their own subtree; who an owner may see is
+the whole root. A user in a second tree is not a 403 but a 404: row-level
+security hides the row, so the route cannot tell it apart from one that was
+never there.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_HERE))
+sys.path.insert(0, _HERE)
+
 import dbharness  # noqa: E402
-_schema = dbharness.setup()
 
-import server  # noqa: E402  (must follow dbharness.setup())
+_SCHEMA = dbharness.setup()
 
-ADMIN = {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
-NON_ADMIN = {'is_admin': 0, 'id': 2, 'username': 'sarge', 'platoons': '2nd'}
+import server  # noqa: E402
+
+T = dbharness.make_tree()
+OWNER = dbharness.make_user(T['root'], 'owner', 'boss')
+LEADER = dbharness.make_user(T['child'], 'leader', 'sarge')
+OTHER = dbharness.make_tree('Other Co')
+OTHER_USER = dbharness.make_user(OTHER['root'], 'owner', 'stranger')
 
 
-def as_user(user):
-    server.get_current_user = lambda: user
-
-
-def insert_user(username, clerk_user_id, email='', is_admin=0):
-    conn = server.get_db()
-    conn.execute(
-        'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email) '
-        "VALUES (%s, 'x', %s, '2nd', %s, %s)",
-        (username, is_admin, clerk_user_id, email)
-    )
+def local_user(unit_id, root_id, username):
+    """A pre-Clerk account: a row that exists but has never signed in."""
+    conn = dbharness.owner_conn()
+    row = conn.execute(
+        "INSERT INTO users (username, password_hash, clerk_user_id, email, unit_id, role, root_id) "
+        "VALUES (%s, 'x', '', %s, %s, 'leader', %s) RETURNING *",
+        (username, f'{username}@example.com', unit_id, root_id)).fetchone()
     conn.commit()
     conn.close()
+    return dict(row)
 
 
-def check_get_users():
-    # A locally-created account (no Clerk identity, clerk_user_id = '') must
-    # never show up in Manage Access — it is what _should_auto_grant_admin and
-    # get_users both filter on, and the "" vs '' bug broke this filter outright
-    # under Postgres (every call 500'd; nothing ever reached the assertions
-    # below).
-    insert_user('local.only', clerk_user_id='', email='local@example.com')
-    insert_user('synced.user', clerk_user_id='clerk_abc123', email='synced@example.com')
+LOCAL = local_user(T['child'], T['root'], 'local.only')
 
+
+def usernames(client):
+    return {u['username'] for u in client.get('/api/users').get_json()}
+
+
+def test_listing_is_the_callers_subtree():
+    c = server.app.test_client()
+    dbharness.as_user(LEADER)
+    names = usernames(c)
+    assert names == {'sarge'}, f'a leader lists only the users inside their own subtree: {names}'
+    dbharness.as_user(OWNER)
+    names = usernames(c)
+    assert names == {'boss', 'sarge'}, f'an owner lists everyone attached in the root: {names}'
+    assert 'stranger' not in names, f'a user in a second tree never appears: {names}'
+
+
+def test_a_local_only_account_is_never_listed():
+    c = server.app.test_client()
+    dbharness.as_user(OWNER)
+    assert 'local.only' not in usernames(c), \
+        'an account that has never synced with Clerk must stay out of Manage Access'
+
+
+def test_moving_and_promoting_a_user():
+    top = dbharness.make_user(T['root'], 'leader', 'topkick')
     c = server.app.test_client()
 
-    as_user(NON_ADMIN)
-    assert c.get('/api/users').status_code == 403, 'only an admin may list users'
+    dbharness.as_user(LEADER)
+    r = c.put(f"/api/users/{LEADER['id']}", json={'unit_id': T['root']})
+    assert r.status_code == 403, f'a leader cannot move a user to a unit outside their subtree: {r.get_json()}'
+    r = c.put(f"/api/users/{LEADER['id']}", json={'role': 'owner'})
+    assert r.status_code == 403, f'only an owner may grant owner: {r.get_json()}'
 
-    as_user(ADMIN)
-    r = c.get('/api/users')
-    assert r.status_code == 200, r.get_json()
-    rows = r.get_json()
-    usernames = {row['username'] for row in rows}
-    assert 'synced.user' in usernames, f'a synced Clerk account must be listed: {rows}'
-    assert 'local.only' not in usernames, f'a local-only account must not be listed: {rows}'
-
-    synced = next(row for row in rows if row['username'] == 'synced.user')
-    assert synced['email'] == 'synced@example.com', synced
-    assert 'password_hash' not in synced, 'get_users must not leak password_hash'
+    dbharness.as_user(OWNER)
+    r = c.put(f"/api/users/{top['id']}", json={'role': 'owner'})
+    assert r.status_code == 200 and r.get_json()['role'] == 'owner', \
+        f'an owner may promote a user who is attached at the root: {r.get_json()}'
+    r = c.put(f"/api/users/{LEADER['id']}", json={'role': 'owner'})
+    assert r.status_code == 400, \
+        f'owner is a root role — a user attached below the root cannot hold it: {r.get_json()}'
+    r = c.put(f"/api/users/{OTHER_USER['id']}", json={'username': 'x'})
+    assert r.status_code == 404, f'a user in a second tree does not exist from here: {r.get_json()}'
 
 
-def check_should_auto_grant_admin():
-    conn = server.get_db()
-    try:
-        # CLERK_ADMIN_EMAILS set: an exact (case-insensitive) match is
-        # granted, everyone else is refused, regardless of what's in `users`.
-        server.CLERK_ADMIN_EMAILS = {'boss@example.com'}
-        assert server._should_auto_grant_admin(conn, 'Boss@Example.com') is True, \
-            'a configured admin email must match case-insensitively'
-        assert server._should_auto_grant_admin(conn, 'nobody@example.com') is False, \
-            'an unlisted email must never be auto-granted admin'
-
-        # CLERK_ADMIN_EMAILS unset: the first Clerk-synced user ever becomes
-        # admin automatically; once one exists, nobody else does.
-        server.CLERK_ADMIN_EMAILS = set()
-        assert server._should_auto_grant_admin(conn, 'first@example.com') is True, \
-            'with no synced users yet and no CLERK_ADMIN_EMAILS, the first sign-in must become admin'
-
-        conn.execute(
-            "INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id) "
-            "VALUES ('already.synced', 'x', 0, '2nd', 'clerk_xyz')"
-        )
-        conn.commit()
-        assert server._should_auto_grant_admin(conn, 'second@example.com') is False, \
-            'once any Clerk user has synced, a later one must not be auto-granted admin'
-    finally:
-        conn.close()
+def test_deleting_a_user_is_owner_only():
+    victim = dbharness.make_user(T['child'], 'leader', 'victim')
+    c = server.app.test_client()
+    dbharness.as_user(LEADER)
+    assert c.delete(f"/api/users/{victim['id']}").status_code == 403, 'a leader may not delete a user'
+    dbharness.as_user(OWNER)
+    assert c.delete(f"/api/users/{OWNER['id']}").status_code == 400, 'nobody may delete their own account'
+    assert c.delete(f"/api/users/{victim['id']}").status_code == 200, 'an owner may delete a user in the root'
+    assert 'victim' not in usernames(c), 'a deleted user is gone from the listing'
 
 
 def main():
-    # Order matters: this checks the "no synced user exists yet" branch,
-    # which check_get_users() below would otherwise have already falsified by
-    # inserting a synced user of its own.
-    check_should_auto_grant_admin()
-    check_get_users()
-    print('ok')
-    dbharness.teardown(_schema)
+    try:
+        test_listing_is_the_callers_subtree()
+        test_a_local_only_account_is_never_listed()
+        test_moving_and_promoting_a_user()
+        test_deleting_a_user_is_owner_only()
+        print('ok')
+    finally:
+        dbharness.teardown(_SCHEMA)
 
 
 if __name__ == '__main__':

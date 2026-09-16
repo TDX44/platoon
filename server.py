@@ -68,7 +68,6 @@ CLERK_PUBLISHABLE_KEY = os.environ.get('CLERK_PUBLISHABLE_KEY', '').strip()
 CLERK_FRONTEND_API_URL = os.environ.get('CLERK_FRONTEND_API_URL', '').strip() or _decode_clerk_publishable_key(CLERK_PUBLISHABLE_KEY)
 CLERK_JWKS_URL = f'{CLERK_FRONTEND_API_URL.rstrip("/")}/.well-known/jwks.json' if CLERK_FRONTEND_API_URL else ''
 CLERK_AUTHORIZED_PARTIES = _parse_csv_env('CLERK_AUTHORIZED_PARTIES')
-CLERK_ADMIN_EMAILS = {email.lower() for email in _parse_csv_env('CLERK_ADMIN_EMAILS')}
 CLERK_ENABLED = bool(CLERK_PUBLISHABLE_KEY and CLERK_JWKS_URL)
 # lifespan: the default refetches Clerk's key set every 5 minutes, so any DNS or
 # network blip had ~288 chances a day to land on a refetch and 401 everyone. A
@@ -617,13 +616,6 @@ def init_db():
             sys.stderr.write(f'  Change this password after first login!\n')
             sys.stderr.write(f'{"=" * 52}\n\n')
             sys.stderr.flush()
-        elif CLERK_ENABLED and not CLERK_ADMIN_EMAILS:
-            import sys
-            sys.stderr.write(
-                '\n[auth] Clerk is enabled without CLERK_ADMIN_EMAILS. '
-                'The first Clerk user to sign in will be granted admin access automatically.\n\n'
-            )
-            sys.stderr.flush()
 
         # ── RLS policies and the pre-tenant front door: every boot, idempotent ──
         for name in ('rls.sql', 'auth_functions.sql'):
@@ -846,29 +838,11 @@ def get_current_user():
 
 
 # ── Invitations ──
-# Sign-up is invite-only: a Clerk account that has never synced here is turned
-# away unless it presents a live invite token (or qualifies for the admin
-# bootstrap below, which is how the first/CLERK_ADMIN_EMAILS accounts get in).
+# Sign-up is open: anyone with a Clerk account gets a row here, attached to
+# nothing, and either creates their own tree or presents an invite. An invite
+# is what attaches an account to somebody else's tree, at one unit and in one
+# role.
 INVITE_EXPIRY_DAYS = 7
-INVITE_REQUIRED = 'This app is invite-only. Ask an admin for an invite link.'
-
-
-def _clean_platoons(value, is_admin):
-    if is_admin:
-        return '*'
-    keys = [p.strip() for p in (value or '').split(',') if p.strip() in PLATOONS]
-    return ','.join(dict.fromkeys(keys))
-
-
-def _valid_invite(conn, token):
-    """The invite row if the token exists, is unused and unexpired, else None."""
-    if not token:
-        return None
-    return conn.execute(
-        "SELECT * FROM invites WHERE token = %s AND accepted_at = '' "
-        'AND expires_at > %s',
-        (token, app_stamp())
-    ).fetchone()
 
 
 def _display_name_for_user(payload):
@@ -877,22 +851,6 @@ def _display_name_for_user(payload):
         if value:
             return value
     return 'User'
-
-
-def _should_auto_grant_admin(conn, email):
-    if email and email.lower() in CLERK_ADMIN_EMAILS:
-        return True
-
-    if CLERK_ADMIN_EMAILS:
-        return False
-
-    synced_admin = conn.execute(
-        'SELECT 1 FROM users WHERE clerk_user_id != \'\' AND is_admin = 1 LIMIT 1'
-    ).fetchone()
-    any_synced = conn.execute(
-        'SELECT 1 FROM users WHERE clerk_user_id != \'\' LIMIT 1'
-    ).fetchone()
-    return not synced_admin and not any_synced
 
 
 def sync_clerk_user(payload):
@@ -914,69 +872,48 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
-    invite = None
+    now = app_stamp()
     try:
-        existing = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
-        username_conflict = conn.execute(
-            'SELECT * FROM users WHERE LOWER(username) = %s',
-            (username.lower(),)
-        ).fetchone() if username else None
-        email_conflict = conn.execute(
-            'SELECT * FROM users WHERE LOWER(email) = %s',
-            (email,)
-        ).fetchone() if email else None
-
+        existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         if existing:
-            conn.execute(
-                'UPDATE users SET username = %s, email = %s, full_name = %s WHERE clerk_user_id = %s',
-                (username, email, full_name, clerk_user_id)
-            )
-        else:
-            is_admin = 1 if _should_auto_grant_admin(conn, email) else 0
-            legacy = None
+            set_tenant(conn, existing.get('root_id'))
+            if existing['root_id'] is not None:
+                conn.execute('UPDATE users SET username = %s, email = %s, full_name = %s WHERE id = %s',
+                             (username, email, full_name, existing['id']))
+            row = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
+            g.current_user = dict(row)
+            return g.current_user, None
 
-            for candidate in (email_conflict, username_conflict):
-                if candidate and not candidate['clerk_user_id']:
-                    legacy = candidate
-                    break
+        token = (payload.get('invite_token') or '').strip()
+        invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, now)).fetchone() if token else None
+        legacy = conn.execute('SELECT * FROM auth_user_by_identity(%s, %s)', (email, username)).fetchone()
 
-            invite = _valid_invite(conn, (payload.get('invite_token') or '').strip())
-            if not invite and not is_admin and not legacy:
-                return None, INVITE_REQUIRED
+        if legacy:
+            unit_id, role, root_id = legacy['unit_id'], legacy['role'], legacy['root_id']
             if invite:
-                is_admin = 1 if (invite['is_admin'] or is_admin) else 0
-
-            if legacy:
-                platoons = invite['platoons'] if invite else legacy['platoons']
-                should_be_admin = bool(invite['is_admin']) if invite else bool(legacy['is_admin'])
-                should_be_admin = should_be_admin or bool(is_admin)
-                if should_be_admin and not platoons:
-                    platoons = '*'
-                conn.execute(
-                    'UPDATE users SET username = %s, password_hash = %s, is_admin = %s, platoons = %s, '
-                    'clerk_user_id = %s, email = %s, full_name = %s, pin_hash = \'\' WHERE id = %s',
-                    (username, PLACEHOLDER_PASSWORD_HASH, 1 if should_be_admin else 0, platoons,
-                     clerk_user_id, email, full_name, legacy['id'])
-                )
-            else:
-                if username_conflict and username_conflict['clerk_user_id'] and username_conflict['clerk_user_id'] != clerk_user_id:
-                    username = email or f'user-{clerk_user_id[:8]}'
-                platoons = '*' if is_admin else (invite['platoons'] if invite else '')
-                conn.execute(
-                    'INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email, full_name) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s)',
-                    (username, PLACEHOLDER_PASSWORD_HASH, is_admin, platoons, clerk_user_id, email, full_name)
-                )
+                unit_id, role, root_id = invite['unit_id'], invite['role'], invite['root_id']
+            conn.execute('SELECT * FROM auth_claim_legacy_user(%s, %s, %s, %s, %s, %s, %s, %s)',
+                         (legacy['id'], clerk_user_id, username, email, full_name, unit_id, role, root_id))
+        else:
+            unit_id, role, root_id = ((invite['unit_id'], invite['role'], invite['root_id'])
+                                      if invite else (None, 'leader', None))
+            conn.execute('SELECT * FROM auth_create_user(%s, %s, %s, %s, %s, %s, %s)',
+                         (clerk_user_id, username, email, full_name, unit_id, role, root_id))
+        set_tenant(conn, root_id)
         if invite:
-            conn.execute(
-                'UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
-                (app_stamp(), clerk_user_id, invite['token'])
-            )
-        row = conn.execute('SELECT * FROM users WHERE clerk_user_id = %s', (clerk_user_id,)).fetchone()
+            conn.execute('UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
+                         (now, clerk_user_id, invite['token']))
+        row = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         g.current_user = dict(row) if row else None
         return g.current_user, None
     except psycopg.errors.UniqueViolation:
-        return None, 'That username is already in use locally. Ask an admin to rename or merge the account.'
+        # username is UNIQUE; the caller's Clerk handle collides with someone
+        # else's local username. Retry once with the email-derived fallback.
+        conn.rollback()
+        fallback = email or f'user-{clerk_user_id[:8]}'
+        if payload.get('username') != fallback:
+            return sync_clerk_user(dict(payload, username=fallback))
+        return None, 'That username is already in use locally. Ask an owner to rename or merge the account.'
 
 
 def has_platoon_access(user, platoon):
@@ -1195,7 +1132,13 @@ def auth_sync():
     payload = request.get_json() or {}
     user, error = sync_clerk_user(payload)
     if error:
-        return jsonify({'error': error}), 403 if error == INVITE_REQUIRED else 409
+        return jsonify({'error': error}), 409
+    # This route is @clerk_auth_required alone, so nothing has declared a
+    # tenant for it. log_action() takes root_id from the GUC and writes
+    # nothing when there is none — without this the LOGIN row was silently
+    # dropped for everyone. A stranger's first sign-in still isn't audited:
+    # they belong to no tenant yet, and UNIT_CREATE is their first row.
+    set_tenant(get_db(), user['root_id'])
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
     return jsonify(_user_json(get_db(), user))
 
@@ -1211,44 +1154,55 @@ def me():
     return jsonify(_user_json(get_db(), g.current_user))
 
 
-# ── User management (admin only) ──
+# ── User management ──
+# Everything here is bounded twice: RLS keeps a caller inside their own root,
+# and current_subtree()/can_access() keep them inside their own branch of it.
 
 @app.route('/api/users', methods=['GET'])
-@owner_required
+@attached_required
 def get_users():
     conn = get_db()
     rows = conn.execute(
-        'SELECT id, username, email, full_name, is_admin, platoons FROM users '
-        'WHERE clerk_user_id != \'\' ORDER BY username'
-    ).fetchall()
-    return jsonify([dict(r) for r in rows])
+        "SELECT * FROM users WHERE clerk_user_id != '' AND unit_id = ANY(%s) ORDER BY username",
+        (list(current_subtree()),)).fetchall()
+    return jsonify([_user_json(conn, dict(r)) for r in rows])
 
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
-@owner_required
+@attached_required
 def update_user(user_id):
-    data = request.get_json()
+    data = request.get_json() or {}
+    conn = get_db()
+    target = conn.execute("SELECT * FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,)).fetchone()
+    if target is None or not can_access(target['unit_id']):
+        return jsonify({'error': 'Not found'}), 404
     fields, values = [], []
-    if 'is_admin' in data:
-        fields.append('is_admin = %s')
-        values.append(1 if data['is_admin'] else 0)
-    if 'platoons' in data:
-        fields.append('platoons = %s')
-        values.append(data['platoons'])
+    new_unit = target['unit_id']
+    if 'unit_id' in data:
+        if not can_access(data['unit_id']):
+            return jsonify({'error': 'Forbidden'}), 403
+        new_unit = int(data['unit_id'])
+        fields.append('unit_id = %s'); values.append(new_unit)
+    if 'role' in data:
+        if data['role'] not in ROLES:
+            return jsonify({'error': 'role must be owner or leader'}), 400
+        if data['role'] == 'owner':
+            if not is_owner(g.current_user):
+                return jsonify({'error': 'Only an owner can grant owner.'}), 403
+            if new_unit != g.current_user['root_id']:
+                return jsonify({'error': 'owner is a root role; attach the user at the root first.'}), 400
+        fields.append('role = %s'); values.append(data['role'])
     if 'username' in data:
-        fields.append('username = %s')
-        values.append((data['username'] or '').strip())
+        fields.append('username = %s'); values.append((data['username'] or '').strip())
     if not fields:
         return jsonify({'error': 'Nothing to update'}), 400
     values.append(user_id)
-    conn = get_db()
     try:
-        conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s AND clerk_user_id != \'\'', values)
-        row = conn.execute(
-            'SELECT id, username, email, full_name, is_admin, platoons FROM users WHERE id = %s',
-            (user_id,)
-        ).fetchone()
-        return jsonify(dict(row))
+        conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s', values)
+        if 'role' in data or 'unit_id' in data:
+            log_action('ROLE_CHANGE', f'{target["username"]}: unit {new_unit}, role {data.get("role", target["role"])}', new_unit)
+        row = conn.execute('SELECT * FROM users WHERE id = %s', (user_id,)).fetchone()
+        return jsonify(_user_json(conn, dict(row)))
     except psycopg.errors.UniqueViolation:
         return jsonify({'error': 'Username already exists'}), 409
 
@@ -1259,75 +1213,76 @@ def delete_user(user_id):
     if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
-    conn.execute('DELETE FROM users WHERE id = %s AND clerk_user_id != \'\'', (user_id,))
+    conn.execute("DELETE FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,))
     return jsonify({'success': True})
 
 
 # ── Invitations ──
 
 @app.route('/api/invites', methods=['GET'])
-@owner_required
+@attached_required
 def get_invites():
     conn = get_db()
-    rows = conn.execute('SELECT * FROM invites ORDER BY created_at DESC LIMIT 50').fetchall()
+    rows = conn.execute(
+        'SELECT i.*, u.name AS unit_name FROM invites i LEFT JOIN units u ON u.id = i.unit_id '
+        'WHERE i.unit_id = ANY(%s) ORDER BY i.created_at DESC LIMIT 50', (list(current_subtree()),)).fetchall()
     now = app_stamp()
     return jsonify([{
-        'token': r['token'],
-        'label': r['label'],
-        'platoons': r['platoons'],
-        'is_admin': bool(r['is_admin']),
-        'created_by': r['created_by'],
-        'expires_at': r['expires_at'],
+        'token': r['token'], 'label': r['label'], 'unit_id': r['unit_id'], 'unit_name': r['unit_name'] or '',
+        'role': r['role'], 'created_by': r['created_by'], 'expires_at': r['expires_at'],
         'status': 'accepted' if r['accepted_at'] else ('expired' if r['expires_at'] <= now else 'pending'),
     } for r in rows])
 
 
 @app.route('/api/invites', methods=['POST'])
-@owner_required
+@attached_required
 def create_invite():
     data = request.get_json() or {}
     label = ' '.join((data.get('label') or '').split())[:80]
-    is_admin = 1 if data.get('is_admin') else 0
-    platoons = _clean_platoons(data.get('platoons'), is_admin)
-    if not platoons:
-        return jsonify({'error': 'Pick at least one platoon, or make the invite an administrator.'}), 400
-
-    token = secrets.token_urlsafe(24)
+    role = (data.get('role') or 'leader').strip()
+    unit_id = data.get('unit_id')
+    if role not in ROLES:
+        return jsonify({'error': 'role must be owner or leader'}), 400
+    if not can_access(unit_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    if role == 'owner' and (not is_owner(g.current_user) or int(unit_id) != g.current_user['root_id']):
+        return jsonify({'error': 'Only an owner can invite an owner, and only at the root.'}), 403
     conn = get_db()
+    unit = _unit_row(conn, unit_id)
+    token = secrets.token_urlsafe(24)
     conn.execute(
-        'INSERT INTO invites (token, label, platoons, is_admin, created_by, expires_at, created_at) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s)',
-        (token, label, platoons, is_admin, g.current_user['username'],
-         (app_now() + timedelta(days=INVITE_EXPIRY_DAYS)).strftime('%Y-%m-%d %H:%M:%S'),
-         app_stamp())
-    )
-    log_action('INVITE_CREATE', f'Invited {label or "(unnamed)"} — {"administrator" if is_admin else platoons}')
+        'INSERT INTO invites (token, label, unit_id, role, root_id, created_by, expires_at, created_at) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
+        (token, label, int(unit_id), role, unit['root_id'], g.current_user['username'],
+         (app_now() + timedelta(days=INVITE_EXPIRY_DAYS)).strftime('%Y-%m-%d %H:%M:%S'), app_stamp()))
+    log_action('INVITE_CREATE', f'Invited {label or "(unnamed)"} — {role} at {unit["name"]}', int(unit_id))
     return jsonify({'token': token, 'url': f'{_get_request_origin()}/invite/{token}'})
 
 
 @app.route('/api/invites/<token>', methods=['DELETE'])
-@owner_required
+@attached_required
 def revoke_invite(token):
     conn = get_db()
-    row = conn.execute('SELECT label FROM invites WHERE token = %s', (token,)).fetchone()
+    row = conn.execute('SELECT label, unit_id FROM invites WHERE token = %s', (token,)).fetchone()
+    if row is None or not can_access(row['unit_id']):
+        return jsonify({'error': 'Not found'}), 404
     conn.execute('DELETE FROM invites WHERE token = %s', (token,))
-    if row:
-        log_action('INVITE_REVOKE', f'Revoked invite for {row["label"] or "(unnamed)"}')
+    log_action('INVITE_REVOKE', f'Revoked invite for {row["label"] or "(unnamed)"}', row['unit_id'])
     return jsonify({'success': True})
 
 
 @app.route('/api/invites/<token>/preview', methods=['GET'])
 def preview_invite(token):
-    """Unauthenticated — the token itself is the secret. Lets the sign-up page
-    tell an invitee what they were invited to before they create an account."""
+    """Unauthenticated and pre-tenant — the token is the secret, and
+    auth_invite() is the front door that may read it."""
     conn = get_db()
-    row = _valid_invite(conn, token)
+    row = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, app_stamp())).fetchone()
     if not row:
         return jsonify({'valid': False}), 404
-    access = 'all platoons (administrator)' if row['is_admin'] else ' + '.join(
-        PLATOONS[p].replace(' Accountability', '') for p in row['platoons'].split(',') if p in PLATOONS
-    )
-    return jsonify({'valid': True, 'label': row['label'], 'access': access})
+    set_tenant(conn, row['root_id'])
+    unit = _unit_row(conn, row['unit_id'])
+    return jsonify({'valid': True, 'label': row['label'], 'unit_name': unit['name'] if unit else '',
+                    'kind': unit['kind'] if unit else '', 'role': row['role']})
 
 
 # ── Units ──
