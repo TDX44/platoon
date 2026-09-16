@@ -11,16 +11,21 @@ Tests are standalone assert-based scripts under `tests/`, run directly and in CI
 ## Commands
 
 ```bash
-# Run locally (Flask dev server, port 5000, debug=True, auto-reset thread active)
+# Run locally — needs a reachable Postgres first (DATABASE_URL / MIGRATION_DATABASE_URL)
+docker run -d --name platoon-pg -p 5432:5432 \
+  -e POSTGRES_DB=platoon -e POSTGRES_USER=platoon_owner -e POSTGRES_PASSWORD=platoon postgres:17
 pip install -r requirements.txt
 python server.py
 
-# Run production-like (gunicorn + Cloudflare tunnel sidecar)
+# Run production-like (gunicorn + Cloudflare tunnel sidecar + db, all three services)
 docker compose up -d --build      # needs a .env file (see .env.example)
 ```
 
 There is no lint config and no test framework (no pytest) — every check is a
-standalone assert-based script, run directly:
+standalone assert-based script, run directly. Tests need a Postgres to talk to:
+`TEST_DATABASE_URL` (default `postgresql://platoon_owner:platoon@127.0.0.1:5432/platoon`)
+points at an admin connection tests use to create and drop a throwaway schema
+per test (`tests/dbharness.py`) — the same `platoon-pg` container above works.
 
 ```bash
 python tests/test_invites.py          # invite expiry / single-use / platoon validation
@@ -54,9 +59,10 @@ exits 0 — it never fails a developer's box that hasn't installed browsers.
 ## Backups
 
 `scripts/backup-db.sh` runs nightly on prodsrv02 (`platoon-backup.timer`, 03:10)
-and takes an integrity-checked SQLite snapshot to `backups/`, keeping 30 days and
-rsyncing each one to prodsrv04 over Tailscale. `backups/LAST_BACKUP` records the
-outcome.
+and takes a `pg_dump --format=custom` dump of the `db` compose service to
+`backups/`, verified with `pg_restore --list` before it is kept, keeping 30 days
+and rsyncing each one to prodsrv04 over Tailscale. `backups/LAST_BACKUP` records
+the outcome.
 
 `scripts/backup-copy.sh` is a *third* copy into personal Google Drive
 (`/mnt/e/My Drive/platoon db backup`), run on the Windows workstation under WSL
@@ -123,13 +129,21 @@ Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
 
 ### Data layer
 
-SQLite at `DB_PATH` = `${DATA_DIR}/accountability.db` (`DATA_DIR` defaults to the
-repo dir locally, `/data` in Docker — a mounted volume). `get_db()` opens a fresh
-connection per call with `Row` factory. `init_db()` runs at **module import** (so
-it also runs under gunicorn) and creates tables idempotently with
-`CREATE TABLE IF NOT EXISTS`. There is no migration framework — schema changes are
-made by editing the `CREATE TABLE` statements and adding ad-hoc `ALTER`/backfill
-logic in `init_db()`.
+PostgreSQL at `DATABASE_URL`. The app connects as `platoon_app`, a non-owner
+role that can read/write rows but not alter schema; `MIGRATION_DATABASE_URL`
+(defaults to `DATABASE_URL` if unset) connects as `platoon_owner`, which owns
+the tables and is the only role `init_db()` runs DDL as. `get_db()` returns one
+pooled connection per request (`psycopg_pool.ConnectionPool`, opened per
+gunicorn worker) via `row_factory=dict_row`, not a fresh connection per call.
+`init_db()` runs at **module import** (so it also runs under gunicorn, and
+every worker process runs it independently) and creates tables idempotently
+with `CREATE TABLE IF NOT EXISTS`; because `CREATE TABLE IF NOT EXISTS` is not
+safe against concurrent DDL from multiple workers importing the module at
+once, the whole body is guarded by a Postgres session-level advisory lock
+(`pg_advisory_lock`/`pg_advisory_unlock`) so only one worker runs it at a time.
+There is no migration framework — schema changes are made by editing the
+`CREATE TABLE` statements and adding ad-hoc `ALTER`/backfill logic in
+`init_db()`.
 
 Tables: `personnel`, `personnel_profile`, `settings`, `users`, `audit_log`,
 `duty_roster`, `scheduled_events`, `invites`. (Legacy `training_*` tables from the
@@ -216,14 +230,18 @@ one duty day. When a second organisation arrives it becomes
 to change. `PLATOON_TZ` is just the fallback before that row exists.
 
 The live zone is cached in a module global and `set_app_timezone()` is its only
-writer: `app_now()` runs inside open transactions, so reading the setting from a
-second connection there would deadlock the way `log_action()` documents. A
-stored value that is not a valid zone logs a warning and falls back rather than
-stopping the app from booting.
-Stored timestamps (audit log, invites) are written from `app_stamp()` rather
-than SQLite's `datetime('now')`, which is always UTC; the surviving column
-DEFAULTs use `datetime('now', 'localtime')` and rely on the container's `TZ`,
-which `docker-compose.yml` pins to the same zone.
+writer, so `app_now()` never needs a query of its own — including when it runs
+inside a transaction already in progress. A stored value that is not a valid
+zone logs a warning and falls back rather than stopping the app from booting.
+**Every** stored timestamp — audit log, invites, `scheduled_events.created_at`,
+`report_history.created_at` — is written from `app_stamp()` and passed
+explicitly, never left to a column DEFAULT. The `to_char(now(), ...)` DEFAULTs
+still on those columns run in the **db** container, whose `timezone` GUC was
+baked as UTC at initdb; a report saved 2130 Sunday would be filed under Monday.
+`docker-compose.yml` pins that GUC (`-c timezone=`) so the unreachable backstop
+is at least not wrong, and pins the app container's `TZ` so its logs read
+against the same duty day — but the `TZ` env var affects nothing that is
+stored.
 
 The frontend has its own `APP_TZ` with the same default and adopts the server's
 value from **both** `/api/auth/config` and every `GET /api/settings`, so a phone

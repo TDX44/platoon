@@ -7,3 +7,12 @@ __pycache__/
 
 # Local DB snapshots written by scripts/backup-db.sh on the server
 backups/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
+
+# Dev-stack-only port override; must never reach production
+docker-compose.override.yml
+
+# Secrets (SECRET_KEY, Clerk keys, TUNNEL_TOKEN, DB passwords) - never commit
+.env

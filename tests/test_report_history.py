@@ -7,10 +7,11 @@ requiring admin.
 """
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
@@ -71,7 +72,7 @@ def main():
         r = c.post('/api/reports', json={'platoon': 'hq', 'unit_name': f'r{i}', 'text': f't{i}'})
         assert r.status_code == 201, r.get_json()
     conn = server.get_db()
-    count = conn.execute("SELECT COUNT(*) FROM report_history WHERE platoon = 'hq'").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) AS n FROM report_history WHERE platoon = 'hq'").fetchone()['n']
     conn.close()
     assert count == server.REPORT_HISTORY_MAX, f'expected pruning to cap at {server.REPORT_HISTORY_MAX}, got {count}'
     # ...and the most recent one survives, not an arbitrary one.
@@ -107,6 +108,7 @@ def main():
         assert got and not got.startswith('2099'), f'created_at {bad!r} should have fallen back, got {got}'
 
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

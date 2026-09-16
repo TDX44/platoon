@@ -9,11 +9,12 @@ blocking, and the legacy backfill only links unambiguous rows.
 """
 import os
 import sys
-import tempfile
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
@@ -35,11 +36,11 @@ def setup():
 def add_person(rank, last, first, platoon='2nd'):
     conn = server.get_db()
     cur = conn.execute(
-        'INSERT INTO personnel (rank, last, first, platoon) VALUES (?, ?, ?, ?)',
+        'INSERT INTO personnel (rank, last, first, platoon) VALUES (%s, %s, %s, %s) RETURNING id',
         (rank, last, first, platoon)
     )
+    pid = cur.fetchone()['id']
     conn.commit()
-    pid = cur.lastrowid
     conn.close()
     return pid
 
@@ -48,7 +49,7 @@ def add_absence(person_id, status, from_date, to_date, state, platoon='2nd'):
     conn = server.get_db()
     conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, state) '
-        'VALUES (?, ?, ?, ?, ?, ?)',
+        'VALUES (%s, %s, %s, %s, %s, %s)',
         (person_id, platoon, status, from_date, to_date, state)
     )
     conn.commit()
@@ -107,7 +108,7 @@ def check_active_absence_conflicts(client):
     assert row['conflict']['label'].startswith('on leave '), row['conflict']['label']
 
     conn = server.get_db()
-    saved = conn.execute('SELECT * FROM duty_roster WHERE id = ?', (row['id'],)).fetchone()
+    saved = conn.execute('SELECT * FROM duty_roster WHERE id = %s', (row['id'],)).fetchone()
     conn.close()
     assert saved is not None, 'the row must still be created despite the conflict'
 
@@ -205,7 +206,7 @@ def check_backfill():
                               ('SSG', 'Deleted', 'Soldier')):
         conn.execute(
             "INSERT INTO duty_roster (date, platoon, duty_type, rank, last, first) "
-            "VALUES (?, '2nd', 'CQ', ?, ?, ?)", (day(0), rank, last, first)
+            "VALUES (%s, '2nd', 'CQ', %s, %s, %s)", (day(0), rank, last, first)
         )
     conn.commit()
     conn.close()
@@ -216,7 +217,7 @@ def check_backfill():
 
     def person_id_of(last):
         return conn.execute(
-            'SELECT person_id FROM duty_roster WHERE last = ?', (last,)).fetchone()['person_id']
+            'SELECT person_id FROM duty_roster WHERE last = %s', (last,)).fetchone()['person_id']
 
     assert person_id_of('Unique') == solo, 'an unambiguous legacy row must link'
     assert person_id_of('Twin') is None, \
@@ -238,6 +239,7 @@ def main():
     check_label()
     check_backfill()
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

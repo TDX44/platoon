@@ -4,10 +4,11 @@ reaches production, since there is no CI today. Run with:
 """
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 # Production always runs with Clerk configured. Enable it here too (with a
 # fake key/domain) so login_required/admin_required hit their real 401 path
 # instead of the "Clerk is not configured" 500 — every check below is
@@ -29,7 +30,9 @@ SKIP_RULES = {'/', '/<path:path>'}
 
 def check_tables():
     conn = server.get_db()
-    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    names = {r['table_name'] for r in conn.execute(
+        'SELECT table_name FROM information_schema.tables '
+        'WHERE table_schema = current_schema()').fetchall()}
     conn.close()
     for table in EXPECTED_TABLES:
         assert table in names, f'init_db did not create the {table!r} table'
@@ -168,6 +171,7 @@ def main():
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

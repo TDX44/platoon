@@ -629,6 +629,17 @@
     --cp-font-display: inherit;
   }
 
+  /* A visible, unmissable marker that this is not the real roster. It exists so
+     nobody marks a real soldier present on dev at 0630. */
+  body[data-env]::before {
+    content: attr(data-env);
+    position: fixed; inset: 0 0 auto 0; z-index: 9999;
+    background: #b7791f; color: #fff;
+    font-size: 0.7em; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; text-align: center; padding: 3px;
+    pointer-events: none;
+  }
+
   /* Aliases live on body (not :root) so the body.dark-mode --cp-* overrides
      are picked up when the alias resolves. */
   body {
@@ -7126,6 +7137,7 @@ async function loadAuthConfig() {
   authConfig = await res.json();
   // The server owns the duty-day clock; adopt it so the two cannot drift.
   if (authConfig && authConfig.timezone) APP_TZ = authConfig.timezone;
+  if (authConfig && authConfig.app_env && authConfig.app_env !== 'production') document.body.dataset.env = authConfig.app_env;
   return authConfig;
 }
 

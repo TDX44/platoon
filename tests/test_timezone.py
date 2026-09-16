@@ -8,12 +8,13 @@ Run with: python tests/test_timezone.py
 """
 import os
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 # The bug's exact conditions: a server whose own clock is UTC.
 os.environ['TZ'] = 'UTC'
 try:
@@ -78,7 +79,7 @@ def check_absence_activates_on_the_units_day():
     tomorrow = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
     conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
-        "VALUES (1, '2nd', 'tdy', ?, ?, 'IO - Dothan, AL', 'scheduled')",
+        "VALUES (1, '2nd', 'tdy', %s, %s, 'IO - Dothan, AL', 'scheduled')",
         (tomorrow, tomorrow))
     conn.commit()
     conn.close()
@@ -87,8 +88,8 @@ def check_absence_activates_on_the_units_day():
     assert client.get('/api/personnel?platoon=2nd').status_code == 200
 
     conn = server.get_db()
-    state = conn.execute('SELECT state FROM scheduled_events WHERE person_id = 1').fetchone()[0]
-    status = conn.execute('SELECT status FROM personnel WHERE id = 1').fetchone()[0]
+    state = conn.execute('SELECT state FROM scheduled_events WHERE person_id = 1').fetchone()['state']
+    status = conn.execute('SELECT status FROM personnel WHERE id = 1').fetchone()['status']
     conn.close()
     assert state == 'scheduled', f"tomorrow's TDY activated early (state={state})"
     assert status == 'present', f'roster shows {status}; the course has not started yet'
@@ -112,7 +113,7 @@ def check_timezone_is_an_org_setting():
 
     # One key for the organisation, not one per platoon.
     conn = server.get_db()
-    keys = [r[0] for r in conn.execute(
+    keys = [r['key'] for r in conn.execute(
         "SELECT key FROM settings WHERE key LIKE '%timezone%'")]
     conn.close()
     assert keys == [server.TIMEZONE_KEY], keys
@@ -127,7 +128,7 @@ def check_timezone_is_an_org_setting():
 
     # A bad value already in the database must not stop the app booting.
     conn = server.get_db()
-    conn.execute('UPDATE settings SET value = ? WHERE key = ?', ('Nowhere/Nothing', server.TIMEZONE_KEY))
+    conn.execute('UPDATE settings SET value = %s WHERE key = %s', ('Nowhere/Nothing', server.TIMEZONE_KEY))
     conn.commit()
     conn.close()
     assert server.load_app_timezone() == 'Europe/Berlin', 'a bad stored zone must fall back, not raise'
@@ -139,6 +140,54 @@ def check_timezone_is_an_org_setting():
 
     server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
     c.put('/api/settings?platoon=2nd', json={'timezone': 'America/Chicago'})
+
+
+def _assert_unit_clock(stamp, what):
+    parsed = datetime.strptime(str(stamp)[:19], '%Y-%m-%d %H:%M:%S')
+    central = datetime.now(CENTRAL).replace(tzinfo=None)
+    assert abs((parsed - central).total_seconds()) < 120, \
+        f'{what} is {stamp}, which is not the unit clock'
+    utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((parsed - utc_naive).total_seconds()) > 3000, \
+        f'{what} is still on the database server clock (UTC): {stamp}'
+
+
+def check_stored_timestamps_use_the_units_clock():
+    """A column DEFAULT runs in the DATABASE, whose clock is the wrong one.
+
+    report_history.created_at and scheduled_events.created_at both defaulted to
+    to_char(now(), ...). now() is the db container's clock — UTC here and in
+    production, where the GUC was baked at initdb — so a report generated 2130
+    Sunday was stamped 0230 Monday: the wrong duty day, on a page people read
+    by date. Both call sites now pass app_stamp() explicitly, which is what
+    CLAUDE.md's Time rule already required.
+    """
+    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
+    c = server.app.test_client()
+
+    r = c.post('/api/reports', json={'platoon': '2nd', 'unit_name': 'Alpha', 'text': 'tz probe'})
+    assert r.status_code == 201, r.get_json()
+    _assert_unit_clock(r.get_json()['created_at'], 'report_history.created_at')
+
+    conn = server.get_db()
+    person_id = conn.execute(
+        "INSERT INTO personnel (rank, last, first, platoon) "
+        "VALUES ('SGT', 'Tzprobe', 'Sam', '2nd') RETURNING id").fetchone()['id']
+    conn.commit()
+    conn.close()
+
+    # Far-future window: it stays 'scheduled' and cannot disturb the absence
+    # checks that run before this one.
+    r = c.post(f'/api/personnel/{person_id}/schedule',
+               json={'status': 'leave', 'from_date': '2099-01-01', 'to_date': '2099-01-05'})
+    assert r.status_code == 201, r.get_json()
+    _assert_unit_clock(r.get_json()['created_at'], 'scheduled_events.created_at')
+
+    conn = server.get_db()
+    conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
+    conn.execute("DELETE FROM report_history WHERE text = 'tz probe'")
+    conn.commit()
+    conn.close()
 
 
 def check_config_publishes_the_timezone():
@@ -153,8 +202,10 @@ def main():
     check_no_raw_date_today_remains()
     check_absence_activates_on_the_units_day()
     check_timezone_is_an_org_setting()
+    check_stored_timestamps_use_the_units_clock()
     check_config_publishes_the_timezone()
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':

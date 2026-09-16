@@ -1,2 +1,4 @@
 flask
 PyJWT[crypto]
+psycopg[binary]
+psycopg_pool

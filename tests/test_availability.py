@@ -8,11 +8,12 @@ Run with: python tests/test_availability.py
 """
 import os
 import sys
-import tempfile
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['DATA_DIR'] = tempfile.mkdtemp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbharness  # noqa: E402
+_schema = dbharness.setup()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
@@ -56,14 +57,14 @@ def add_event(person_id, from_off, to_off, status='tdy', state='scheduled', note
     conn = server.get_db()
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
         (person_id, platoon, status,
          '' if from_off is None else day(from_off),
          '' if to_off is None else day(to_off),
          notes, state)
     )
+    event_id = cur.fetchone()['id']
     conn.commit()
-    event_id = cur.lastrowid
     conn.close()
     return event_id
 
@@ -164,7 +165,7 @@ def main():
     # unavailable next week, and a hand-set 'present' must not hide a booking.
     clear()
     conn = server.get_db()
-    conn.execute("UPDATE personnel SET status='tdy', from_date=?, to_date=? WHERE id = 2",
+    conn.execute("UPDATE personnel SET status='tdy', from_date=%s, to_date=%s WHERE id = 2",
                  (day(-4), day(-1)))
     conn.commit()
     conn.close()
@@ -185,6 +186,7 @@ def main():
     assert c.get('/api/availability?platoon=2nd').get_json()['date'] == day(0)
 
     print('ok')
+    dbharness.teardown(_schema)
 
 
 if __name__ == '__main__':
