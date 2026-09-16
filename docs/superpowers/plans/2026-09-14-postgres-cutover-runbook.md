@@ -76,8 +76,9 @@ docker compose run --rm app python -c "import server; print('schema ok')"
 docker compose run --rm app python scripts/sqlite-to-pg.py /data/accountability.db
 ```
 
-Expected: `cleared 3 placeholder personnel`, `cleared 6 seeded settings`,
-one count line per table, then **`migration verified`**.
+Expected: `cleared 3 placeholder personnel row(s) seeded by init_db()`,
+`cleared 6 settings row(s) seeded by init_db()`, one count line per table,
+then **`migration verified`**.
 If it prints `MISMATCH` or `migration ABORTED`: nothing was committed. Go to Step 9.
 
 Verify deeper than counts before starting the app (counts once passed while
@@ -88,7 +89,12 @@ docker compose exec -T db psql -U platoon_owner -d platoon <<'SQL'
 SELECT id, rank, last, first FROM personnel WHERE id IN (1,3) ORDER BY id;   -- 1 Carr, 3 Bennett
 SELECT count(*) AS placeholders FROM personnel WHERE rank='WO1' AND last='Smith' AND first='John';  -- 0
 SELECT key, left(value,60) FROM settings WHERE key LIKE 'tdy_schools_%';    -- production's lists, not the seed
-SELECT sequencename, last_value, is_called FROM pg_sequences WHERE schemaname='public';  -- is_called = t everywhere
+SELECT 'personnel' AS seq, last_value, is_called FROM personnel_id_seq                -- is_called = t on every
+UNION ALL SELECT 'users', last_value, is_called FROM users_id_seq                       -- row that copied data;
+UNION ALL SELECT 'audit_log', last_value, is_called FROM audit_log_id_seq               -- duty_roster is empty in
+UNION ALL SELECT 'duty_roster', last_value, is_called FROM duty_roster_id_seq           -- prod so f there is fine
+UNION ALL SELECT 'scheduled_events', last_value, is_called FROM scheduled_events_id_seq
+UNION ALL SELECT 'report_history', last_value, is_called FROM report_history_id_seq;
 SELECT (SELECT count(*) FROM scheduled_events WHERE state='active') AS active_events,
        (SELECT count(*) FROM personnel WHERE status<>'present') AS non_present;          -- equal
 SELECT count(*) AS open_ended FROM scheduled_events WHERE to_date='';
