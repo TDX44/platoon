@@ -41,6 +41,7 @@
   .btn-danger { background: #d63031; color: #fff; }
   .btn-danger:hover { background: #b71c1c; }
   .btn-small { padding: 10px 12px; font-size: 0.85em; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .btn-small:disabled { opacity: 0.4; cursor: default; }
   .btn-tdy-leave {
     padding: 10px 12px; border: none; border-radius: 4px; cursor: pointer;
     font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
@@ -8218,14 +8219,29 @@ async function openUserEditModal(userId) {
   document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
   document.getElementById('userEditUsername').disabled = false;
-  document.getElementById('userEditError').style.display = 'none';
+  document.getElementById('userUnit').innerHTML = '';
+  document.getElementById('userRole').innerHTML = '';
+  const errEl = document.getElementById('userEditError');
+  errEl.style.display = 'none';
+  const saveBtn = document.getElementById('userEditSave');
+  saveBtn.disabled = false;
   const users = await api('GET', '/users');
   if (!users) return;
   const u = users.find(x => x.id === userId);
   if (u) {
     document.getElementById('userEditUsername').value = u.username;
-    document.getElementById('userUnit').innerHTML = accessUnitOptions(u.unit_id);
-    syncRoleSelect('userUnit', 'userRole', u.role || 'leader');
+    // Their unit is not in the tree this browser loaded, so none of the options
+    // is theirs: the browser would select the first one and Save would move them
+    // there without anyone choosing it. Say so and take Save away instead. A
+    // null unit_id is different — that is someone to attach, so offer the list.
+    if (u.unit_id != null && !unitById(u.unit_id)) {
+      errEl.textContent = "This user's unit is outside your view; ask an owner to move them.";
+      errEl.style.display = 'block';
+      saveBtn.disabled = true;
+    } else {
+      document.getElementById('userUnit').innerHTML = accessUnitOptions(u.unit_id);
+      syncRoleSelect('userUnit', 'userRole', u.role || 'leader');
+    }
   }
   document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('userEditModal').classList.add('active');
@@ -8550,7 +8566,7 @@ initApp();
     <div id="userEditError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeUserEdit()">Cancel</button>
-      <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
+      <button class="btn-small btn-add" id="userEditSave" onclick="saveUserEdit()">Save</button>
     </div>
   </div>
 </div>
