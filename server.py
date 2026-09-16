@@ -317,6 +317,31 @@ def unique_slug(conn, root_id, name):
     return slug
 
 
+def _root():
+    return g.current_user['root_id']
+
+
+def _unit_scope(raw):
+    """(unit_id, ids of its subtree) for a ?unit= / body unit_id the caller may
+    see, else None. A unit's roster is its whole subtree: a company view is
+    the company, a platoon view is the platoon and its squads."""
+    try:
+        unit_id = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if not can_access(unit_id):
+        return None
+    return unit_id, subtree_ids(get_db(), unit_id)
+
+
+def _person_or_none(conn, person_id):
+    """The soldier's scoping row, or None if it does not exist *from here*
+    (another tenant's soldier is a 404 by RLS, never a 403)."""
+    return conn.execute(
+        'SELECT id, rank, last, first, status, unit_id, root_id FROM personnel WHERE id = %s', (person_id,)
+    ).fetchone()
+
+
 def _columns(cur, table):
     """Column names for a table in the current schema.
 
@@ -491,6 +516,11 @@ def init_db():
                 cur.execute(f'ALTER TABLE {table} ADD COLUMN unit_id INTEGER')
             if 'root_id' not in tcols:
                 cur.execute(f'ALTER TABLE {table} ADD COLUMN root_id INTEGER')
+            # `platoon` is on its way out (Task 7 drops it), and the converted
+            # routes no longer write it. It was declared NOT NULL on several of
+            # these tables, which would reject every insert in between.
+            if 'platoon' in tcols:
+                cur.execute(f'ALTER TABLE {table} ALTER COLUMN platoon DROP NOT NULL')
             cur.execute(f'CREATE INDEX IF NOT EXISTS {table}_root ON {table}(root_id)')
             cur.execute(f'CREATE INDEX IF NOT EXISTS {table}_unit ON {table}(unit_id)')
         if 'root_id' not in _columns(cur, 'personnel_profile'):
@@ -1442,20 +1472,20 @@ def get_platoons():
 
 
 @app.route('/api/personnel', methods=['GET'])
-@login_required
+@attached_required
 def get_personnel():
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id, ids = scope
     conn = get_db()
     _reconcile_absences(conn, app_today())
     rows = conn.execute(
-        'SELECT * FROM personnel WHERE platoon = %s ORDER BY rank, last, first', (platoon,)
+        'SELECT * FROM personnel WHERE unit_id = ANY(%s) ORDER BY rank, last, first', (list(ids),)
     ).fetchall()
     scheduled_rows = conn.execute(
-        "SELECT * FROM scheduled_events WHERE platoon = %s AND state != 'completed' "
-        'ORDER BY from_date, to_date, id', (platoon,)
+        "SELECT * FROM scheduled_events WHERE unit_id = ANY(%s) AND state != 'completed' "
+        'ORDER BY from_date, to_date, id', (list(ids),)
     ).fetchall()
     scheduled_by_person = {}
     for r in scheduled_rows:
@@ -1469,44 +1499,57 @@ def get_personnel():
 
 
 @app.route('/api/personnel', methods=['POST'])
-@login_required
+@attached_required
 def add_person():
-    data = request.get_json()
-    platoon = data.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    data = request.get_json() or {}
+    unit_id = data.get('unit_id')
+    if not can_access(unit_id):
         return jsonify({'error': 'Forbidden'}), 403
     conn = get_db()
     cur = conn.execute(
-        'INSERT INTO personnel (rank, last, first, platoon) VALUES (%s, %s, %s, %s) RETURNING id',
-        (data.get('rank', ''), data.get('last', ''), data.get('first', ''), platoon)
+        'INSERT INTO personnel (rank, last, first, unit_id, root_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        (data.get('rank', ''), data.get('last', ''), data.get('first', ''), int(unit_id), _root())
     )
     new_id = cur.fetchone()['id']
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (new_id,)).fetchone()
-    log_action('ADD_PERSON', f'{data.get("rank","")} {data.get("last","")}, {data.get("first","")}', platoon)
+    log_action('ADD_PERSON', f'{data.get("rank","")} {data.get("last","")}, {data.get("first","")}', int(unit_id))
     return jsonify(dict(row)), 201
 
 
 @app.route('/api/personnel/<int:person_id>', methods=['PUT'])
-@login_required
+@attached_required
 def update_person(person_id):
-    data = request.get_json()
+    data = request.get_json() or {}
     fields, values = [], []
     for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date'):
         if col in data:
             fields.append(f'{col} = %s')
             values.append(data[col])
-    if not fields:
-        return jsonify({'error': 'No fields to update'}), 400
     conn = get_db()
-    person = conn.execute('SELECT rank, last, first, status, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, person['platoon']):
+    if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
+    moved_to = None
+    if 'unit_id' in data:
+        # can_access() before int(): it already answers False for anything that
+        # is not a unit id the caller may see, so junk in the body is a 403
+        # rather than a 500 on the cast.
+        if not can_access(data['unit_id']):
+            return jsonify({'error': 'Forbidden'}), 403
+        if int(data['unit_id']) != person['unit_id']:
+            moved_to = int(data['unit_id'])
+            fields.append('unit_id = %s'); values.append(moved_to)
+    if not fields:
+        return jsonify({'error': 'No fields to update'}), 400
     values.append(person_id)
     conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = %s', values)
+    if moved_to is not None:
+        # Child rows follow the soldier so the subtree view and RLS cache stay true.
+        conn.execute('UPDATE scheduled_events SET unit_id = %s WHERE person_id = %s', (moved_to, person_id))
+        conn.execute('UPDATE duty_roster SET unit_id = %s WHERE person_id = %s', (moved_to, person_id))
+        log_action('PERSON_MOVE', f'{person["rank"]} {person["last"]}, {person["first"]}: unit {person["unit_id"]} -> {moved_to}', moved_to)
     # Only the transition matters: apiUpdate() resends the current status on
     # every save, so a TDY soldier being marked present-for-today still PUTs
     # status='tdy' and must not have their absence closed.
@@ -1514,7 +1557,7 @@ def update_person(person_id):
         _end_running_absence(conn, person_id, app_today())
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if 'status' in data and data['status'] != person['status']:
-        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['platoon'])
+        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['unit_id'])
     return jsonify(dict(row))
 
 
@@ -1527,14 +1570,13 @@ PROFILE_FIELDS = (
 
 
 @app.route('/api/personnel/<int:person_id>/profile', methods=['GET'])
-@login_required
+@attached_required
 def get_profile(person_id):
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, person['platoon']):
+    if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
     profile = dict(row) if row else {'person_id': person_id, **{f: '' for f in PROFILE_FIELDS}}
@@ -1542,25 +1584,25 @@ def get_profile(person_id):
 
 
 @app.route('/api/personnel/<int:person_id>/profile', methods=['PUT'])
-@login_required
+@attached_required
 def update_profile(person_id):
     data = request.get_json() or {}
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, person['platoon']):
+    if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     updates = {f: data[f] for f in PROFILE_FIELDS if f in data}
     if not updates:
         return jsonify({'error': 'No fields to update'}), 400
 
-    # Ensure a row exists, then update only the provided columns.
+    # Ensure a row exists, then update only the provided columns. The tenant
+    # comes from the soldier, never from the request.
     conn.execute(
-        'INSERT INTO personnel_profile (person_id) VALUES (%s) ON CONFLICT (person_id) DO NOTHING',
-        (person_id,)
+        'INSERT INTO personnel_profile (person_id, root_id) VALUES (%s, %s) ON CONFLICT (person_id) DO NOTHING',
+        (person_id, person['root_id'])
     )
     assignments = ', '.join(f'{col} = %s' for col in updates)
     conn.execute(
@@ -1568,20 +1610,19 @@ def update_profile(person_id):
         [*updates.values(), person_id]
     )
     row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
-    log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['platoon'])
+    log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['unit_id'])
     return jsonify(dict(row))
 
 
 @app.route('/api/personnel/<int:person_id>/schedule', methods=['POST'])
-@login_required
+@attached_required
 def add_scheduled_event(person_id):
-    data = request.get_json()
+    data = request.get_json() or {}
     conn = get_db()
-    person = conn.execute('SELECT id, rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, person['platoon']):
+    if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
 
     status = data.get('status', '').strip()
@@ -1606,36 +1647,38 @@ def add_scheduled_event(person_id):
     # now() runs in the db container, whose timezone is UTC, which would stamp
     # a 2130 absence with tomorrow's date. See the Time section of CLAUDE.md.
     cur = conn.execute(
-        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, state, created_at) '
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) RETURNING id",
-        (person_id, person['platoon'], status, from_date, to_date,
+        'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, location, state, created_at) '
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) RETURNING id",
+        (person_id, person['unit_id'], person['root_id'], status, from_date, to_date,
          data.get('notes', ''), data.get('location', ''), app_stamp())
     )
     new_id = cur.fetchone()['id']
     _sync_person_status(conn, person_id, app_today())
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
-    log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['platoon'])
+    log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['unit_id'])
     return jsonify(dict(row)), 201
 
 
 @app.route('/api/directory', methods=['GET'])
-@login_required
+@attached_required
 def get_directory():
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id, ids = scope
     conn = get_db()
     _reconcile_absences(conn, app_today())
+    # unit_id rides along so a company-level directory can label which platoon
+    # each soldier is in; a single-unit view simply ignores it.
     rows = conn.execute(
-        'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, '
+        'SELECT p.id, p.rank, p.last, p.first, p.status, p.from_date, p.to_date, p.notes, p.unit_id, '
         '       pp.dod_id, pp.dob, pp.mos, pp.section, pp.phone '
         'FROM personnel p LEFT JOIN personnel_profile pp ON pp.person_id = p.id '
-        'WHERE p.platoon = %s ORDER BY p.rank, p.last, p.first', (platoon,)
+        'WHERE p.unit_id = ANY(%s) ORDER BY p.rank, p.last, p.first', (list(ids),)
     ).fetchall()
     upcoming = conn.execute(
         "SELECT person_id, status, from_date, to_date FROM scheduled_events "
-        "WHERE platoon = %s AND state = 'scheduled' ORDER BY from_date, id", (platoon,)
+        "WHERE unit_id = ANY(%s) AND state = 'scheduled' ORDER BY from_date, id", (list(ids),)
     ).fetchall()
     next_by_person = {}
     for e in upcoming:
@@ -1679,7 +1722,7 @@ def _covered_days(row, start_str, end_str):
 
 
 @app.route('/api/availability', methods=['GET'])
-@login_required
+@attached_required
 def get_availability():
     """Who is free on a date (or across a range), and who is not, and why.
 
@@ -1699,10 +1742,10 @@ def get_availability():
     row can never cover a future day and drops out on the dates alone. One rule
     covers all of it, and nothing silently vanishes.
     """
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id, ids = scope
 
     start = (request.args.get('date') or '').strip() or app_today()
     end = (request.args.get('to') or '').strip() or start
@@ -1717,15 +1760,15 @@ def get_availability():
 
     conn = get_db()
     people = conn.execute(
-        'SELECT id, rank, last, first, status FROM personnel WHERE platoon = %s '
-        'ORDER BY rank, last, first', (platoon,)
+        'SELECT id, rank, last, first, status FROM personnel WHERE unit_id = ANY(%s) '
+        'ORDER BY rank, last, first', (list(ids),)
     ).fetchall()
     # Windows that overlap the question at all; _covered_days works out which
     # days exactly. Open bounds are stored as '' and must not be compared.
     events = conn.execute(
-        'SELECT * FROM scheduled_events WHERE platoon = %s '
+        'SELECT * FROM scheduled_events WHERE unit_id = ANY(%s) '
         "AND (from_date = '' OR from_date <= %s) AND (to_date = '' OR to_date >= %s) "
-        'ORDER BY from_date, id', (platoon, end, start)
+        'ORDER BY from_date, id', (list(ids), end, start)
     ).fetchall()
 
     by_person = {}
@@ -1759,20 +1802,19 @@ def get_availability():
         })
 
     return jsonify({
-        'platoon': platoon, 'date': start, 'to': end, 'span': span,
+        'unit': unit_id, 'date': start, 'to': end, 'span': span,
         'available': available, 'unavailable': unavailable,
     })
 
 
 @app.route('/api/personnel/<int:person_id>/absences', methods=['GET'])
-@login_required
+@attached_required
 def get_absences(person_id):
     conn = get_db()
-    person = conn.execute('SELECT id, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, person['platoon']):
+    if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     _reconcile_absences(conn, app_today())
     rows = conn.execute(
@@ -1783,15 +1825,14 @@ def get_absences(person_id):
 
 
 @app.route('/api/schedules/<int:event_id>', methods=['PUT'])
-@login_required
+@attached_required
 def update_scheduled_event(event_id):
     data = request.get_json() or {}
     conn = get_db()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, row['platoon']):
+    if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     if row['state'] == 'completed':
         return jsonify({'error': 'That absence is already over and can no longer be edited.'}), 400
@@ -1817,39 +1858,37 @@ def update_scheduled_event(event_id):
     updated = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     person = conn.execute('SELECT rank, last FROM personnel WHERE id = %s', (row['person_id'],)).fetchone()
     who = f'{person["rank"]} {person["last"]}: ' if person else ''
-    log_action('EDIT_SCHEDULE', f'{who}{status} {from_date} - {to_date or "open"}', row['platoon'])
+    log_action('EDIT_SCHEDULE', f'{who}{status} {from_date} - {to_date or "open"}', row['unit_id'])
     return jsonify(dict(updated))
 
 
 @app.route('/api/schedules/<int:event_id>', methods=['DELETE'])
-@login_required
+@attached_required
 def delete_scheduled_event(event_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
     if row is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, row['platoon']):
+    if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
     conn.execute('DELETE FROM scheduled_events WHERE id = %s', (event_id,))
     # Cancelling an in-progress absence returns the soldier to duty.
     _sync_person_status(conn, person_id, app_today())
-    log_action('DELETE_SCHEDULE', f'{row["status"]} on {row["from_date"]}', row['platoon'])
+    log_action('DELETE_SCHEDULE', f'{row["status"]} on {row["from_date"]}', row['unit_id'])
     return jsonify({'success': True})
 
 
 @app.route('/api/personnel/<int:person_id>', methods=['DELETE'])
-@login_required
+@attached_required
 def delete_person(person_id):
     conn = get_db()
-    row = conn.execute('SELECT rank, last, first, platoon FROM personnel WHERE id = %s', (person_id,)).fetchone()
+    row = _person_or_none(conn, person_id)
     if row is None:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, row['platoon']):
+    if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
-    log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['platoon'])
+    log_action('REMOVE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['unit_id'])
     conn.execute('DELETE FROM scheduled_events WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel_profile WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
@@ -2516,7 +2555,7 @@ def import_backup():
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])
-@login_required
+@attached_required
 def activate_scheduled():
     today_str = app_today()
     conn = get_db()
@@ -2527,36 +2566,40 @@ def activate_scheduled():
 # ── Reset route (used by auto-reset and manual reset) ──
 
 @app.route('/api/reset', methods=['POST'])
-@login_required
+@attached_required
 def reset_day():
     data = request.get_json() or {}
-    platoon = data.get('platoon', '')
-    user = get_current_user()
-    if platoon:
-        if not has_platoon_access(user, platoon):
-            return jsonify({'error': 'Forbidden'}), 403
-    elif not user['is_admin']:
-        # A company-wide reset touches every platoon; only admins may do it.
-        return jsonify({'error': 'Forbidden'}), 403
+    unit_id = data.get('unit_id')
     conn = get_db()
-    if platoon:
+    if unit_id:
+        scope = _unit_scope(unit_id)
+        if scope is None:
+            return jsonify({'error': 'Forbidden'}), 403
+        unit_id, ids = scope
         conn.execute(
-            "UPDATE personnel SET present_date = '' WHERE status = 'present' AND platoon = %s",
-            (platoon,)
+            "UPDATE personnel SET present_date = '' WHERE status = 'present' AND unit_id = ANY(%s)",
+            (list(ids),)
         )
     else:
+        # A whole-organisation reset touches every unit; only an owner may do
+        # it. RLS is what bounds the unscoped UPDATE to this tenant.
+        if not is_owner(g.current_user):
+            return jsonify({'error': 'Forbidden'}), 403
         conn.execute("UPDATE personnel SET present_date = '' WHERE status = 'present'")
-    log_action('RESET_DAY', f'Day reset for platoon: {platoon or "all"}', platoon)
+    log_action('RESET_DAY', f'Day reset for unit: {unit_id or "all"}', unit_id)
     return jsonify({'success': True})
 
 
 # ── Midnight auto-reset background thread ──
 
 def _absence_audit(conn, action, row, details):
+    # The scope comes off the event row itself: this runs from reconciliation,
+    # which has no request user, and root_id must match the row RLS is holding
+    # this transaction to or the whole request aborts.
     conn.execute(
-        'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp) '
-        'VALUES (0, %s, %s, %s, %s, %s)',
-        ('system', action, details, row['platoon'], app_stamp())
+        'INSERT INTO audit_log (user_id, username, action, details, unit_id, root_id, timestamp) '
+        'VALUES (0, %s, %s, %s, %s, %s, %s)',
+        ('system', action, details, row['unit_id'], row['root_id'], app_stamp())
     )
 
 
