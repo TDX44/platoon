@@ -678,7 +678,7 @@ _assert_rls_safe_role()
 
 # ── Audit log helper ──
 
-def log_action(action, details='', platoon=''):
+def log_action(action, details='', unit_id=None):
     """Write one audit row onto the caller's transaction.
 
     It commits with the change it describes, so an audit row can never survive
@@ -713,15 +713,16 @@ def log_action(action, details='', platoon=''):
             # UNIT_CREATE is the first row of a new tenant.
             return
         conn.execute(
-            'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp, root_id) '
+            'INSERT INTO audit_log (user_id, username, action, details, unit_id, timestamp, root_id) '
             'VALUES (%s, %s, %s, %s, %s, %s, %s)',
-            (user_id, username, action, str(details), platoon, app_stamp(), root_id)
+            (user_id, username, action, str(details),
+             unit_id if isinstance(unit_id, int) else None, app_stamp(), root_id)
         )
     except Exception:
         app.logger.exception(
-            'audit log write failed for action %r (platoon %r) — the request '
+            'audit log write failed for action %r (unit %r) — the request '
             'transaction is now aborted and its change will NOT be committed',
-            action, platoon)
+            action, unit_id)
 
 
 # ── Auth helpers ──
@@ -1179,6 +1180,15 @@ def auth_config():
     })
 
 
+def _user_json(conn, u):
+    unit = _unit_row(conn, u['unit_id']) if u.get('unit_id') else None
+    return {'id': u['id'], 'username': u['username'], 'email': u.get('email', ''),
+            'full_name': u.get('full_name', ''), 'unit_id': u.get('unit_id'),
+            'unit_name': unit['name'] if unit else '', 'unit_slug': unit['slug'] if unit else '',
+            'role': u.get('role'), 'root_id': u.get('root_id'),
+            'needs_unit': u.get('unit_id') is None}
+
+
 @app.route('/api/auth/sync', methods=['POST'])
 @clerk_auth_required
 def auth_sync():
@@ -1187,14 +1197,7 @@ def auth_sync():
     if error:
         return jsonify({'error': error}), 403 if error == INVITE_REQUIRED else 409
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
-    return jsonify({
-        'id': user['id'],
-        'username': user['username'],
-        'email': user.get('email', ''),
-        'full_name': user.get('full_name', ''),
-        'is_admin': bool(user['is_admin']),
-        'platoons': user['platoons'],
-    })
+    return jsonify(_user_json(get_db(), user))
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -1205,15 +1208,7 @@ def logout():
 @app.route('/api/me', methods=['GET'])
 @login_required
 def me():
-    user = g.current_user
-    return jsonify({
-        'id': user['id'],
-        'username': user['username'],
-        'email': user.get('email', ''),
-        'full_name': user.get('full_name', ''),
-        'is_admin': bool(user['is_admin']),
-        'platoons': user['platoons'],
-    })
+    return jsonify(_user_json(get_db(), g.current_user))
 
 
 # ── User management (admin only) ──
@@ -1333,6 +1328,145 @@ def preview_invite(token):
         PLATOONS[p].replace(' Accountability', '') for p in row['platoons'].split(',') if p in PLATOONS
     )
     return jsonify({'valid': True, 'label': row['label'], 'access': access})
+
+
+# ── Units ──
+
+def _unit_row(conn, unit_id):
+    if unit_id is None:
+        return None
+    return conn.execute('SELECT * FROM units WHERE id = %s', (unit_id,)).fetchone()
+
+
+def _unit_json(row, count=None):
+    out = {k: row[k] for k in ('id', 'parent_id', 'kind', 'name', 'slug')}
+    if count is not None:
+        out['count'] = count
+    return out
+
+
+def _seed_root_defaults(conn, root_id, unit_id):
+    """What a brand-new root starts with: the org clock and empty TDY lists."""
+    conn.execute('INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, NULL, %s, %s)',
+                 (root_id, TIMEZONE_KEY, FALLBACK_TZ))
+    for kind in ('schools', 'locations'):
+        conn.execute('INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s)',
+                     (root_id, unit_id, f'tdy_{kind}', '[]'))
+
+
+@app.route('/api/units', methods=['GET'])
+@login_required
+def list_units():
+    conn = get_db()
+    ids = current_subtree()
+    if not ids:
+        return jsonify([])
+    rows = conn.execute(
+        'SELECT u.*, (SELECT COUNT(*) FROM personnel p WHERE p.unit_id = u.id) AS n '
+        'FROM units u WHERE u.id = ANY(%s) ORDER BY u.parent_id NULLS FIRST, u.name', (list(ids),)
+    ).fetchall()
+    return jsonify([_unit_json(r, r['n']) for r in rows])
+
+
+@app.route('/api/units', methods=['POST'])
+@login_required
+def create_unit():
+    data = request.get_json() or {}
+    name = ' '.join((data.get('name') or '').split())[:80]
+    kind = (data.get('kind') or '').strip().lower()
+    if not name:
+        return jsonify({'error': 'Give the unit a name.'}), 400
+    if kind not in UNIT_KINDS:
+        return jsonify({'error': f'kind must be one of {", ".join(UNIT_KINDS)}'}), 400
+    user = g.current_user
+    conn = get_db()
+    parent_id = data.get('parent_id')
+
+    if parent_id is None:
+        # A new root. Only someone attached nowhere may do this; an attached
+        # user adds children to the tree they are in.
+        if user.get('unit_id') is not None:
+            return jsonify({'error': 'You already belong to a unit; add a child unit instead.'}), 400
+        root_id = conn.execute('SELECT auth_create_root_unit(%s, %s, %s, %s) AS id',
+                               (name, kind, slugify(name), user['id'])).fetchone()['id']
+        # From here on this request IS in the new tenant.
+        set_tenant(conn, root_id)
+        g.current_user = dict(user, unit_id=root_id, role='owner', root_id=root_id)
+        g.pop('subtree', None)
+        _seed_root_defaults(conn, root_id, root_id)
+        log_action('UNIT_CREATE', f'Created {kind} "{name}" (new organisation)', root_id)
+        return jsonify(_unit_json(_unit_row(conn, root_id), 0)), 201
+
+    if user.get('unit_id') is None or not can_access(parent_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    parent = _unit_row(conn, parent_id)
+    if parent is None:
+        return jsonify({'error': 'Not found'}), 404
+    slug = unique_slug(conn, parent['root_id'], name)
+    row = conn.execute(
+        'INSERT INTO units (parent_id, root_id, kind, name, slug) VALUES (%s, %s, %s, %s, %s) RETURNING *',
+        (parent_id, parent['root_id'], kind, name, slug)).fetchone()
+    for k in ('schools', 'locations'):
+        conn.execute('INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s)',
+                     (parent['root_id'], row['id'], f'tdy_{k}', '[]'))
+    g.pop('subtree', None)
+    log_action('UNIT_CREATE', f'Created {kind} "{name}" under {parent["name"]}', row['id'])
+    return jsonify(_unit_json(row, 0)), 201
+
+
+@app.route('/api/units/<int:unit_id>', methods=['PUT'])
+@attached_required
+def update_unit(unit_id):
+    conn = get_db()
+    row = _unit_row(conn, unit_id)
+    if row is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not can_access(unit_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    if row['parent_id'] is None and not is_owner(g.current_user):
+        return jsonify({'error': 'Only an owner can change the root unit.'}), 403
+    data = request.get_json() or {}
+    fields, values = [], []
+    if 'name' in data:
+        name = ' '.join((data['name'] or '').split())[:80]
+        if not name:
+            return jsonify({'error': 'Give the unit a name.'}), 400
+        fields.append('name = %s'); values.append(name)
+    if 'kind' in data:
+        if data['kind'] not in UNIT_KINDS:
+            return jsonify({'error': f'kind must be one of {", ".join(UNIT_KINDS)}'}), 400
+        fields.append('kind = %s'); values.append(data['kind'])
+    if not fields:
+        return jsonify({'error': 'Nothing to update'}), 400
+    values.append(unit_id)
+    conn.execute(f'UPDATE units SET {", ".join(fields)} WHERE id = %s', values)
+    log_action('UNIT_RENAME', f'{row["name"]} -> {data.get("name", row["name"])} ({data.get("kind", row["kind"])})', unit_id)
+    return jsonify(_unit_json(_unit_row(conn, unit_id)))
+
+
+@app.route('/api/units/<int:unit_id>', methods=['DELETE'])
+@attached_required
+def delete_unit(unit_id):
+    conn = get_db()
+    row = _unit_row(conn, unit_id)
+    if row is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not can_access(unit_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    if row['parent_id'] is None and not is_owner(g.current_user):
+        return jsonify({'error': 'Only an owner can delete the root unit.'}), 403
+    blockers = conn.execute(
+        'SELECT (SELECT COUNT(*) FROM units WHERE parent_id = %s) AS children, '
+        '(SELECT COUNT(*) FROM personnel WHERE unit_id = %s) AS people, '
+        '(SELECT COUNT(*) FROM users WHERE unit_id = %s) AS users',
+        (unit_id, unit_id, unit_id)).fetchone()
+    if any(blockers.values()):
+        return jsonify({'error': 'Move or remove its units, soldiers and users first.', **blockers}), 409
+    conn.execute('DELETE FROM settings WHERE unit_id = %s', (unit_id,))
+    conn.execute('DELETE FROM units WHERE id = %s', (unit_id,))
+    g.pop('subtree', None)
+    log_action('UNIT_DELETE', f'Deleted {row["kind"]} "{row["name"]}"', row['parent_id'])
+    return jsonify({'success': True})
 
 
 # ── Platoon & Personnel routes ──
@@ -1771,6 +1905,9 @@ def delete_person(person_id):
 @login_required
 def get_settings():
     platoon = request.args.get('platoon', '2nd')
+    user = get_current_user()
+    if not has_platoon_access(user, platoon):
+        return jsonify({'error': 'Forbidden'}), 403
     key = f'unit_name_{platoon}'
     conn = get_db()
     row = conn.execute('SELECT value FROM settings WHERE key = %s', (key,)).fetchone()
