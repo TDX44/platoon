@@ -34,16 +34,18 @@ import server  # noqa: E402
 @server.app.route('/__test_probe_500')
 def _probe_500():
     conn = server.get_db()
-    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_500', 'WROTE') "
-                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    server.set_tenant(conn, 0)
+    conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe_500', 'WROTE') "
+                 "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
     raise RuntimeError('deliberate failure for the probe')
 
 
 @server.app.route('/__test_probe_400')
 def _probe_400():
     conn = server.get_db()
-    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_400', 'WROTE') "
-                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    server.set_tenant(conn, 0)
+    conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe_400', 'WROTE') "
+                 "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
     return server.jsonify({'error': 'deliberate'}), 400
 
 
@@ -54,13 +56,19 @@ _audit_probe_returned_200 = False
 def _probe_audit_fails():
     global _audit_probe_returned_200
     conn = server.get_db()
-    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_audit', 'WROTE') "
-                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    server.set_tenant(conn, 0)
+    conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe_audit', 'WROTE') "
+                 "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
     # Break the audit insert from inside this very transaction, so the
     # rollback undoes the damage too. This is the shape of the real failure:
     # log_action's statement errors, Postgres marks the whole transaction
-    # aborted, and log_action swallows the exception.
-    conn.execute('ALTER TABLE audit_log RENAME TO audit_log_hidden')
+    # aborted, and log_action swallows the exception. (A1: the app role owns
+    # no tables, so the break can no longer be a DDL rename — an aborted
+    # transaction is the same condition and is what actually bites.)
+    try:
+        conn.execute('SELECT 1 / 0')
+    except psycopg.errors.DivisionByZero:
+        pass
     server.log_action('PROBE_AUDIT', 'this insert cannot land')
     _audit_probe_returned_200 = True   # log_action must not have raised
     return server.jsonify({'ok': True}), 200
@@ -86,9 +94,28 @@ def _probe_409():
 @server.app.route('/__test_probe_200')
 def _probe_200():
     conn = server.get_db()
-    conn.execute("INSERT INTO settings (key, value) VALUES ('probe_200', 'WROTE') "
-                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    server.set_tenant(conn, 0)
+    conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe_200', 'WROTE') "
+                 "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
     return server.jsonify({'ok': True}), 200
+
+
+def _throwaway_schema():
+    """A private schema for one test, plus the callback that puts the env back.
+
+    dbharness.setup() rebinds DATABASE_URL and MIGRATION_DATABASE_URL, and
+    teardown() drops the schema without unbinding them — so a test that forgets
+    to restore leaves every later owner_conn() in this file pointed at a schema
+    that no longer exists. `server` itself is immune (it cached both URLs at
+    import), which is exactly why this went unnoticed until fixtures started
+    reading the environment.
+    """
+    saved = (os.environ.get('DATABASE_URL'), os.environ.get('MIGRATION_DATABASE_URL'))
+
+    def restore():
+        os.environ['DATABASE_URL'], os.environ['MIGRATION_DATABASE_URL'] = saved
+
+    return dbharness.setup(), restore
 
 
 def test_harness_isolates():
@@ -96,17 +123,20 @@ def test_harness_isolates():
 
     Exercises the harness itself with raw psycopg (no `server` import), so it
     creates and drops its own two extra schemas rather than reusing _SCHEMA.
+    DDL runs on the owner URL: platoon_app owns nothing and cannot create
+    tables, which is the whole point of the split (test_app_role_cannot_change_schema).
     """
     module_url = os.environ['DATABASE_URL']
+    module_migration_url = os.environ['MIGRATION_DATABASE_URL']
 
     a = dbharness.setup()
-    url_a = os.environ['DATABASE_URL']
+    url_a = os.environ['MIGRATION_DATABASE_URL']
     with psycopg.connect(url_a) as conn:
         conn.execute('CREATE TABLE only_in_a (id int)')
         conn.commit()
 
     b = dbharness.setup()
-    url_b = os.environ['DATABASE_URL']
+    url_b = os.environ['MIGRATION_DATABASE_URL']
     with psycopg.connect(url_b) as conn:
         rows = conn.execute(
             "SELECT 1 FROM information_schema.tables "
@@ -127,7 +157,7 @@ def test_harness_isolates():
     # twice (to a, then b), and leaving it on a dropped schema would break
     # anything that runs after this test in the same process.
     os.environ['DATABASE_URL'] = module_url
-    os.environ['MIGRATION_DATABASE_URL'] = module_url
+    os.environ['MIGRATION_DATABASE_URL'] = module_migration_url
 
 
 def test_init_db_is_idempotent():
@@ -145,31 +175,41 @@ def test_init_db_is_idempotent():
         assert expected in names, f'{expected} table missing after init_db()'
 
 
-def test_seeding_is_idempotent():
-    """init_db() seeds the TDY picklists on every start.
+def test_settings_scope_key_survives_a_restart():
+    """`settings` is keyed on (root_id, unit_id, key), and stays keyed on it.
 
-    Under SQLite that was INSERT OR IGNORE. If the ON CONFLICT target is wrong,
-    a second start quietly duplicates every picklist row instead of raising.
+    A1 dropped the old PRIMARY KEY (key) — one organisation's org_timezone must
+    not collide with another's — and replaced it with the settings_scope_key
+    unique index. init_db() runs on every start, so this checks both halves:
+    a second run neither disturbs existing rows nor drops the new key, and two
+    roots can hold the same key while one root cannot hold it twice.
+
+    Runs on the module-level schema: server cached MIGRATION_DATABASE_URL at
+    import, so init_db() would build its tables there whatever the environment
+    says (the reason the old seeding test's private schema was decorative).
     """
-    schema = dbharness.setup()
-    server.init_db()
+    conn = dbharness.owner_conn()
+    try:
+        for root in (1, 2):
+            conn.execute('INSERT INTO settings (root_id, unit_id, key, value) '
+                         'VALUES (%s, NULL, %s, %s)', (root, 'scope_probe', f'zone-{root}'))
+        conn.commit()
 
-    conn = server.get_db()
-    before = conn.execute('SELECT COUNT(*) AS n FROM settings').fetchone()['n']
-    conn.close()
+        server.init_db()   # the restart
 
-    server.init_db()
-
-    conn = server.get_db()
-    after = conn.execute('SELECT COUNT(*) AS n FROM settings').fetchone()['n']
-    dupes = conn.execute(
-        'SELECT key FROM settings GROUP BY key HAVING COUNT(*) > 1').fetchall()
-    conn.close()
-
-    assert after == before, f're-seeding changed the row count: {before} -> {after}'
-    assert dupes == [], f'duplicate settings keys after re-seed: {dupes}'
-
-    dbharness.teardown(schema)
+        rows = conn.execute("SELECT root_id, value FROM settings WHERE key = 'scope_probe' "
+                            'ORDER BY root_id').fetchall()
+        assert [(r['root_id'], r['value']) for r in rows] == [(1, 'zone-1'), (2, 'zone-2')], rows
+        try:
+            conn.execute("INSERT INTO settings (root_id, unit_id, key, value) "
+                         "VALUES (1, NULL, 'scope_probe', 'again')")
+            assert False, 'settings_scope_key did not survive the restart'
+        except psycopg.errors.UniqueViolation:
+            conn.rollback()
+    finally:
+        conn.execute("DELETE FROM settings WHERE key = 'scope_probe'")
+        conn.commit()
+        conn.close()
 
 
 def test_init_db_failure_surfaces_the_real_error():
@@ -183,7 +223,7 @@ def test_init_db_failure_surfaces_the_real_error():
     for the first time; an operator debugging a failed migration needs the
     real exception, not "current transaction is aborted".
     """
-    schema = dbharness.setup()
+    schema, restore_env = _throwaway_schema()
     real_columns = server._columns
 
     def _broken_columns(cur, table):
@@ -217,6 +257,7 @@ def test_init_db_failure_surfaces_the_real_error():
     assert done.is_set(), 'init_db() blocked -- the advisory lock was not released after the failure'
 
     dbharness.teardown(schema)
+    restore_env()
 
 
 def test_audit_row_commits_with_its_change():
@@ -226,15 +267,16 @@ def test_audit_row_commits_with_its_change():
     In Postgres that would mean an audit row committing for a change that then
     failed — an audit trail that lies.
     """
-    schema = dbharness.setup()
+    schema, restore_env = _throwaway_schema()
     import server
 
     with server.app.test_request_context('/'):
         conn = server.get_db()
         assert conn is server.get_db(), 'get_db must return one connection per request'
 
-        conn.execute("INSERT INTO settings (key, value) VALUES ('probe', 'v1') "
-                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+        server.set_tenant(conn, 0)
+        conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe', 'v1') "
+                     "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
         server.log_action('PROBE', 'details')
         conn.rollback()
 
@@ -242,6 +284,7 @@ def test_audit_row_commits_with_its_change():
         assert rows == [], 'a rolled-back change must roll back its audit row too'
 
     dbharness.teardown(schema)
+    restore_env()
 
 
 def test_audit_row_survives_a_successful_change():
@@ -269,12 +312,13 @@ def test_audit_row_survives_a_successful_change():
     """
     with server.app.test_request_context('/'):
         conn = server.get_db()
-        conn.execute("INSERT INTO settings (key, value) VALUES ('probe2', 'v1') "
-                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+        server.set_tenant(conn, 0)
+        conn.execute("INSERT INTO settings (root_id, unit_id, key, value) VALUES (0, NULL, 'probe2', 'v1') "
+                     "ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value")
         server.log_action('PROBE_POSITIVE', 'details-positive')
         conn.commit()
 
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     row = conn.execute(
         "SELECT action, details, timestamp FROM audit_log WHERE action = 'PROBE_POSITIVE'"
     ).fetchone()
@@ -305,8 +349,8 @@ def test_failed_request_rolls_back_partial_writes():
     resp = client.get('/__test_probe_500')
     assert resp.status_code == 500, f'expected 500, got {resp.status_code}'
 
-    conn = server.get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_500'").fetchone()
+    conn = dbharness.owner_conn()
+    row = conn.execute("SELECT value FROM settings WHERE root_id = 0 AND key = 'probe_500'").fetchone()
     conn.close()
     assert row is None, 'a write made before a raised exception must roll back'
 
@@ -324,8 +368,8 @@ def test_4xx_response_rolls_back_partial_writes():
     resp = client.get('/__test_probe_400')
     assert resp.status_code == 400, f'expected 400, got {resp.status_code}'
 
-    conn = server.get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_400'").fetchone()
+    conn = dbharness.owner_conn()
+    row = conn.execute("SELECT value FROM settings WHERE root_id = 0 AND key = 'probe_400'").fetchone()
     conn.close()
     assert row is None, 'a write behind a 400 response must roll back'
 
@@ -342,8 +386,8 @@ def test_200_response_commits():
     resp = client.get('/__test_probe_200')
     assert resp.status_code == 200, f'expected 200, got {resp.status_code}'
 
-    conn = server.get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_200'").fetchone()
+    conn = dbharness.owner_conn()
+    row = conn.execute("SELECT value FROM settings WHERE root_id = 0 AND key = 'probe_200'").fetchone()
     conn.close()
     assert row is not None and row['value'] == 'WROTE', 'a successful request must commit'
 
@@ -371,15 +415,13 @@ def test_failed_audit_write_is_never_a_silent_200():
         f'a request whose transaction was aborted must not answer success; got '
         f'{resp.status_code}')
 
-    conn = server.get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key = 'probe_audit'").fetchone()
-    tables = conn.execute(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = current_schema() AND table_name LIKE 'audit_log%'").fetchall()
+    conn = dbharness.owner_conn()
+    row = conn.execute("SELECT value FROM settings WHERE root_id = 0 AND key = 'probe_audit'").fetchone()
+    audit = conn.execute(
+        "SELECT 1 FROM audit_log WHERE action = 'PROBE_AUDIT'").fetchall()
     conn.close()
     assert row is None, 'the aborted transaction really did discard the write'
-    names = {r['table_name'] for r in tables}
-    assert names == {'audit_log'}, f'the rollback must undo the probe rename too, got {names}'
+    assert audit == [], 'the audit row must not have landed either'
 
     # ...and the guard must not swallow a deliberate 4xx on the same condition.
     resp = client.get('/__test_probe_409')
@@ -539,18 +581,16 @@ def test_migration_moves_rows_and_resets_sequences():
     import subprocess
     import tempfile
 
-    probe = server.get_db()
-    placeholder_before = probe.execute(
-        "SELECT COUNT(*) AS n FROM personnel WHERE rank = 'WO1' AND last = 'Smith' "
-        "AND first = 'John' AND status = 'present'").fetchone()['n']
+    # Reads and writes the migrated rows through the owner: the migration
+    # script lands them with root_id NULL (Task 8 backfills it), so to the app
+    # role under RLS they correctly do not exist at all.
+    probe = dbharness.owner_conn()
     duty_roster_before = probe.execute('SELECT COUNT(*) AS n FROM duty_roster').fetchone()['n']
     id_tables = ('personnel', 'users', 'audit_log', 'scheduled_events', 'report_history')
     baseline_max = max(
         probe.execute(f'SELECT COALESCE(MAX(id), 0) AS m FROM {t}').fetchone()['m']
         for t in id_tables)
     probe.close()
-    assert placeholder_before > 0, \
-        'expected init_db() to have seeded at least one placeholder personnel row by now'
     offset = baseline_max + 1000  # clears every table's current max with room to spare
 
     src_path = os.path.join(tempfile.mkdtemp(), 'old.db')
@@ -647,7 +687,7 @@ def test_migration_moves_rows_and_resets_sequences():
     # check below with setval removed) leaves this connection idle-in-
     # transaction, which then hangs main()'s teardown() forever waiting to
     # DROP SCHEMA against a lock this connection is still holding.
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     try:
         _assert_migration_landed(conn, offset, person_id, duty_roster_before)
     finally:
@@ -661,15 +701,10 @@ def _assert_migration_landed(conn, offset, person_id, duty_roster_before):
     assert {r['id'] for r in personnel_ids} == {person_id, offset + 2, offset + 7, offset + 50}, \
         'expected all 4 migrated personnel rows, non-contiguous ids included'
 
-    placeholder_after = conn.execute(
-        "SELECT COUNT(*) AS n FROM personnel WHERE rank = 'WO1' AND last = 'Smith' "
-        "AND first = 'John' AND status = 'present'").fetchone()['n']
-    assert placeholder_after == 0, \
-        'the migration must clear init_db()\'s placeholder personnel row before copying real data'
-
     # All ten of production's settings rows, each holding the SOURCE's value.
-    # The six tdy_* keys collide with init_db()'s seeds; a seed left standing
-    # would show up here as the seeded picklist instead of the real one.
+    # (A1 stopped init_db() seeding anything — there are no platoons to seed
+    # for until a root unit exists — so the seed-collision case these keys were
+    # chosen for is gone; they stay because they are production's real keys.)
     for key, expected in _PROD_SETTINGS.items():
         row = conn.execute('SELECT value FROM settings WHERE key = %s', (key,)).fetchone()
         assert row is not None, f'settings key {key} did not survive the migration'
@@ -756,7 +791,9 @@ def test_migration_fails_loudly_on_unknown_source_column():
     import subprocess
     import tempfile
 
-    before = server.get_db()
+    # Owner connection: migrated rows carry no root_id yet, so the app role
+    # would count 0 either side of the failure and prove nothing.
+    before = dbharness.owner_conn()
     before_count = before.execute('SELECT COUNT(*) AS n FROM personnel').fetchone()['n']
     before.close()
 
@@ -779,7 +816,7 @@ def test_migration_fails_loudly_on_unknown_source_column():
     combined = result.stdout + result.stderr
     assert 'bogus_legacy_column' in combined, 'the error must name the offending column'
 
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     after_count = conn.execute('SELECT COUNT(*) AS n FROM personnel').fetchone()['n']
     conn.close()
     assert after_count == before_count, 'the aborted table must not have partially written rows'
@@ -789,7 +826,7 @@ def main():
     try:
         test_harness_isolates()
         test_init_db_is_idempotent()
-        test_seeding_is_idempotent()
+        test_settings_scope_key_survives_a_restart()
         test_init_db_failure_surfaces_the_real_error()
         test_audit_row_commits_with_its_change()
         test_audit_row_survives_a_successful_change()
