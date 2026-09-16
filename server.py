@@ -257,7 +257,18 @@ ROLES = ('owner', 'leader')
 
 
 def set_tenant(conn, root_id):
-    conn.execute("SELECT set_config('app.root_id', %s, true)", (str(int(root_id or 0)),))
+    """Declare (or, with root_id None, explicitly withdraw) this transaction's tenant.
+
+    None is NOT tenant 0. 0 is an ordinary value a row can hold —
+    auth_create_root_unit inserts root_id = 0 transiently — so parking every
+    unattached user on it would hand them one shared, writable tenant across
+    organisations. An unattached user declares the empty string, which NULLIF
+    folds to NULL in the policies: they see nothing and can write nothing.
+    Setting '' rather than skipping the call also clears a value an earlier
+    statement on this connection may have set.
+    """
+    conn.execute("SELECT set_config('app.root_id', %s, true)",
+                 ('' if root_id is None else str(int(root_id)),))
 
 
 def subtree_ids(conn, unit_id):
@@ -641,17 +652,25 @@ load_app_timezone()
 def _assert_rls_safe_role():
     """Table owners and BYPASSRLS roles skip policies silently, and that looks
     exactly like working. Refuse to run as one. init_db() connects as the
-    owner on purpose; everything else in this process uses DATABASE_URL."""
+    owner on purpose; everything else in this process uses DATABASE_URL.
+
+    Three ways in, not one: the explicit BYPASSRLS attribute, SUPERUSER (which
+    bypasses policies without ever setting rolbypassrls), and owning the table —
+    including owning it through a granted role, which is why ownership is tested
+    with pg_has_role rather than by comparing names.
+    """
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-        me = conn.execute('SELECT current_user AS u, '
-                          '(SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypass').fetchone()
+        me = conn.execute('SELECT current_user AS u, rolsuper, rolbypassrls '
+                          'FROM pg_roles WHERE rolname = current_user').fetchone()
         owned = conn.execute(
-            'SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tableowner = current_user'
+            'SELECT tablename FROM pg_tables WHERE schemaname = current_schema() '
+            "AND pg_has_role(current_user, tableowner, 'USAGE')"
         ).fetchall()
-    if me['bypass'] or owned:
+    if me['rolsuper'] or me['rolbypassrls'] or owned:
         raise SystemExit(
             f"refusing to start: DATABASE_URL connects as {me['u']}, which could bypass row-level security "
-            f"(bypassrls={me['bypass']}, owns {len(owned)} tables). Use the platoon_app role.")
+            f"(superuser={me['rolsuper']}, bypassrls={me['rolbypassrls']}, owns {len(owned)} tables). "
+            'Use the platoon_app role.')
 
 
 _assert_rls_safe_role()
@@ -686,10 +705,17 @@ def log_action(action, details='', platoon=''):
         # the caller: an audit row belongs to whoever's transaction wrote it,
         # and taking it from anywhere else would be a row the RLS policy on
         # audit_log rejects (WITH CHECK) — i.e. a silently aborted request.
+        root_id = conn.execute(
+            "SELECT NULLIF(current_setting('app.root_id', true), '')::int AS root_id"
+        ).fetchone()['root_id']
+        if root_id is None:
+            # Pre-tenant actions (a stranger's first sign-in) are not audited;
+            # UNIT_CREATE is the first row of a new tenant.
+            return
         conn.execute(
             'INSERT INTO audit_log (user_id, username, action, details, platoon, timestamp, root_id) '
-            "VALUES (%s, %s, %s, %s, %s, %s, NULLIF(current_setting('app.root_id', true), '')::int)",
-            (user_id, username, action, str(details), platoon, app_stamp())
+            'VALUES (%s, %s, %s, %s, %s, %s, %s)',
+            (user_id, username, action, str(details), platoon, app_stamp(), root_id)
         )
     except Exception:
         app.logger.exception(
@@ -972,9 +998,9 @@ def _resolved_user():
         return None
     g.current_user = user
     # Declare the tenant on this request's transaction before any other
-    # statement. An unattached user (root_id None) declares 0, which matches
-    # no row: RLS default-deny is exactly the right answer for them.
-    set_tenant(get_db(), user.get('root_id') or 0)
+    # statement. An unattached user has no root_id and so declares no tenant
+    # at all: RLS default-deny is exactly the right answer for them.
+    set_tenant(get_db(), user.get('root_id'))
     return user
 
 
