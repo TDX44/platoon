@@ -2263,295 +2263,200 @@ def delete_report(report_id):
 # ── Backup / Restore ──
 
 @app.route('/api/backup', methods=['GET'])
-@login_required
+@attached_required
 def export_backup():
-    user = get_current_user()
-    conn = get_db()
-    import json
     from flask import Response
+    conn = get_db()
+    ids = list(current_subtree())
+    units = conn.execute('SELECT * FROM units WHERE id = ANY(%s) ORDER BY id', (ids,)).fetchall()
+    slug_of = {u['id']: u['slug'] for u in units}
 
-    if user['is_admin']:
-        personnel = [dict(r) for r in conn.execute('SELECT * FROM personnel').fetchall()]
-        scheduled_events = [dict(r) for r in conn.execute('SELECT * FROM scheduled_events').fetchall()]
-        profiles  = [dict(r) for r in conn.execute('SELECT * FROM personnel_profile').fetchall()]
-        settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
-        users     = [dict(r) for r in conn.execute(
-            'SELECT id, username, email, full_name, is_admin, platoons, clerk_user_id FROM users'
-        ).fetchall()]
-        label = 'full'
-    else:
-        accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
-        if not accessible:
-            return jsonify({'error': 'No platoon access'}), 403
-        placeholders = ','.join(['%s'] * len(accessible))
-        personnel = [dict(r) for r in conn.execute(
-            f'SELECT * FROM personnel WHERE platoon IN ({placeholders})', accessible
-        ).fetchall()]
-        scheduled_events = [dict(r) for r in conn.execute(
-            f'SELECT * FROM scheduled_events WHERE platoon IN ({placeholders})', accessible
-        ).fetchall()]
-        profiles  = [dict(r) for r in conn.execute(
-            f'SELECT pp.* FROM personnel_profile pp JOIN personnel p ON p.id = pp.person_id '
-            f'WHERE p.platoon IN ({placeholders})', accessible
-        ).fetchall()]
-        settings  = [dict(r) for r in conn.execute('SELECT * FROM settings').fetchall()]
-        users     = []
-        label = '-'.join(accessible)
+    def with_unit(rows):
+        out = []
+        for r in rows:
+            d = dict(r)
+            d['unit'] = slug_of.get(d.pop('unit_id'))
+            d.pop('root_id', None)
+            out.append(d)
+        return out
 
     payload = {
-        'version': 2,
-        'exported_at': datetime.utcnow().isoformat() + 'Z',
-        'personnel': personnel,
-        'scheduled_events': scheduled_events,
-        'personnel_profile': profiles,
-        'settings': settings,
-        'users': users,
+        'version': 3,
+        'exported_at': app_stamp(),
+        'root_unit': next(u['slug'] for u in units if u['id'] == g.current_user['unit_id']),
+        'units': [{'slug': u['slug'], 'parent_slug': slug_of.get(u['parent_id']),
+                   'kind': u['kind'], 'name': u['name']} for u in units],
+        'personnel': with_unit(conn.execute(
+            'SELECT * FROM personnel WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
+        'personnel_profile': [dict(r) for r in conn.execute(
+            'SELECT pp.* FROM personnel_profile pp JOIN personnel p ON p.id = pp.person_id '
+            'WHERE p.unit_id = ANY(%s) ORDER BY pp.person_id', (ids,)).fetchall()],
+        'scheduled_events': with_unit(conn.execute(
+            'SELECT * FROM scheduled_events WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
+        'duty_roster': with_unit(conn.execute(
+            'SELECT * FROM duty_roster WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
+        'report_history': with_unit(conn.execute(
+            'SELECT * FROM report_history WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
+        # The organisation-wide settings (unit_id NULL — the clock) belong to
+        # the whole tenant, so only a backup taken from the top carries them.
+        'settings': [{'unit': slug_of.get(r['unit_id']), 'key': r['key'], 'value': r['value']}
+                     for r in conn.execute(
+                         'SELECT unit_id, key, value FROM settings '
+                         'WHERE unit_id = ANY(%s) OR (unit_id IS NULL AND %s)',
+                         (ids, is_owner(g.current_user))).fetchall()],
     }
-    log_action('BACKUP_EXPORT', f'Backup exported ({label})')
-    return Response(
-        json.dumps(payload, indent=2),
-        mimetype='application/json',
-        headers={'Content-Disposition': f'attachment; filename=platoon-backup-{label}-{app_today()}.json'}
-    )
+    for row in payload['personnel_profile']:
+        row.pop('root_id', None)
+    if is_owner(g.current_user):
+        payload['users'] = with_unit(conn.execute(
+            'SELECT username, email, full_name, clerk_user_id, unit_id, role FROM users '
+            "WHERE clerk_user_id != '' AND unit_id = ANY(%s) ORDER BY id", (ids,)).fetchall())
+    log_action('BACKUP_EXPORT', f'{len(payload["personnel"])} personnel, {len(units)} units')
+    body = json.dumps(payload, indent=2)
+    return Response(body, mimetype='application/json',
+                    headers={'Content-Disposition': f'attachment; filename=platoon-backup-{app_today()}.json'})
 
 
 @app.route('/api/backup/restore', methods=['POST'])
-@login_required
+@owner_required
 def import_backup():
-    user = get_current_user()
     payload = request.get_json()
-    if not payload or payload.get('version') not in (1, 2):
-        return jsonify({'error': 'Invalid or unsupported backup file'}), 400
-
+    if not payload or payload.get('version') != 3:
+        return jsonify({'error': 'This file predates the unit tree; restore it before the A1 migration, '
+                                 'or export a fresh version 3 backup.'}), 400
     conn = get_db()
-    accessible = [p.strip() for p in (user['platoons'] or '').split(',') if p.strip()]
-    try:
-        restored_personnel = 0
-        # Non-admin restores re-insert personnel under fresh ids; map backup id -> new id
-        # so scheduled_events and profiles reattach to the right people.
-        person_id_map = {}
-        # Tables an explicit id was inserted into. GENERATED BY DEFAULT AS IDENTITY
-        # does not advance its sequence for an explicit-id insert, so any table
-        # added here needs its sequence resynced before commit or the next
-        # ordinary insert collides with a restored id.
-        resync_id_tables = set()
+    root_id = _root()
+    ids = list(current_subtree())
 
-        if 'personnel' in payload:
-            if user['is_admin']:
-                # FK cascade wipes profiles along with personnel; keep the current ones
-                # when the backup carries none of its own (ids survive a full restore).
-                preserved_profiles = []
-                if 'personnel_profile' not in payload:
-                    preserved_profiles = [dict(r) for r in conn.execute('SELECT * FROM personnel_profile').fetchall()]
-                conn.execute('DELETE FROM scheduled_events')
-                conn.execute('DELETE FROM personnel')
-                restored_ids = set()
-                # Two passes, not one interleaved loop: a row with an explicit
-                # id never advances the identity sequence, so an id-less row
-                # inserted *between* two explicit-id rows can draw an
-                # auto-assigned id that a not-yet-processed explicit row later
-                # collides with. Insert every explicit-id row first, resync the
-                # sequence past all of them, then let the id-less rows
-                # auto-assign — now guaranteed clear of every id this batch uses.
-                explicit_rows = [p for p in payload['personnel'] if p.get('id') is not None]
-                idless_rows = [p for p in payload['personnel'] if p.get('id') is None]
-                for p in explicit_rows:
-                    pid = p['id']
-                    conn.execute(
-                        'INSERT INTO personnel (id, rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
-                        (pid, p.get('rank',''), p.get('last',''), p.get('first',''),
-                         p.get('status','present'), p.get('notes',''),
-                         p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
-                         p.get('platoon','2nd'))
-                    )
-                    restored_ids.add(pid)
-                    restored_personnel += 1
-                if explicit_rows:
-                    resync_id_tables.add('personnel')
-                    conn.execute(
-                        "SELECT setval(pg_get_serial_sequence('personnel', 'id'), "
-                        "COALESCE((SELECT MAX(id) FROM personnel), 1), true)"
-                    )
-                for p in idless_rows:
-                    # No id in the backup row: omit the column entirely so the
-                    # identity assigns one, rather than inserting an explicit
-                    # NULL (which GENERATED BY DEFAULT AS IDENTITY rejects —
-                    # it is NOT NULL, and only an *omitted* column triggers
-                    # identity generation).
-                    conn.execute(
-                        'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
-                        (p.get('rank',''), p.get('last',''), p.get('first',''),
-                         p.get('status','present'), p.get('notes',''),
-                         p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
-                         p.get('platoon','2nd'))
-                    )
-                    restored_personnel += 1
-                cols = ('person_id', *PROFILE_FIELDS)
-                col_ph = ', '.join(['%s'] * len(cols))
-                update_set = ', '.join(f'{c} = EXCLUDED.{c}' for c in cols[1:])
-                for pp in preserved_profiles:
-                    if pp['person_id'] in restored_ids:
-                        conn.execute(
-                            f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
-                            f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
-                            [pp.get(c, '') for c in cols]
-                        )
-            else:
-                for p in payload['personnel']:
-                    if p.get('platoon') not in accessible:
-                        continue
-                    conn.execute(
-                        'DELETE FROM scheduled_events WHERE platoon = %s AND person_id IN ('
-                        'SELECT id FROM personnel WHERE platoon = %s AND last = %s AND first = %s'
-                        ')',
-                        (p['platoon'], p['platoon'], p.get('last',''), p.get('first',''))
-                    )
-                    conn.execute(
-                        'DELETE FROM personnel WHERE platoon = %s AND last = %s AND first = %s',
-                        (p['platoon'], p.get('last',''), p.get('first',''))
-                    )
-                    cur = conn.execute(
-                        'INSERT INTO personnel (rank, last, first, status, notes, from_date, to_date, present_date, platoon) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
-                        (p.get('rank',''), p.get('last',''), p.get('first',''),
-                         p.get('status','present'), p.get('notes',''),
-                         p.get('from_date',''), p.get('to_date',''), p.get('present_date',''),
-                         p.get('platoon','2nd'))
-                    )
-                    if p.get('id') is not None:
-                        person_id_map[p['id']] = cur.fetchone()['id']
-                    restored_personnel += 1
+    # The file's column names are attacker-supplied JSON keys, and they are
+    # interpolated into the INSERT (a placeholder cannot stand in for an
+    # identifier). Only real columns of the target table get through.
+    known_columns = {}
 
-        if 'scheduled_events' in payload:
-            # Resolve person_id / event_id for every row first, then insert in
-            # two passes (explicit ids, then id-less) for the same reason as
-            # the personnel loop above: an id-less row auto-assigned mid-batch
-            # can otherwise collide with an explicit-id row processed later in
-            # the same payload.
-            resolved = []
-            for s in payload['scheduled_events']:
-                if user['is_admin']:
-                    person_id = s.get('person_id')
-                else:
-                    if s.get('platoon') not in accessible:
-                        continue
-                    person_id = person_id_map.get(s.get('person_id'))
-                    if person_id is None:
-                        continue
-                # A non-admin restore never carries a trustworthy backup id (the
-                # row is reattached to a remapped person_id), and an admin
-                # backup row may simply lack one. Either way there is no id to
-                # conflict on, so omit the column and let the identity assign —
-                # an explicit NULL there is a NOT NULL violation, not an
-                # auto-assign, under GENERATED BY DEFAULT AS IDENTITY.
-                event_id = s.get('id') if user['is_admin'] else None
-                resolved.append((event_id, person_id, s))
+    def columns_of(table):
+        if table not in known_columns:
+            known_columns[table] = {r['column_name'] for r in conn.execute(
+                'SELECT column_name FROM information_schema.columns '
+                'WHERE table_schema = current_schema() AND table_name = %s', (table,)).fetchall()}
+        return known_columns[table]
 
-            for event_id, person_id, s in resolved:
-                if event_id is None:
-                    continue
-                conn.execute(
-                    'INSERT INTO scheduled_events (id, person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) '
-                    'ON CONFLICT (id) DO UPDATE SET person_id = EXCLUDED.person_id, platoon = EXCLUDED.platoon, '
-                    'status = EXCLUDED.status, from_date = EXCLUDED.from_date, to_date = EXCLUDED.to_date, '
-                    'notes = EXCLUDED.notes, location = EXCLUDED.location, created_at = EXCLUDED.created_at, '
-                    'state = EXCLUDED.state',
-                    (event_id, person_id, s.get('platoon', '2nd'),
-                     s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
-                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
-                     s.get('state', 'scheduled'))
-                )
-            if any(event_id is not None for event_id, _, _ in resolved):
-                resync_id_tables.add('scheduled_events')
-                conn.execute(
-                    "SELECT setval(pg_get_serial_sequence('scheduled_events', 'id'), "
-                    "COALESCE((SELECT MAX(id) FROM scheduled_events), 1), true)"
-                )
+    # 1. Units: match by slug within this tree, create the missing ones under
+    #    their parent (parents first — the export lists them in id order, which
+    #    is creation order, so a parent always precedes its child).
+    existing = {u['slug']: u['id'] for u in conn.execute(
+        'SELECT id, slug FROM units WHERE id = ANY(%s)', (ids,)).fetchall()}
+    created_units = 0
+    for u in payload.get('units', []):
+        if u['slug'] in existing:
+            continue
+        parent_id = existing.get(u.get('parent_slug')) or g.current_user['unit_id']
+        row = conn.execute(
+            'INSERT INTO units (parent_id, root_id, kind, name, slug) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+            (parent_id, root_id, u.get('kind', 'platoon'), u['name'], u['slug'])).fetchone()
+        existing[u['slug']] = row['id']
+        created_units += 1
+    g.pop('subtree', None)
+    ids = list(current_subtree())
 
-            for event_id, person_id, s in resolved:
-                if event_id is not None:
-                    continue
-                conn.execute(
-                    'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, location, created_at, state) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)',
-                    (person_id, s.get('platoon', '2nd'),
-                     s.get('status', ''), s.get('from_date', ''), s.get('to_date', ''),
-                     s.get('notes', ''), s.get('location', ''), s.get('created_at', datetime.utcnow().isoformat()),
-                     s.get('state', 'scheduled'))
-                )
+    # 2. Replace the subtree's data. FK cascade takes profiles and events with personnel.
+    conn.execute('DELETE FROM duty_roster WHERE unit_id = ANY(%s)', (ids,))
+    conn.execute('DELETE FROM report_history WHERE unit_id = ANY(%s)', (ids,))
+    conn.execute('DELETE FROM personnel WHERE unit_id = ANY(%s)', (ids,))
+    conn.execute('DELETE FROM settings WHERE unit_id = ANY(%s)', (ids,))
 
-        if 'personnel_profile' in payload:
-            cols = ('person_id', *PROFILE_FIELDS)
-            col_ph = ', '.join(['%s'] * len(cols))
-            update_set = ', '.join(f'{c} = EXCLUDED.{c}' for c in cols[1:])
-            if user['is_admin']:
-                conn.execute('DELETE FROM personnel_profile')
-                for pp in payload['personnel_profile']:
-                    conn.execute(
-                        f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
-                        f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
-                        [pp.get(c, '') for c in cols]
-                    )
-            else:
-                for pp in payload['personnel_profile']:
-                    new_id = person_id_map.get(pp.get('person_id'))
-                    if new_id is None:
-                        continue
-                    conn.execute(
-                        f'INSERT INTO personnel_profile ({", ".join(cols)}) VALUES ({col_ph}) '
-                        f'ON CONFLICT (person_id) DO UPDATE SET {update_set}',
-                        [new_id, *[pp.get(c, '') for c in PROFILE_FIELDS]]
-                    )
+    resync = set()
+    skipped_units = set()
 
-        if 'settings' in payload:
-            if user['is_admin']:
-                conn.execute('DELETE FROM settings')
-                for s in payload['settings']:
-                    conn.execute('INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', (s['key'], s['value']))
-            else:
-                allowed_keys = {f'unit_name_{p}' for p in accessible}
-                for s in payload['settings']:
-                    if s.get('key') in allowed_keys:
-                        conn.execute('INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', (s['key'], s['value']))
+    def unit_id_for(row):
+        uid = existing.get(row.get('unit'))
+        if uid is None:
+            skipped_units.add(row.get('unit'))
+        return uid
 
-        restored_users = 0
-        if user['is_admin'] and 'users' in payload:
-            current_uid = user['id']
-            conn.execute('DELETE FROM users WHERE id != %s', (current_uid,))
-            for u in payload['users']:
-                if u['id'] == current_uid:
-                    continue
-                conn.execute(
-                    'INSERT INTO users (id, username, password_hash, is_admin, platoons, clerk_user_id, email, full_name, pin_hash) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) '
-                    'ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, '
-                    'password_hash = EXCLUDED.password_hash, is_admin = EXCLUDED.is_admin, '
-                    'platoons = EXCLUDED.platoons, clerk_user_id = EXCLUDED.clerk_user_id, '
-                    'email = EXCLUDED.email, full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash',
-                    (u['id'], u['username'], PLACEHOLDER_PASSWORD_HASH, u.get('is_admin', 0),
-                     u.get('platoons', ''), u.get('clerk_user_id', ''), u.get('email', ''),
-                     u.get('full_name', ''), '')
-                )
-                resync_id_tables.add('users')
-                restored_users += 1
+    def insert_rows(table, rows, drop=('unit',)):
+        allowed = columns_of(table)
+        n = 0
+        for r in rows:
+            uid = unit_id_for(r)
+            if uid is None:
+                continue
+            d = {k: v for k, v in r.items() if k not in drop and k in allowed}
+            d['unit_id'] = uid
+            d['root_id'] = root_id
+            cols = ', '.join(f'"{c}"' for c in d)
+            conn.execute(f'INSERT INTO {table} ({cols}) VALUES ({", ".join(["%s"] * len(d))})',
+                         tuple(d.values()))
+            n += 1
+        if any('id' in r for r in rows):
+            resync.add(table)
+        return n
 
-        # Training data in older (version 1) backups is intentionally ignored —
-        # the 350-1 tracker feature was removed.
-        # Explicit-id inserts above (personnel/scheduled_events/users, admin-only)
-        # do not advance GENERATED BY DEFAULT AS IDENTITY's sequence the way a
-        # normal insert does, so the next ordinary insert into that table would
-        # collide with a restored id. Resync before commit, only for tables this
-        # restore actually gave an explicit id to.
-        for table in resync_id_tables:
+    n_people = insert_rows('personnel', payload.get('personnel', []))
+    profile_cols = columns_of('personnel_profile')
+    for r in payload.get('personnel_profile', []):
+        d = {k: v for k, v in r.items() if k in profile_cols}
+        d['root_id'] = root_id
+        cols = ', '.join(f'"{c}"' for c in d)
+        conn.execute(f'INSERT INTO personnel_profile ({cols}) VALUES ({", ".join(["%s"] * len(d))}) '
+                     'ON CONFLICT (person_id) DO NOTHING', tuple(d.values()))
+    insert_rows('scheduled_events', payload.get('scheduled_events', []))
+    insert_rows('duty_roster', payload.get('duty_roster', []))
+    insert_rows('report_history', payload.get('report_history', []))
+    for s in payload.get('settings', []):
+        uid = existing.get(s['unit']) if s.get('unit') else None
+        if s.get('unit') and uid is None:
+            continue
+        if uid is None and s['key'] != TIMEZONE_KEY:
+            continue
+        conn.execute(
+            'INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s) '
+            'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
+            (root_id, uid, s['key'], s['value']))
+
+    skipped_users = []
+    for u in payload.get('users', []):
+        # Never the caller's own row: a backup taken before a promotion would
+        # otherwise demote the very owner running the restore.
+        if u.get('username') == g.current_user['username']:
+            continue
+        uid = existing.get(u.get('unit'))
+        if uid is None or not u.get('clerk_user_id'):
+            skipped_users.append(u.get('username'))
+            continue
+        # users.username is unique across every tenant, and RLS hides the row
+        # holding it — so ON CONFLICT DO UPDATE on another tenant's username
+        # raises and would abort the whole restore. A savepoint per user turns
+        # that into one reported skip.
+        conn.execute('SAVEPOINT u')
+        try:
             conn.execute(
-                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
-                f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
-            )
-        log_action('BACKUP_RESTORE', f'Backup restored: {restored_personnel} personnel, {restored_users} users')
-        return jsonify({'success': True, 'personnel': restored_personnel, 'users': restored_users})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
+                'INSERT INTO users (username, password_hash, clerk_user_id, email, full_name, unit_id, role, root_id) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) '
+                'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role',
+                (u['username'], PLACEHOLDER_PASSWORD_HASH, u['clerk_user_id'], u.get('email', ''),
+                 u.get('full_name', ''), uid, u.get('role', 'leader'), root_id))
+        except psycopg.Error:
+            conn.execute('ROLLBACK TO SAVEPOINT u')
+            skipped_users.append(u.get('username'))
+        else:
+            conn.execute('RELEASE SAVEPOINT u')
+
+    # GENERATED BY DEFAULT AS IDENTITY does not advance for explicit ids (A0
+    # lesson), so the sequence has to be wound past everything this restore
+    # claimed. COALESCE(MAX(id), 1) alone is the A0 form and is wrong here:
+    # RLS hides every other tenant's rows, so the visible maximum can sit far
+    # below where the shared sequence actually stands, and setval() would wind
+    # it *backwards* onto ids another organisation already holds. nextval() is
+    # the floor — the sequence only ever moves forward.
+    for table in resync:
+        seq = f"pg_get_serial_sequence('{table}', 'id')"
+        conn.execute(f'SELECT setval({seq}, GREATEST(nextval({seq}), '
+                     f'COALESCE((SELECT MAX(id) FROM {table}), 1)), true)')
+    log_action('BACKUP_RESTORE', f'{n_people} personnel, {created_units} units created, '
+                                 f'{len(skipped_users)} users skipped')
+    return jsonify({'success': True, 'personnel': n_people, 'units_created': created_units,
+                    'skipped_units': sorted(u for u in skipped_units if u),
+                    'skipped_users': skipped_users})
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])
