@@ -3657,13 +3657,15 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="listConfirmModal">
+<!-- The one confirmation modal. Every destructive action asks through
+     confirmDialog() below; nothing calls the browser's native confirm(). -->
+<div class="modal-overlay" id="confirmModal">
   <div class="modal">
-    <h2 id="listConfirmTitle">Remove entry?</h2>
-    <div id="listConfirmBody"></div>
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <div id="confirmBody"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-cancel" onclick="closeListConfirm()">Cancel</button>
-      <button class="btn-small btn-danger" onclick="applyListRemoval()">Remove</button>
+      <button class="btn-small btn-cancel" onclick="settleConfirm(false)">Cancel</button>
+      <button class="btn-small btn-danger" id="confirmOkBtn" onclick="settleConfirm(true)">Confirm</button>
     </div>
   </div>
 </div>
@@ -4904,39 +4906,62 @@ async function saveListEdit() {
   await saveTdyLists();
 }
 
-// ── Delete (single or selected) ──
-let listPendingRemoval = [];
+// ── Confirmation modal ──
+// confirmDialog(title, body, okLabel) resolves true on the OK button and
+// false on Cancel, click-outside or Escape. Replaces the browser's native
+// confirm() everywhere; `body` is text unless {html: true} says the caller
+// already escaped it.
+let confirmResolve = null;
 
-function confirmRemoveList(indexes) {
-  listPendingRemoval = indexes;
+function confirmDialog(title, body = '', okLabel = 'Confirm', { html = false } = {}) {
+  document.getElementById('confirmTitle').textContent = title;
+  const bodyEl = document.getElementById('confirmBody');
+  if (html) {
+    bodyEl.innerHTML = body;
+  } else {
+    bodyEl.textContent = '';
+    if (body) {
+      const p = document.createElement('p');
+      p.className = 'list-confirm-lead';
+      p.textContent = body;
+      bodyEl.appendChild(p);
+    }
+  }
+  const okBtn = document.getElementById('confirmOkBtn');
+  okBtn.textContent = okLabel;
+  document.getElementById('confirmModal').classList.add('active');
+  okBtn.focus();
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+function settleConfirm(answer) {
+  document.getElementById('confirmModal').classList.remove('active');
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(answer);
+}
+
+// ── Delete (single or selected) ──
+async function confirmRemoveList(indexes) {
   const names = indexes.map(i => tdyLists[listsKind][i]);
   const noun = LIST_PAGES[listsKind].noun;
-  document.getElementById('listConfirmTitle').textContent =
-    names.length === 1 ? `Remove ${noun}?` : `Remove ${names.length} entries?`;
-  document.getElementById('listConfirmBody').innerHTML =
+  const ok = await confirmDialog(
+    names.length === 1 ? `Remove ${noun}?` : `Remove ${names.length} entries?`,
     `<p class="list-confirm-lead">This only removes ${names.length === 1 ? 'it' : 'them'} from the
       ${LIST_PAGES[listsKind].title} list. Absences already recorded keep their text.</p>
-     <ul class="list-confirm-names">${names.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`;
-  document.getElementById('listConfirmModal').classList.add('active');
+     <ul class="list-confirm-names">${names.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`,
+    'Remove', { html: true });
+  if (!ok) return;
+  const drop = new Set(indexes);
+  const removed = tdyLists[listsKind].filter((_, i) => drop.has(i));
+  tdyLists[listsKind] = tdyLists[listsKind].filter((_, i) => !drop.has(i));
+  removed.forEach(v => listSelected.delete(v));
+  await saveTdyLists();
 }
 
 function confirmRemoveSelected() {
   const items = tdyLists[listsKind];
   confirmRemoveList(items.map((v, i) => listSelected.has(v) ? i : -1).filter(i => i >= 0));
-}
-
-function closeListConfirm() {
-  document.getElementById('listConfirmModal').classList.remove('active');
-  listPendingRemoval = [];
-}
-
-async function applyListRemoval() {
-  const drop = new Set(listPendingRemoval);
-  const removed = tdyLists[listsKind].filter((_, i) => drop.has(i));
-  tdyLists[listsKind] = tdyLists[listsKind].filter((_, i) => !drop.has(i));
-  removed.forEach(v => listSelected.delete(v));
-  closeListConfirm();
-  await saveTdyLists();
 }
 
 // ─── Sortable tables (directory + audit log) ───────────────────────────────
@@ -5393,7 +5418,7 @@ function syncAbsenceEditMode() {
 }
 
 async function removeAbsence(eventId) {
-  if (!confirm('Remove this absence?')) return;
+  if (!await confirmDialog('Remove this absence?', '', 'Remove')) return;
   const res = await api('DELETE', `/schedules/${eventId}`);
   if (res && res.error) { alert(res.error); return; }
   await load();
@@ -5754,11 +5779,10 @@ async function markPresent(i) {
 
 async function removePerson(i) {
   const p = personnel[i];
-  if (confirm(`Remove ${p.rank} ${p.last}, ${p.first}?`)) {
-    await api('DELETE', `/personnel/${p.id}`);
-    personnel.splice(i, 1);
-    render();
-  }
+  if (!await confirmDialog(`Remove ${p.rank} ${p.last}, ${p.first}?`, '', 'Remove')) return;
+  await api('DELETE', `/personnel/${p.id}`);
+  personnel.splice(i, 1);
+  render();
 }
 
 async function deleteFromEditModal() {
@@ -6208,7 +6232,7 @@ async function clearSchedule() {
   if (tdyLeaveIndex < 0) return;
   const p = personnel[tdyLeaveIndex];
   if (!scheduledEventsFor(p).length) return;
-  if (!confirm(`Clear all ${scheduledEventsFor(p).length} scheduled events for ${p.rank} ${p.last}?`)) return;
+  if (!await confirmDialog(`Clear all ${scheduledEventsFor(p).length} scheduled events for ${p.rank} ${p.last}?`, '', 'Clear')) return;
   for (const event of scheduledEventsFor(p)) {
     await api('DELETE', `/schedules/${event.id}`);
   }
@@ -6723,7 +6747,7 @@ async function applyBulkStatus() {
   if (!bulkSelected.size) return;
 
   if (status === 'present') {
-    if (!confirm(`Mark ${bulkSelected.size} personnel present?`)) return;
+    if (!await confirmDialog(`Mark ${bulkSelected.size} personnel present?`, '', 'Mark present')) return;
     const updates = [];
     for (const id of bulkSelected) {
       const p = personnel.find(x => x.id === id);
@@ -6943,7 +6967,7 @@ async function addDutyEntry() {
 }
 
 async function deleteDutyEntry(id) {
-  if (!confirm('Remove this duty entry?')) return;
+  if (!await confirmDialog('Remove this duty entry?', '', 'Remove')) return;
   const res = await api('DELETE', `/duty/${id}`);
   if (res && res.error) {
     alert(res.error);
@@ -7094,7 +7118,8 @@ document.getElementById('tdyLeaveModal').addEventListener('click', function(e) {
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
 document.getElementById('listEditModal').addEventListener('click', function(e) { if (e.target === this) closeListEdit(); });
-document.getElementById('listConfirmModal').addEventListener('click', function(e) { if (e.target === this) closeListConfirm(); });
+document.getElementById('confirmModal').addEventListener('click', function(e) { if (e.target === this) settleConfirm(false); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && confirmResolve) settleConfirm(false); });
 
 // ─── Auth ───
 function showAppScreen(screen) {
@@ -7974,7 +7999,7 @@ function copyInviteLink(btn) {
 }
 
 async function revokeInvite(token) {
-  if (!confirm('Revoke this invite link? Anyone holding it will no longer be able to sign up.')) return;
+  if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
   const result = await api('DELETE', `/invites/${token}`);
   if (result && result.error) { alert(result.error); return; }
   await refreshInviteList();
@@ -8038,7 +8063,7 @@ async function saveUserEdit() {
 }
 
 async function deleteUser(userId, username) {
-  if (!confirm(`Remove app access for "${username}"? Their Clerk account will stay active.`)) return;
+  if (!await confirmDialog(`Remove app access for "${username}"?`, 'Their Clerk account will stay active.', 'Remove')) return;
   const result = await api('DELETE', `/users/${userId}`);
   if (result && result.error) { alert(result.error); return; }
   await refreshUserList();
@@ -8227,7 +8252,7 @@ async function importBackup() {
   const file = document.getElementById('restoreFile').files[0];
   const msgEl = document.getElementById('restoreMsg');
   if (!file) { showRestoreMsg('Please select a backup file.', '#ff7675'); return; }
-  if (!confirm('This will overwrite ALL current data. Are you sure?')) return;
+  if (!await confirmDialog('Overwrite ALL current data?', 'Everything in the app right now is replaced by the contents of the backup file.', 'Overwrite')) return;
   try {
     const text = await file.text();
     const payload = JSON.parse(text);
