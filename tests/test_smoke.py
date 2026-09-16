@@ -159,6 +159,17 @@ def check_every_api_route_is_guarded():
     )
 
 
+def check_units_is_open_to_the_unattached(client):
+    """/api/units GET is the one route deliberately reachable by a signed-in
+    user who belongs to no unit yet: they have no tenant, so RLS hands them
+    nothing, and the empty list is what tells the frontend to offer "create a
+    unit" rather than an error. Runs last — it monkeypatches the current user."""
+    dbharness.as_user(dbharness.make_user(None))
+    r = client.get('/api/units')
+    assert r.status_code == 200, (r.status_code, r.get_json())
+    assert r.get_json() == [], r.get_json()
+
+
 def main():
     check_tables()
     client = server.app.test_client()
@@ -170,6 +181,7 @@ def main():
     check_auth_config(client)
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()
+    check_units_is_open_to_the_unattached(client)
     print('ok')
     dbharness.teardown(_schema)
 

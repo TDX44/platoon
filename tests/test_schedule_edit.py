@@ -17,6 +17,12 @@ _schema = dbharness.setup()
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
 
+# One tenant, one platoon inside it. OWNER sees the whole tree; LEADER sees
+# only the platoon, which is what the subtree scoping has to prove.
+T = dbharness.make_tree()
+OWNER = dbharness.make_user(T['root'], 'owner', 'boss')
+LEADER = dbharness.make_user(T['child'], 'leader', 'sarge')
+
 # The app answers on the unit's clock (server.app_today()), so the tests
 # must ask the same question. Using date.today() here made CI fail on its
 # UTC runner every evening between 1900 and midnight Central.
@@ -25,44 +31,59 @@ def day(offset):
     return (TODAY + timedelta(days=offset)).isoformat()
 
 
+ROSTER = f"/api/personnel?unit={T['child']}"
+
+
+def add_person(rank, last, first, unit_id=None, status='present'):
+    conn = dbharness.owner_conn()
+    row = conn.execute(
+        'INSERT INTO personnel (rank, last, first, status, unit_id, root_id) '
+        'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+        (rank, last, first, status, unit_id or T['child'], T['root'])).fetchone()
+    conn.commit(); conn.close()
+    return row['id']
+
+
+PID = None
+
+
 def setup():
-    server.get_current_user = lambda: {'is_admin': 1, 'id': 1, 'username': 'boss', 'platoons': '*'}
-    conn = server.get_db()
-    conn.execute("DELETE FROM personnel")
-    conn.execute("INSERT INTO personnel (id, rank, last, first, status, platoon) "
-                 "VALUES (1, 'SGT', 'Alvarez', 'Dana', 'present', '2nd')")
-    conn.commit()
-    conn.close()
+    global PID
+    dbharness.as_user(OWNER)
+    conn = dbharness.owner_conn()
+    conn.execute('DELETE FROM personnel')
+    conn.commit(); conn.close()
+    PID = add_person('SGT', 'Alvarez', 'Dana')
     return server.app.test_client()
 
 
 def add_event(state, from_off, to_off, status='tdy'):
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     cur = conn.execute(
-        'INSERT INTO scheduled_events (person_id, platoon, status, from_date, to_date, notes, state) '
-        "VALUES (1, '2nd', %s, %s, %s, 'orig', %s) RETURNING id",
-        (status, day(from_off), day(to_off), state)
+        'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, state) '
+        "VALUES (%s, %s, %s, %s, %s, %s, 'orig', %s) RETURNING id",
+        (PID, T['child'], T['root'], status, day(from_off), day(to_off), state)
     )
     event_id = cur.fetchone()['id']
     if state == 'active':
-        conn.execute('UPDATE personnel SET status=%s, from_date=%s, to_date=%s, notes=%s WHERE id=1',
-                     (status, day(from_off), day(to_off), 'orig'))
+        conn.execute('UPDATE personnel SET status=%s, from_date=%s, to_date=%s, notes=%s WHERE id=%s',
+                     (status, day(from_off), day(to_off), 'orig', PID))
     conn.commit()
     conn.close()
     return event_id
 
 
-def person(pid=1):
-    conn = server.get_db()
+def person(pid=None):
+    conn = dbharness.owner_conn()
     row = dict(conn.execute(
-        'SELECT status, from_date, to_date FROM personnel WHERE id = %s', (pid,)).fetchone())
+        'SELECT status, from_date, to_date FROM personnel WHERE id = %s', (pid or PID,)).fetchone())
     conn.close()
     return row
 
 
 def clear():
-    """Fresh slate: no events, person 1 back on duty."""
-    conn = server.get_db()
+    """Fresh slate: no events, the soldier back on duty."""
+    conn = dbharness.owner_conn()
     conn.execute('DELETE FROM scheduled_events')
     conn.execute("UPDATE personnel SET status='present', from_date='', to_date='', notes=''")
     conn.commit()
@@ -70,15 +91,15 @@ def clear():
 
 
 def states():
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     rows = [(r['id'], r['state']) for r in conn.execute(
-        'SELECT id, state FROM scheduled_events WHERE person_id = 1 ORDER BY id')]
+        'SELECT id, state FROM scheduled_events WHERE person_id = %s ORDER BY id', (PID,))]
     conn.close()
     return rows
 
 
 def event(event_id):
-    conn = server.get_db()
+    conn = dbharness.owner_conn()
     row = dict(conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone())
     conn.close()
     return row
@@ -129,7 +150,7 @@ def main():
     # 6. A scheduled absence activates the day it starts and fills the cache.
     clear()
     eid = add_event('scheduled', 0, 4, status='leave')
-    assert c.get('/api/personnel?platoon=2nd').status_code == 200
+    assert c.get(ROSTER).status_code == 200
     assert event(eid)['state'] == 'active', 'from_date == today must activate'
     assert person() == {'status': 'leave', 'from_date': day(0), 'to_date': day(4)}, person()
 
@@ -137,7 +158,7 @@ def main():
     clear()
     eid = add_event('active', -6, -1)
     assert person()['status'] == 'tdy', 'precondition: the soldier is away'
-    c.get('/api/personnel?platoon=2nd')
+    c.get(ROSTER)
     assert event(eid)['state'] == 'completed', 'a past to_date must complete'
     assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
@@ -151,7 +172,7 @@ def main():
     assert event(eid)['state'] == 'scheduled', event(eid)
     assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
     # ...and a later read must not silently re-activate it.
-    c.get('/api/personnel?platoon=2nd')
+    c.get(ROSTER)
     assert event(eid)['state'] == 'scheduled'
     assert person()['status'] == 'present'
 
@@ -159,7 +180,7 @@ def main():
     clear()
     old = add_event('active', -5, 5)
     new = add_event('active', -1, 7, status='leave')
-    c.get('/api/personnel?platoon=2nd')
+    c.get(ROSTER)
     assert states() == [(old, 'completed'), (new, 'active')], states()
     assert person() == {'status': 'leave', 'from_date': day(-1), 'to_date': day(7)}, person()
 
@@ -171,14 +192,14 @@ def main():
 
     # 12. A new absence booked for today activates on creation.
     clear()
-    r = c.post('/api/personnel/1/schedule',
+    r = c.post(f'/api/personnel/{PID}/schedule',
                json={'status': 'pass', 'from_date': day(0), 'to_date': day(1), 'notes': 'p'})
     assert r.status_code == 201, r.get_json()
     assert r.get_json()['state'] == 'active', r.get_json()
     assert person() == {'status': 'pass', 'from_date': day(0), 'to_date': day(1)}, person()
     # ...and one booked for later does not.
     clear()
-    r = c.post('/api/personnel/1/schedule',
+    r = c.post(f'/api/personnel/{PID}/schedule',
                json={'status': 'pass', 'from_date': day(4), 'to_date': day(6)})
     assert r.get_json()['state'] == 'scheduled', r.get_json()
     assert person()['status'] == 'present', person()
@@ -186,36 +207,37 @@ def main():
     # 13. A double-tapped Save must not book the same absence twice.
     clear()
     body = {'status': 'tdy', 'from_date': day(2), 'to_date': day(5), 'notes': 'Sim - Dothan'}
-    first = c.post('/api/personnel/1/schedule', json=body)
-    second = c.post('/api/personnel/1/schedule', json=body)
+    first = c.post(f'/api/personnel/{PID}/schedule', json=body)
+    second = c.post(f'/api/personnel/{PID}/schedule', json=body)
     assert first.status_code == 201 and second.status_code == 200, (first.status_code, second.status_code)
     assert first.get_json()['id'] == second.get_json()['id'], 'the retry got a second row'
-    conn = server.get_db()
-    n = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE person_id = 1').fetchone()['n']
+    conn = dbharness.owner_conn()
+    n = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE person_id = %s',
+                     (PID,)).fetchone()['n']
     conn.close()
     assert n == 1, f'expected one absence row, found {n}'
     # A genuinely different window is still a new absence.
-    assert c.post('/api/personnel/1/schedule',
+    assert c.post(f'/api/personnel/{PID}/schedule',
                   json={**body, 'to_date': day(6)}).status_code == 201
 
     # 14. Marking a soldier present ends the absence they were on, instead of
     #     leaving it running underneath a 'present' roster line.
     clear()
     eid = add_event('active', -3, 4, status='leave')
-    assert c.put('/api/personnel/1', json={'status': 'present', 'notes': '',
-                                           'from_date': '', 'to_date': ''}).status_code == 200
-    conn = server.get_db()
+    assert c.put(f'/api/personnel/{PID}', json={'status': 'present', 'notes': '',
+                                                'from_date': '', 'to_date': ''}).status_code == 200
+    conn = dbharness.owner_conn()
     row = dict(conn.execute('SELECT state, to_date FROM scheduled_events WHERE id = %s', (eid,)).fetchone())
     conn.close()
     assert row == {'state': 'completed', 'to_date': day(-1)}, row
-    c.get('/api/personnel?platoon=2nd')          # reconcile must leave them present
+    c.get(ROSTER)          # reconcile must leave them present
     assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
     # An absence marked present before it began was a mis-entry: it goes.
     clear()
     eid = add_event('active', 0, 4, status='tdy')
-    c.put('/api/personnel/1', json={'status': 'present'})
-    conn = server.get_db()
+    c.put(f'/api/personnel/{PID}', json={'status': 'present'})
+    conn = dbharness.owner_conn()
     gone = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE id = %s', (eid,)).fetchone()['n']
     conn.close()
     assert gone == 0, 'an absence that never started should be removed, not kept'
@@ -224,8 +246,8 @@ def main():
     # resends the current status, so this must stay a no-op on the event.
     clear()
     eid = add_event('active', -2, 6, status='tdy')
-    c.put('/api/personnel/1', json={'status': 'tdy', 'present_date': day(0)})
-    conn = server.get_db()
+    c.put(f'/api/personnel/{PID}', json={'status': 'tdy', 'present_date': day(0)})
+    conn = dbharness.owner_conn()
     state = conn.execute('SELECT state FROM scheduled_events WHERE id = %s', (eid,)).fetchone()['state']
     conn.close()
     assert state == 'active', 'present-for-today must not close a running absence'
@@ -234,30 +256,61 @@ def main():
     #     same-day window, and they complete themselves overnight like the rest.
     for status, reason in (('late', 'Traffic'), ('excused', 'Sick call')):
         clear()
-        r = c.post('/api/personnel/1/schedule',
+        r = c.post(f'/api/personnel/{PID}/schedule',
                    json={'status': status, 'from_date': day(0), 'to_date': day(0),
                          'notes': reason})
         assert r.status_code == 201, (status, r.get_json())
         assert r.get_json()['state'] == 'active', r.get_json()
         assert person() == {'status': status, 'from_date': day(0), 'to_date': day(0)}, person()
-        conn = server.get_db()
-        notes = conn.execute('SELECT notes FROM personnel WHERE id = 1').fetchone()['notes']
+        conn = dbharness.owner_conn()
+        notes = conn.execute('SELECT notes FROM personnel WHERE id = %s', (PID,)).fetchone()['notes']
         conn.close()
         assert notes == reason, f'{status} lost its reason: {notes!r}'
 
         # Yesterday's lateness must not still be on the roster this morning.
-        conn = server.get_db()
-        conn.execute('UPDATE scheduled_events SET from_date = %s, to_date = %s WHERE person_id = 1',
-                     (day(-1), day(-1)))
+        conn = dbharness.owner_conn()
+        conn.execute('UPDATE scheduled_events SET from_date = %s, to_date = %s WHERE person_id = %s',
+                     (day(-1), day(-1), PID))
         conn.commit()
         conn.close()
-        c.get('/api/personnel?platoon=2nd')
+        c.get(ROSTER)
         assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
     # A status that is not a real one is still refused.
     clear()
-    assert c.post('/api/personnel/1/schedule',
+    assert c.post(f'/api/personnel/{PID}/schedule',
                   json={'status': 'tardy', 'from_date': day(0)}).status_code == 400
+
+    # ── Scope: a roster is one unit's subtree, never the whole tenant ─────────
+    clear()
+    dbharness.as_user(OWNER)
+    r = c.post('/api/units', json={'parent_id': T['root'], 'kind': 'platoon', 'name': '3rd Platoon'})
+    assert r.status_code == 201, r.get_json()
+    sibling = r.get_json()['id']
+    stranger = add_person('SPC', 'Ward', 'Kim', unit_id=sibling)
+
+    dbharness.as_user(LEADER)
+    ids = [p['id'] for p in c.get(ROSTER).get_json()]
+    assert PID in ids, ids
+    assert stranger not in ids, "a sibling unit's soldier leaked into the platoon roster"
+    # ...and the leader cannot reach into that sibling at all.
+    assert c.get(f'/api/personnel?unit={sibling}').status_code == 403
+    assert c.put(f'/api/personnel/{stranger}', json={'status': 'present'}).status_code == 403
+
+    # The owner, above both, sees the whole subtree.
+    dbharness.as_user(OWNER)
+    everyone = [p['id'] for p in c.get(f"/api/personnel?unit={T['root']}").get_json()]
+    assert {PID, stranger} <= set(everyone), everyone
+
+    # A soldier moved inside the caller's subtree takes their absences with them.
+    eid = add_event('active', -1, 5)
+    r = c.put(f'/api/personnel/{PID}', json={'unit_id': sibling})
+    assert r.status_code == 200, r.get_json()
+    assert event(eid)['unit_id'] == sibling, event(eid)
+    dbharness.as_user(LEADER)
+    assert [p['id'] for p in c.get(ROSTER).get_json()] == [], 'the moved soldier is off the old roster'
+    dbharness.as_user(OWNER)
+    assert c.put(f'/api/personnel/{PID}', json={'unit_id': T['child']}).status_code == 200
 
     print('ok')
     dbharness.teardown(_schema)
