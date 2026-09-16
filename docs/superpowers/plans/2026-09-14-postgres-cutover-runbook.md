@@ -57,10 +57,19 @@ the app password pulls it out of the file explicitly.
 
 ## Step 7 — migrate
 
+**Executed on production 2026-09-16 14:33Z in this order, 28 s of downtime.**
+Pull, build, start Postgres and run the roles script while the OLD app is
+still serving — none of that touches what it reads — and stop the app only
+for the schema + migrate + verify. The explicit `build app` matters: the
+old image is still tagged `platoon-app`, and `docker compose run` does not
+rebuild, so without it the old SQLite server imports "successfully".
+
 ```bash
 cd /opt/homelab/platoon
 git pull                             # brings docker-compose.yml with the db service
-docker compose up -d --build db
+docker compose build app
+docker compose run --rm -T --no-deps app python -c "import psycopg; print('new image: psycopg', psycopg.__version__)"
+docker compose up -d db
 until docker compose exec -T db pg_isready -U platoon_owner -d platoon -q; do sleep 1; done
 ```
 
@@ -70,6 +79,8 @@ docker compose exec -T db psql -U platoon_owner -d platoon -q -v ON_ERROR_STOP=1
   -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
 echo "roles rc=$?"                   # expect 0; the script is idempotent, re-run it if in doubt
 ```
+
+Now Step 6's `docker compose stop app`, then:
 
 ```bash
 docker compose run --rm app python -c "import server; print('schema ok')"
