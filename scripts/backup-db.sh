@@ -33,7 +33,7 @@ DB_NAME="platoon"
 DEST="$APP_DIR/backups"
 KEEP_DAYS="${PLATOON_BACKUP_KEEP_DAYS:-30}"
 # Off-box copy. Empty disables it; losing the disk then loses the backups too.
-OFFBOX="${PLATOON_BACKUP_OFFBOX:-tdx44@100.101.125.14:backups/platoon}"
+OFFBOX="${PLATOON_BACKUP_OFFBOX-tdx44@100.101.125.14:backups/platoon}"
 
 compose() { docker compose -f "$COMPOSE_FILE" exec -T db "$@"; }
 
