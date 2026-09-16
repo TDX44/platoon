@@ -75,15 +75,96 @@ def test_expired_invite_is_ignored():
     assert err is None and user['unit_id'] is None
 
 
-def test_legacy_row_is_claimed_by_email():
-    t = dbharness.make_tree('India Co')
+def make_legacy(email, username, unit_id=None, root_id=None):
+    """A row that has never synced with Clerk, optionally already attached."""
     conn = dbharness.owner_conn()
-    conn.execute(
+    row = conn.execute(
         "INSERT INTO users (username, password_hash, clerk_user_id, email, unit_id, role, root_id) "
-        "VALUES ('old.hand', 'x', '', 'old@example.com', %s, 'leader', %s)", (t['child'], t['root']))
+        "VALUES (%s, 'x', '', %s, %s, 'leader', %s) RETURNING *",
+        (username, email, unit_id, root_id)).fetchone()
     conn.commit(); conn.close()
-    user, err = sync('clerk_old', 'old@example.com')
-    assert err is None and user['unit_id'] == t['child'] and user['clerk_user_id'] == 'clerk_old', user
+    return dict(row)
+
+
+def reread(user_id):
+    conn = dbharness.owner_conn()
+    row = conn.execute('SELECT * FROM users WHERE id = %s', (user_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def test_an_unattached_legacy_row_is_claimed_by_email():
+    legacy = make_legacy('free@example.com', 'free.agent')
+    user, err = sync('clerk_free', 'free@example.com')
+    assert err is None and user['id'] == legacy['id'] and user['clerk_user_id'] == 'clerk_free', user
+    assert user['unit_id'] is None, 'claiming an unattached row attaches you to nothing'
+
+
+def test_an_attached_legacy_row_is_not_claimed_on_a_bare_email():
+    """The takeover: email comes from the request body, so it proves nothing."""
+    t = dbharness.make_tree('India Co')
+    legacy = make_legacy('old@example.com', 'old.hand', t['child'], t['root'])
+    user, err = sync('clerk_thief', 'old@example.com')
+    assert err is None and user['id'] != legacy['id'] and user['unit_id'] is None, \
+        f'a stranger claiming a tenant email signs in attached to nothing: {user}'
+    assert reread(legacy['id'])['clerk_user_id'] == '', 'the tenant row is left untouched'
+
+
+def test_an_invite_for_the_same_root_vouches_for_the_legacy_row():
+    t = dbharness.make_tree('Kilo Co')
+    legacy = make_legacy('psg2@example.com', 'psg.two', t['root'], t['root'])
+    make_invite(t, 'tok-vouch')
+    user, err = sync('clerk_vouched', 'psg2@example.com', 'tok-vouch')
+    assert err is None and user['id'] == legacy['id'] and user['clerk_user_id'] == 'clerk_vouched', user
+    assert (user['unit_id'], user['role']) == (t['child'], 'leader'), \
+        f"the invite's unit and role win over the row's: {user}"
+
+
+def test_an_invite_for_another_root_does_not_vouch():
+    t = dbharness.make_tree('Lima Co')
+    other = dbharness.make_tree('Mike Co')
+    legacy = make_legacy('cross@example.com', 'cross.hand', t['child'], t['root'])
+    make_invite(other, 'tok-elsewhere')
+    user, err = sync('clerk_cross', 'cross@example.com', 'tok-elsewhere')
+    assert err is None and user['id'] != legacy['id'], f'no other tenant can vouch for this row: {user}'
+    assert (user['unit_id'], user['root_id']) == (other['child'], other['root']), \
+        f'the signer attaches where their own invite points: {user}'
+    assert reread(legacy['id'])['clerk_user_id'] == '', 'the first tenant row is left untouched'
+
+
+class _Racer:
+    """Steals the legacy row from a second connection in the instant between
+    sync_clerk_user() finding it and claiming it."""
+
+    def __init__(self, conn, steal):
+        self._conn = conn
+        self._steal = steal
+
+    def execute(self, sql, params=None, *a, **kw):
+        if 'auth_claim_legacy_user' in sql and self._steal:
+            self._steal()
+            self._steal = None
+        return self._conn.execute(sql, params, *a, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash():
+    legacy = make_legacy('raced@example.com', 'raced.hand')
+
+    def steal():
+        conn = dbharness.owner_conn()
+        conn.execute("UPDATE users SET clerk_user_id = 'clerk_winner' WHERE id = %s", (legacy['id'],))
+        conn.commit(); conn.close()
+
+    real_get_db = server.get_db
+    server.get_db = lambda: _Racer(real_get_db(), steal)
+    try:
+        user, err = sync('clerk_loser', 'raced@example.com')
+    finally:
+        server.get_db = real_get_db
+    assert user is None and err, 'the loser of the race gets an error, not a None the route 500s on'
 
 
 def main():
@@ -91,7 +172,11 @@ def main():
         test_stranger_gets_an_unattached_account()
         test_invite_attaches_at_its_unit_with_its_role()
         test_expired_invite_is_ignored()
-        test_legacy_row_is_claimed_by_email()
+        test_an_unattached_legacy_row_is_claimed_by_email()
+        test_an_attached_legacy_row_is_not_claimed_on_a_bare_email()
+        test_an_invite_for_the_same_root_vouches_for_the_legacy_row()
+        test_an_invite_for_another_root_does_not_vouch()
+        test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

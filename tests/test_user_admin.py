@@ -92,6 +92,8 @@ def test_deleting_a_user_is_owner_only():
     assert c.delete(f"/api/users/{OWNER['id']}").status_code == 400, 'nobody may delete their own account'
     assert c.delete(f"/api/users/{victim['id']}").status_code == 200, 'an owner may delete a user in the root'
     assert 'victim' not in usernames(c), 'a deleted user is gone from the listing'
+    assert c.delete(f"/api/users/{OTHER_USER['id']}").status_code == 404, \
+        'deleting nothing is a 404 — a 200 would confirm the id belongs to another tree'
 
 
 def main():

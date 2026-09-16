@@ -917,6 +917,14 @@ def sync_clerk_user(payload):
         token = (payload.get('invite_token') or '').strip()
         invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, now)).fetchone() if token else None
         legacy = conn.execute('SELECT * FROM auth_user_by_identity(%s, %s)', (email, username)).fetchone()
+        # The email and username arrive in the request body, so a matching row
+        # is not proof of who is signing in — the invite is. An attached row may
+        # only be claimed when a live invite for that same tenant vouches for
+        # it; otherwise this is an ordinary stranger sign-in and the row is not
+        # even acknowledged.
+        if legacy and legacy['root_id'] is not None and not (
+                invite and invite['root_id'] == legacy['root_id']):
+            legacy = None
 
         if legacy:
             unit_id, role, root_id = legacy['unit_id'], legacy['role'], legacy['root_id']
@@ -934,7 +942,12 @@ def sync_clerk_user(payload):
             conn.execute('UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
                          (now, clerk_user_id, invite['token']))
         row = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
-        g.current_user = dict(row) if row else None
+        if not row:
+            # Two Clerk accounts raced the same legacy row: the loser's claim
+            # matched nothing and raised nothing, so there is no user to return.
+            # Saying so beats handing the route a None it would 500 on.
+            return None, 'Sign-in could not be completed; try again.'
+        g.current_user = dict(row)
         return g.current_user, None
     except psycopg.errors.UniqueViolation:
         # username is UNIQUE; the caller's Clerk handle collides with someone
@@ -1243,7 +1256,11 @@ def delete_user(user_id):
     if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
-    conn.execute("DELETE FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,))
+    # RLS hides another root's users, so a cross-tenant id deletes nothing and
+    # used to answer 200 — which told the caller the row had been theirs.
+    cur = conn.execute("DELETE FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,))
+    if cur.rowcount == 0:
+        return jsonify({'error': 'Not found'}), 404
     return jsonify({'success': True})
 
 
