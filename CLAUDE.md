@@ -22,13 +22,20 @@ docker compose up -d --build      # needs a .env file (see .env.example)
 ```
 
 There is no lint config and no test framework (no pytest) — every check is a
-standalone assert-based script, run directly. Tests need a Postgres to talk to:
+standalone assert-based script, run directly. Tests need a Postgres to talk
+to, and **now require two connection strings, not one**:
 `TEST_DATABASE_URL` (default `postgresql://platoon_owner:platoon@127.0.0.1:5432/platoon`)
-points at an admin connection tests use to create and drop a throwaway schema
-per test (`tests/dbharness.py`) — the same `platoon-pg` container above works.
+is the admin/`platoon_owner` connection tests use to create and drop a
+throwaway schema per test and to seed fixtures that must bypass RLS
+(`tests/dbharness.py`'s `owner_conn()`); **`TEST_APP_DATABASE_URL`** (a
+`platoon_app` role, e.g. `postgresql://platoon_app:<pw>@127.0.0.1:5432/platoon`)
+is required so the app itself is exercised as the non-owner role RLS
+actually binds — running tests only as the owner would silently skip every
+policy. Run `scripts/pg-roles.sql` once against the `platoon-pg` container
+above to create `platoon_app` before running tests locally.
 
 ```bash
-python tests/test_invites.py          # invite expiry / single-use / platoon validation
+python tests/test_invites.py          # invite expiry / single-use / unit validation
 python tests/test_auth_resilience.py  # JWKS fallback + auth status codes
 python tests/test_schedule_edit.py    # absence edit + state re-derivation
 python tests/test_smoke.py            # every route answers; every /api/ route is guarded
@@ -39,6 +46,11 @@ python tests/test_formation_order.py  # formation queue rule (runs the JS under 
 python tests/test_timezone.py          # the duty day follows the unit, not the server
 python tests/test_mobile_layout.py    # layout geometry: overflow, duplicated row
                                       # metadata, modal control fit, tap targets
+python tests/test_tenancy.py          # RLS default-deny, cross-tenant 404s, boot guard
+python tests/test_units.py            # unit CRUD, slug uniqueness, owner-only gates
+python tests/test_auth_flow.py        # signup states: needs_unit, invite, legacy claim
+python tests/test_units_migration.py  # platoons-to-units.py against a fixture shaped like prod
+python tests/test_unit_tree_js.py     # frontend tree helpers (unitById/unitBySlug/...), under node
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -221,48 +233,124 @@ activated absences for courses starting the next morning. `app_today()`,
 is, and `tests/test_timezone.py` fails the build if a raw `date.today()`
 reappears.
 
-The zone is a **setting**, not config: `settings` key `org_timezone`, changed by
-an admin from Settings → Organisation, validated as a real IANA zone, and
-audited as `ORG_TIMEZONE`. It is deliberately **unsuffixed** while
-`unit_name_<platoon>` and the TDY lists are per-platoon — every platoon shares
-one duty day. When a second organisation arrives it becomes
-`org_timezone_<org>`, and only `load_app_timezone()` / `set_app_timezone()` need
-to change. `PLATOON_TZ` is just the fallback before that row exists.
+The zone is a **setting**, not config: `settings` key `org_timezone`, scoped
+`(root_id, NULL, 'org_timezone')` — one duty day per root, read per request
+rather than cached, so a request against one tenant never serves another
+tenant's zone. Changed by an owner from Settings → Organisation, validated as
+a real IANA zone, and audited as `ORG_TIMEZONE`. `PLATOON_TZ` is just the
+fallback before that row exists.
 
-The live zone is cached in a module global and `set_app_timezone()` is its only
-writer, so `app_now()` never needs a query of its own — including when it runs
-inside a transaction already in progress. A stored value that is not a valid
-zone logs a warning and falls back rather than stopping the app from booting.
-**Every** stored timestamp — audit log, invites, `scheduled_events.created_at`,
-`report_history.created_at` — is written from `app_stamp()` and passed
-explicitly, never left to a column DEFAULT. The `to_char(now(), ...)` DEFAULTs
-still on those columns run in the **db** container, whose `timezone` GUC was
-baked as UTC at initdb; a report saved 2130 Sunday would be filed under Monday.
-`docker-compose.yml` pins that GUC (`-c timezone=`) so the unreachable backstop
-is at least not wrong, and pins the app container's `TZ` so its logs read
-against the same duty day — but the `TZ` env var affects nothing that is
-stored.
+A module global cannot hold "the" zone once there is more than one tenant per
+process, so there is no such global: the resolved zone lives on `g.tz` for the
+duration of the request, loaded from that root's `org_timezone` setting the
+same place the tenant GUC gets declared. A stored value that is not a valid
+zone logs a warning and falls back to `PLATOON_TZ` rather than stopping the
+request. **Every** stored timestamp — audit log, invites,
+`scheduled_events.created_at`, `report_history.created_at` — is written from
+`app_stamp()` and passed explicitly, never left to a column DEFAULT. The
+`to_char(now(), ...)` DEFAULTs still on those columns run in the **db**
+container, whose `timezone` GUC was baked as UTC at initdb; a report saved
+2130 Sunday would be filed under Monday. `docker-compose.yml` pins that GUC
+(`-c timezone=`) so the unreachable backstop is at least not wrong, and pins
+the app container's `TZ` so its logs read against the same duty day — but the
+`TZ` env var affects nothing that is stored.
 
-The frontend has its own `APP_TZ` with the same default and adopts the server's
-value from **both** `/api/auth/config` and every `GET /api/settings`, so a phone
-in Germany reports the same duty day as the roster back home and picks up an
-admin's change on the next load. Keep the two defaults in step.
+The frontend has its own `APP_TZ` with the same default and adopts the
+server's value from `/api/me` and every `GET /api/settings` — never from
+`/api/auth/config`, which is fetched before sign-in and so before any tenant
+is known and cannot carry a zone. A phone in Germany reports the same duty day
+as the roster back home and picks up an admin's change on the next load. Keep
+the two defaults in step.
 
-### Multi-platoon model
+### Tenancy
 
-Three fixed platoons defined in the `PLATOONS` dict: `1st`, `2nd`, `hq`. Most
-data rows carry a `platoon` column; most routes are platoon-scoped and gated by
-`has_platoon_access(user, platoon)`.
+Organisations nest as a `units` adjacency list (`parent_id` self-reference,
+`kind` one of company/platoon/squad/team/section/detachment/flight/crew,
+`UNIQUE(root_id, slug)`). Every tenant table — `units`, `personnel`,
+`personnel_profile`, `scheduled_events`, `duty_roster`, `report_history`,
+`audit_log`, `settings`, `users`, `invites` — carries `root_id`, which is
+"which tree" for that row; a root unit's own `root_id` equals its own `id`.
+
+**RLS is the tenant blast door**, not an optional extra. `sql/rls.sql` puts a
+`USING`/`WITH CHECK` policy on every tenant table:
+`root_id = NULLIF(current_setting('app.root_id', true), '')::int`. The
+`NULLIF` matters: once any custom GUC has been set on a session, a rolled-back
+transaction leaves it as `''` rather than unset, and `''::int` raises —
+without `NULLIF` that would turn default-deny into a 500 on the next pooled
+request instead of "no rows". `_resolved_user()` runs
+`SELECT set_config('app.root_id', <root_id>, true)` (via `set_tenant()`)
+before any other statement on the request's transaction. An unattached user
+(`unit_id IS NULL`) declares **no** tenant at all — `set_tenant(conn, None)`
+sets the GUC to `''`, not `0`, because `0` is a value `auth_create_root_unit`
+transiently writes and would otherwise be one shared writable tenant.
+`log_action()` writes nothing when no tenant is declared, so a stranger's
+first sign-in is not audited and `UNIT_CREATE` is the first audit row of a
+new tenant; `/api/auth/sync` declares the tenant only after a successful
+sync, so an attached user's `LOGIN` is still audited.
+
+Because RLS binds every statement the app role runs, and does nothing for the
+handful of operations that legitimately need to run *before* a tenant is
+known (finding a user by Clerk id, redeeming an invite, creating a first
+root), those operations are the **six `auth_*` functions in
+`sql/auth_functions.sql`** — `auth_user_by_clerk_id`,
+`auth_user_by_identity`, `auth_invite`, `auth_create_user`,
+`auth_claim_legacy_user`, `auth_create_root_unit`. They are `SECURITY
+DEFINER`, owned by `platoon_owner`, `SET search_path FROM CURRENT` (the
+standard guard against search-path hijacking of definer functions), and
+`EXECUTE` is revoked from `PUBLIC` and granted only to `platoon_app`. This
+list is deliberately small and enumerable: if a cross-tenant read or write is
+not one of these six functions, it does not happen.
+
+Table owners and `BYPASSRLS` roles skip policies silently, which looks
+exactly like a working app while leaking every tenant. `server.py` refuses to
+boot (`_assert_rls_safe_role()`) if `DATABASE_URL`'s role is `rolsuper`,
+`rolbypassrls`, or owns any table in the schema — including ownership held
+through a granted role, tested with `pg_has_role(current_user, tableowner,
+'USAGE')` rather than a name comparison. `FORCE ROW LEVEL SECURITY` is
+deliberately not used: it would also bind `platoon_owner`, which runs
+`init_db()` and the migration across every root by design.
+
+RLS stops cross-tenant access; it says nothing about *subtree* visibility
+inside one tenant. `current_subtree()` computes the set of unit ids at or
+below the signed-in user's `unit_id` with one recursive CTE, cached on `g`
+for the request; `can_access(unit_id)` tests membership. A row outside the
+caller's subtree, or in another tenant entirely, answers **404**, never
+403 — the row does not exist from the caller's side.
+
+**Roles** are `owner` and `leader`. Both see and edit their whole subtree
+(roster, absences, duty, reports, availability, audit log, backup export,
+creating/renaming/deleting empty units, inviting leaders, editing users)
+in the subtree. **Owner-only:** grant the `owner` role, rename or delete the
+root, change `org_timezone`, remove a user, full backup restore, delete
+another user's report.
+
+**Self-serve signup:** a Clerk account that has never synced here gets a
+local row with `unit_id NULL` — "signed in, attached nowhere" — and
+`/api/me` reports `needs_unit: true`. Every `/api/` route except `/api/me`,
+`/api/auth/sync` and `POST /api/units` 403s such a user. `POST /api/units`
+with no `parent_id` creates a new root (`auth_create_root_unit`), attaches
+the caller as `owner`, and seeds that root's defaults — no admin, no invite,
+no bootstrap list required. An invite instead attaches the user at
+`invite.unit_id` with `invite.role`.
+
+**Running the tests now requires `TEST_APP_DATABASE_URL`** (a
+`platoon_app` connection string) in addition to the admin
+`TEST_DATABASE_URL` — tests exercise the app as `platoon_app` so RLS is
+actually in the loop, not bypassed by an owner connection. Fixtures come
+from `tests/dbharness.py`: `owner_conn()` (a `platoon_owner` connection for
+setup that must bypass RLS, e.g. seeding two tenants), `make_tree()` (root +
+one child unit), `make_user(unit_id, role, username)`, and `as_user(user)`
+(monkeypatches `get_current_user`).
 
 ### Auth
 
 Authentication is Clerk-based (JWT verified against Clerk's JWKS via `PyJWKClient`).
 `CLERK_ENABLED` is true only when `CLERK_PUBLISHABLE_KEY` and a frontend API URL
-are configured. Three decorators guard routes — `clerk_auth_required` (verifies
-the session token), `login_required`, and `admin_required`. `sync_clerk_user()`
-mirrors a Clerk identity into the local `users` table; emails in
-`CLERK_ADMIN_EMAILS` are auto-granted admin. `ProxyFix` is applied because the app
-runs behind the Cloudflare tunnel.
+are configured. Three decorators guard routes — `login_required` (signed in;
+unattached users pass), `attached_required` (also requires `unit_id`), and
+`owner_required`. `sync_clerk_user()` mirrors a Clerk identity into the local
+`users` table. `ProxyFix` is applied because the app runs behind the
+Cloudflare tunnel.
 
 Clerk's JWKS is fetched over the network, so a DNS blip on the host used to 401
 every request and sign everyone out with a raw `urlopen error` in the UI.
@@ -271,15 +359,21 @@ reuses it (matching by exact `kid`) when Clerk is unreachable, and an unreachabl
 Clerk maps to **503**, never 401 — a 401 makes the client sign the user out over
 a transient blip. The client retries `/api/auth/sync` once on a 503.
 
-Sign-up is **invite-only**: a Clerk account that has never synced here is rejected
-by `sync_clerk_user()` with a 403 unless it presents a live `invite_token`, matches
-a pre-existing local row, or qualifies for the admin bootstrap (`CLERK_ADMIN_EMAILS`,
-or the very first user when that list is unset). Admins mint single-use
-`/invite/<token>` links from Manage Access; each carries the platoons/admin grant
-and expires after `INVITE_EXPIRY_DAYS`. The frontend stashes the token in
-`sessionStorage` so it survives Clerk's email-verification and OAuth redirects.
-Invites are deliberately left out of backup/restore — they are short-lived
-credentials, not data.
+A Clerk account that has never synced here either redeems a live
+`invite_token` (attaches at the invite's unit and role) or matches a
+pre-existing local row by email/username with an empty `clerk_user_id`
+(`auth_claim_legacy_user` — how the migrated organisation's five accounts,
+and the dev rehearsal's copy of them, land under a new Clerk instance) —
+otherwise it gets a fresh `unit_id NULL` row and the self-serve signup screen
+described under Tenancy above. There is no admin-bootstrap allowlist; whoever
+creates a root becomes its `owner`.
+Owners and leaders mint single-use `/invite/<token>` links from Manage
+Access (`owner` role offered only to an owner, only for the root); each
+invite carries the target unit and role and expires after
+`INVITE_EXPIRY_DAYS`. The
+frontend stashes the token in `sessionStorage` so it survives Clerk's
+email-verification and OAuth redirects. Invites are deliberately left out of
+backup/restore — they are short-lived credentials, not data.
 
 ### Background reset (important gotcha)
 
@@ -292,10 +386,16 @@ frontend's day handling plus `/api/reset` cover it.
 
 ### Backup
 
-`/api/backup` exports a `version: 2` JSON snapshot (v2 = absence `state` on
-`scheduled_events`); `/api/backup/restore` accepts versions 1 and 2 (v1 events
-default to `state='scheduled'` and reconcile on the next read). If you change
-the schema, update both, and keep the `version` check working.
+`/api/backup` exports a `version: 3` JSON snapshot scoped to the caller's
+**subtree**: `units`, `personnel`, `personnel_profile`, `scheduled_events`,
+`duty_roster`, `report_history`, `settings` for those units, plus `users` and
+`invites` for an owner only. Rows reference units by `slug`, not id. Restore
+(`/api/backup/restore`) is **owner-only** and replaces the caller's whole
+tree (units matched by slug, created if absent); sequences are resynced
+after. `version: 1` and `version: 2` files are refused with a clear message —
+those predate per-tenant scoping, and anyone holding one restores it before
+the A1 migration, not after. If you change the schema, update both export and
+restore, and keep the `version` check working.
 
 ### Design system
 
