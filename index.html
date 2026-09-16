@@ -41,6 +41,7 @@
   .btn-danger { background: #d63031; color: #fff; }
   .btn-danger:hover { background: #b71c1c; }
   .btn-small { padding: 10px 12px; font-size: 0.85em; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .btn-small:disabled { opacity: 0.4; cursor: default; }
   .btn-tdy-leave {
     padding: 10px 12px; border: none; border-radius: 4px; cursor: pointer;
     font-weight: 600; font-size: 0.8em; background: #6c5ce7; color: #fff; transition: background 0.2s;
@@ -313,6 +314,18 @@
       radial-gradient(circle at bottom, rgba(0,212,255,0.08), transparent 34%);
   }
   body.app-authenticated #loginScreen { display: none !important; }
+  /* Same furniture as the login screen: one card, centred, nothing behind it. */
+  #createUnitScreen {
+    display: none; align-items: center; justify-content: center; min-height: 100vh;
+    padding: 32px 20px;
+  }
+  #createUnitScreen h1 { font-size: 1.4em; margin: 0; text-align: center; }
+  #createUnitScreen .login-card { align-items: stretch; }
+  #createUnitScreen .modal-buttons { display: block; }
+  .login-card select {
+    width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid var(--cp-border);
+    border-radius: 5px; background: var(--cp-input); color: var(--cp-text); font-size: 0.95em;
+  }
   .login-card {
     width: 430px; max-width: 100%;
     display: flex; flex-direction: column; align-items: center;
@@ -461,9 +474,6 @@
   .user-row-badges { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
   .platoon-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.72em; font-weight: 600; background: #0984e322; color: #74b9ff; border: 1px solid #0984e355; }
   .platoon-badge.admin-badge { background: #6c5ce722; color: #a29bfe; border-color: #6c5ce755; }
-  .platoon-checks { display: flex; gap: 20px; margin-bottom: 14px; flex-wrap: wrap; }
-  .platoon-checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em; }
-  .admin-check-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em; margin-bottom: 14px; }
   .platoon-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
   .platoon-card {
     background: #2d2d44; border: 2px solid #3a3a55; border-radius: 12px;
@@ -926,36 +936,6 @@
   .row-icon-danger:hover { background: var(--cp-red-bg); color: var(--cp-red); border-color: var(--cp-red); }
   @media (max-width: 480px) { .row-icon-btn { width: 44px; height: 44px; } }
 
-  /* ── Option rows ──
-     Three checkboxes side by side wrapped their own labels on a phone ("1st /
-     Platoon"), and the admin checkbox sat above its text rather than beside it.
-     Full-width rows can't wrap into that, and the whole row is the target. */
-  .opt-list {
-    display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;
-  }
-  .modal label.opt-row {
-    display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
-    margin: 0; padding: 10px 12px; min-height: 44px; box-sizing: border-box;
-    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
-    background: var(--cp-input); font-size: 0.88em; color: var(--cp-text);
-    transition: background 0.15s ease-out, border-color 0.15s ease-out;
-  }
-  .modal label.opt-row:hover { background: var(--cp-hover); }
-  .modal label.opt-row input[type="checkbox"] {
-    flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--cp-accent);
-    cursor: pointer;
-  }
-  .opt-row-label { flex: 1; min-width: 0; font-weight: 600; line-height: 1.35; }
-  .opt-row-hint {
-    display: block; margin-top: 2px; font-weight: 400; font-size: 0.86em;
-    color: var(--cp-muted); line-height: 1.4;
-  }
-  .modal label.opt-row:has(input:checked) { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
-  .modal label.opt-row:focus-within { outline: 2px solid var(--cp-accent); outline-offset: 1px; }
-  .modal label.opt-row.is-disabled { opacity: 0.45; cursor: default; }
-  .modal label.opt-row.is-disabled:hover { background: var(--cp-input); }
-  .modal label.opt-row-strong { margin-top: 4px; }
-
   /* The generated link: monospace so a token can be read back character by
      character, and it selects whole on tap. */
   .invite-link-field {
@@ -1183,6 +1163,12 @@
     color: var(--theme_text);
     font-size: 1.65rem;
   }
+  /* The home screen is the unit tree now: one column, indented by depth. */
+  #unitCards { grid-template-columns: minmax(0, 1fr); width: min(620px, 100%); }
+  .unit-card { text-align: left; }
+  .unit-card[data-depth="1"] { margin-left: 24px; }
+  .unit-card[data-depth="2"] { margin-left: 48px; }
+  .unit-card[data-depth="3"] { margin-left: 72px; }
   .home-install {
     /* Block-level with a fitted width, so `margin: auto` actually centres it:
        loadHome() sets #homeScreen to display:block inline, which beats the
@@ -1890,6 +1876,25 @@
   body.lists-active .dash-rail { display: none; }
   body.lists-active .dash-main { grid-column: 2 / 4; max-width: none; }
   body.lists-active .tdy-lists-view { display: block; }
+
+  /* ── Units page ── */
+  .units-view { display: none; }
+  body.units-active #dashMetrics,
+  body.units-active #bulkBar,
+  body.units-active #personnelBody { display: none; }
+  body.units-active .dash-rail { display: none; }
+  body.units-active .dash-main { grid-column: 2 / 4; max-width: none; }
+  body.units-active .units-view { display: block; }
+  .unit-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 12px; border: 1px solid var(--cp-border); border-radius: 8px;
+    background: var(--cp-surface); margin-bottom: 8px;
+  }
+  .unit-row-main { flex: 1; min-width: 0; }
+  .unit-row-name { font-weight: 600; }
+  .unit-row-meta { font-size: 0.82em; color: var(--cp-text-weak); }
+  .unit-row-form { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; margin-top: 8px; }
+  .unit-row-form input, .unit-row-form select { flex: 1; min-width: 120px; }
 
   /* ── Audit log page ── */
   .audit-view { display: none; }
@@ -3243,24 +3248,8 @@
   </div>
   <img src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
   <div class="home-title">Platoon Accountability</div>
-  <p class="home-subtitle">Select your platoon to begin</p>
-  <div class="platoon-cards">
-    <button class="platoon-card" id="card-1st" onclick="selectPlatoon('1st')">
-      <div class="platoon-card-label">Platoon</div>
-      <div class="platoon-card-name">1st</div>
-      <div class="platoon-card-count" id="count-1st">— personnel</div>
-    </button>
-    <button class="platoon-card" id="card-2nd" onclick="selectPlatoon('2nd')">
-      <div class="platoon-card-label">Platoon</div>
-      <div class="platoon-card-name">2nd</div>
-      <div class="platoon-card-count" id="count-2nd">— personnel</div>
-    </button>
-    <button class="platoon-card" id="card-hq" onclick="selectPlatoon('hq')">
-      <div class="platoon-card-label">Platoon</div>
-      <div class="platoon-card-name">HQ</div>
-      <div class="platoon-card-count" id="count-hq">— personnel</div>
-    </button>
-  </div>
+  <p class="home-subtitle">Select a unit to begin</p>
+  <div class="platoon-cards" id="unitCards"></div>
 
   <!-- Only rendered when the browser says it can install, or on iOS where it
        never can and has to be talked through it. Hidden once installed. -->
@@ -3272,6 +3261,18 @@
     <strong>iPhone / iPad:</strong> tap the Share button
     <span class="ios-share">&#8593;</span> at the bottom of Safari, then
     <strong>Add to Home Screen</strong>.
+  </div>
+</div>
+
+<!-- ─── First-run: the signed-in user belongs to no unit yet ─── -->
+<div id="createUnitScreen" style="display:none">
+  <div class="login-card">
+    <h1>Name your unit</h1>
+    <p class="modal-sub">You are the first person here. Create the unit you lead; you can add platoons, squads and teams beneath it afterwards and invite their leaders.</p>
+    <label>Unit name<input id="newUnitName" maxlength="80" placeholder="e.g. HHC, 2-1 CAV" /></label>
+    <label>Kind<select id="newUnitKind"></select></label>
+    <div class="modal-buttons"><button class="btn-login" onclick="createRootUnit()">Create unit</button></div>
+    <p id="createUnitError" class="login-error" style="display:none"></p>
   </div>
 </div>
 
@@ -3293,6 +3294,7 @@
     <button class="dash-nav-item" data-nav="reports" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
     <button class="dash-nav-item" data-nav="lists" onclick="openTdyLists(listsKind)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg>TDY Lists</button>
     <div class="dash-section-spacer"></div>
+    <button class="dash-nav-item" data-nav="units" onclick="openUnits()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/></svg>Units</button>
     <button class="dash-nav-item" data-nav="settings" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
   </nav>
   <div class="dash-side-user" id="dashSideUser"></div>
@@ -3353,6 +3355,7 @@
   <div class="availability-view" id="availabilityView"></div>
   <div class="tdy-lists-view" id="tdyListsView"></div>
   <div class="audit-view" id="auditView"></div>
+  <div class="units-view" id="unitsView"></div>
   <div class="settings-view" id="settingsView"></div>
 </div>
 
@@ -3465,6 +3468,11 @@
     <input type="text" id="addLast" placeholder="e.g. Smith" />
     <label>First Name</label>
     <input type="text" id="addFirst" placeholder="e.g. John" />
+    <!-- Only shown when the current unit has something beneath it to choose. -->
+    <div id="addUnitRow" style="display:none">
+      <label for="addUnitSelect">Unit</label>
+      <select id="addUnitSelect"></select>
+    </div>
     <label id="addNotesLabel">Notes (optional)</label>
     <input type="text" id="addNotes" placeholder="e.g. POC: SGT Jones" />
     <div class="modal-buttons" style="justify-content:space-between;">
@@ -3712,13 +3720,39 @@ let currentDutyEntries = [];
 // person id -> absence covering the duty date currently shown, from /api/duty/conflicts.
 let dutyConflicts = {};
 
-const PLATOONS = ['1st', '2nd', 'hq'];
-const PLATOON_PATHS = { '1st': '1stplatoon', '2nd': '2ndplatoon', hq: 'hq' };
+// ─── Units ───
+// The user's subtree from GET /api/units, flat with parent pointers. URLs are
+// /<slug>/<section>; slugs are unique within the tree so they resolve here.
+let units = [];
+let currentUnit = null;
+const UNIT_KINDS = ['company', 'platoon', 'squad', 'team', 'section', 'detachment', 'flight', 'crew'];
 
-function platoonLabel(platoon) {
-  return platoon === 'hq' ? 'HQ Platoon' : `${platoon} Platoon`;
+function unitById(id) {
+  return units.find(u => u.id === Number(id)) || null;
 }
-const PATH_TO_PLATOON = Object.fromEntries(Object.entries(PLATOON_PATHS).map(([key, value]) => [value, key]));
+function unitBySlug(slug) {
+  return units.find(u => u.slug === slug) || null;
+}
+function unitChildren(id) {
+  return units.filter(u => u.parent_id === Number(id)).sort((a, b) => a.name.localeCompare(b.name));
+}
+function unitSubtree(id) {
+  const out = [Number(id)];
+  for (let i = 0; i < out.length; i++) unitChildren(out[i]).forEach(u => out.push(u.id));
+  return out;
+}
+function unitHeadcount(id) {
+  return unitSubtree(id).reduce((n, uid) => n + ((unitById(uid) || {}).count || 0), 0);
+}
+function unitLabel(u) {
+  return u ? u.name : '';
+}
+function kindLabel(kind) {
+  return kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : '';
+}
+async function loadUnits() {
+  units = (await api('GET', '/units')) || [];
+}
 
 // ─── API helpers ───
 const API = '/api';
@@ -3763,7 +3797,7 @@ function apiError(msg, method) {
   showToast(msg);
   // A failed write leaves optimistic local state out of sync — re-pull server
   // truth. The flag stops a failing load() from re-triggering itself.
-  if (method !== 'GET' && currentPlatoon && !_resyncing) {
+  if (method !== 'GET' && currentUnit && !_resyncing) {
     _resyncing = true;
     Promise.resolve(load()).finally(() => { _resyncing = false; });
   }
@@ -3772,14 +3806,14 @@ function apiError(msg, method) {
 async function load() {
   try {
     const [data, settings] = await Promise.all([
-      api('GET', `/personnel?platoon=${currentPlatoon}`),
-      api('GET', `/settings?platoon=${currentPlatoon}`)
+      api('GET', `/personnel?unit=${currentUnit.id}`),
+      api('GET', `/settings?unit=${currentUnit.id}`)
     ]);
     if (!data || !settings) return;
     // Map DB fields to frontend fields
     personnel = data.map(p => ({
       id: p.id, rank: p.rank, last: p.last, first: p.first,
-      status: p.status, notes: p.notes || '',
+      unit_id: p.unit_id, status: p.status, notes: p.notes || '',
       from: p.from_date || '', to: p.to_date || '',
       present_date: p.present_date || '',
       // Active absences are represented by the person's own status; the
@@ -3813,12 +3847,17 @@ async function load() {
 
 async function saveUnit() {
   const name = document.getElementById('unitName').value;
-  await api('PUT', `/settings?platoon=${currentPlatoon}`, { unit_name: name });
+  // The name is the unit's own, not a setting — rename it where it lives, then
+  // re-pull the tree so the home screen and every label agree with the header.
+  const saved = await api('PUT', `/units/${currentUnit.id}`, { name });
+  if (!saved) return;
+  await loadUnits();
+  currentUnit = unitById(currentUnit.id) || currentUnit;
 }
 
 async function apiUpdate(p) {
   return api('PUT', `/personnel/${p.id}`, {
-    rank: p.rank, last: p.last, first: p.first,
+    rank: p.rank, last: p.last, first: p.first, unit_id: p.unit_id,
     status: p.status, notes: p.notes,
     from_date: p.from, to_date: p.to,
     present_date: p.present_date || ''
@@ -3946,7 +3985,7 @@ function renderReportPreview(counts, total) {
   const todayStr = getTodayStr();
   const nextWeek = addDaysStr(todayStr, 7);
   const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek).length;
-  const unitName = document.getElementById('unitName').value || 'Accountability';
+  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
   const rows = [
     ['Assigned', total, ''],
     ['Needs Action', counts.unaccounted || 0, counts.unaccounted ? 'warn' : ''],
@@ -3991,7 +4030,7 @@ function clearDashFilters() {
   render();
 }
 // ─── Settings (full page) ───────────────────────────────────────────────────
-// Was a popup menu; the sidebar entry now routes to /<platoon>/settings like any
+// Was a popup menu; the sidebar entry now routes to /<unit>/settings like any
 // other page, and the items that used to live in that popup are grouped here.
 function openSettings(push = true) {
   closeSoldierPage(false);
@@ -3999,8 +4038,9 @@ function openSettings(push = true) {
   closeAvailabilityPage(false);
   closeTdyLists(false);
   closeAuditLog(false);
+  closeUnits(false);
   document.body.classList.add('settings-active');
-  if (push) pushAppRoute(currentPlatoon, 'settings');
+  if (push) pushAppRoute(currentUnit, 'settings');
   renderSettings();
   syncNavActive();
   window.scrollTo({ top: 0 });
@@ -4009,14 +4049,8 @@ function openSettings(push = true) {
 function closeSettings(push = true) {
   if (!document.body.classList.contains('settings-active')) return;
   document.body.classList.remove('settings-active');
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
   render();
-}
-
-// '2ND' beside 'Admin' read as two different kinds of thing. One spelling.
-function platoonBadgeLabel(p) {
-  const key = (p || '').trim();
-  return escapeHtml(key === 'hq' ? 'HQ' : key.charAt(0).toUpperCase() + key.slice(1));
 }
 
 const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
@@ -4081,7 +4115,7 @@ function tzOffsetLabel(zone) {
   } catch (e) { return ''; }
 }
 
-function timezoneSettingsRow(isAdmin) {
+function timezoneSettingsRow(isOwner) {
   const common = COMMON_TZ.map(([zone, label]) =>
     `<option value="${escapeHtml(zone)}"${zone === APP_TZ ? ' selected' : ''}>${escapeHtml(label)} — ${escapeHtml(zone)}</option>`).join('');
   const pinned = new Set(COMMON_TZ.map(([z]) => z));
@@ -4099,20 +4133,20 @@ function timezoneSettingsRow(isAdmin) {
     <div class="settings-row-text">
       <div class="settings-row-label">Time zone</div>
       <div class="settings-row-hint">
-        The duty day for the whole organisation &mdash; every platoon shares it.
+        The duty day for the whole organisation &mdash; every unit shares it.
         Right now it is <strong id="tzNow">${escapeHtml(now)}</strong> ${escapeHtml(tzOffsetLabel(APP_TZ))}.
-        ${isAdmin ? '' : 'Only an administrator can change this.'}
+        ${isOwner ? '' : 'Only the owner can change this.'}
       </div>
     </div>
     <select class="settings-select" id="orgTimezone" onchange="saveOrgTimezone(this.value)"
-            ${isAdmin ? '' : 'disabled'} aria-label="Organisation time zone">
+            ${isOwner ? '' : 'disabled'} aria-label="Organisation time zone">
       ${current}${common}${rest ? `<optgroup label="All time zones">${rest}</optgroup>` : ''}
     </select>
   </div>`;
 }
 
 async function saveOrgTimezone(zone) {
-  const res = await api('PUT', `/settings?platoon=${currentPlatoon}`, { timezone: zone });
+  const res = await api('PUT', `/settings?unit=${currentUnit.id}`, { timezone: zone });
   if (!res || res.error) {
     alert(res && res.error ? res.error : 'Could not change the time zone.');
     renderSettings();            // put the control back to the stored value
@@ -4142,12 +4176,12 @@ function settingsToggle(label, hint, on, fn) {
 function renderSettings() {
   const view = document.getElementById('settingsView');
   if (!view) return;
-  const isAdmin = !!(currentUser && currentUser.is_admin);
+  const isOwner = !!(currentUser && currentUser.role === 'owner');
   const isDark = document.body.classList.contains('dark-mode');
   view.innerHTML = `
     <button class="soldier-back" onclick="closeSettings()">&larr; Back to roster</button>
     <div class="directory-head">
-      <h2>Settings &mdash; ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+      <h2>Settings &mdash; ${escapeHtml(unitLabel(currentUnit))}</h2>
     </div>
     <div class="soldier-cards settings-cards">
       <section class="soldier-card">
@@ -4157,27 +4191,28 @@ function renderSettings() {
       </section>
       <section class="soldier-card">
         <h3>Organisation</h3>
-        ${timezoneSettingsRow(isAdmin)}
+        ${timezoneSettingsRow(isOwner)}
       </section>
       <section class="soldier-card">
         <h3>Lists &amp; rosters</h3>
         ${settingsNavRow('Schools', 'Courses offered in the TDY dropdown.', "openTdyLists('schools')")}
         ${settingsNavRow('Locations', 'Places offered in the TDY dropdowns.', "openTdyLists('locations')")}
         ${settingsNavRow('Duty roster', 'CQ and staff duty by date.', 'openDutyRoster()')}
+        ${settingsNavRow('Units', 'Add, rename or remove units beneath this one.', 'openUnits()')}
       </section>
       <section class="soldier-card">
         <h3>Data</h3>
         ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
         ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
-        ${settingsRow('Export backup', 'Full JSON snapshot of every platoon.', 'Export', 'exportBackup()')}
+        ${settingsRow('Export backup', 'Full JSON snapshot of the organisation.', 'Export', 'exportBackup()')}
         ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
         ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
       </section>
       <section class="soldier-card">
         <h3>Account</h3>
         ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
-        ${isAdmin ? settingsNavRow('Manage access', 'Platoon access and invite links.', 'openUserMgmt()') : ''}
-        ${isAdmin ? settingsNavRow('Audit log', 'Every change made to this platoon.', 'openAuditLog()') : ''}
+        ${settingsNavRow('Manage access', 'Who leads which unit, and invite links.', 'openUserMgmt()')}
+        ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
         ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
       </section>
     </div>`;
@@ -4187,7 +4222,8 @@ function renderSettings() {
 function syncNavActive() {
   const c = document.body.classList;
   const current =
-      c.contains('settings-active') || c.contains('audit-active') ? 'settings'
+      c.contains('units-active')    ? 'units'
+    : c.contains('settings-active') || c.contains('audit-active') ? 'settings'
     : c.contains('lists-active')     ? 'lists'
     : c.contains('availability-active') ? 'availability'
     : c.contains('directory-active') ? 'directory'
@@ -4218,6 +4254,7 @@ function dashGoAccountability() {
   closeAvailabilityPage();
   closeTdyLists();
   closeAuditLog();
+  closeUnits();
   closeSettings();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -4275,6 +4312,137 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ─── Units (full page) ───────────────────────────────────────────────────
+// The subtree beneath the current unit, with the three things a leader does to
+// it: add a child, rename one, delete an empty one. Root rename/delete is the
+// owner's alone; the server enforces that too, this only hides the buttons.
+let unitFormFor = null;      // unit id whose inline "add child" form is open
+let unitRenameFor = null;    // unit id whose inline rename form is open
+
+function openUnits(push = true) {
+  closeSoldierPage(false);
+  closeDirectoryPage(false);
+  closeAvailabilityPage(false);
+  closeTdyLists(false);
+  closeAuditLog(false);
+  closeSettings(false);
+  unitFormFor = null;
+  unitRenameFor = null;
+  document.body.classList.add('units-active');
+  if (push) pushAppRoute(currentUnit, 'units');
+  renderUnits();
+  syncNavActive();
+  window.scrollTo({ top: 0 });
+}
+
+function closeUnits(push = true) {
+  if (!document.body.classList.contains('units-active')) return;
+  document.body.classList.remove('units-active');
+  if (push) pushAppRoute(currentUnit, 'accountability');
+  render();
+}
+
+function unitDepth(id) {
+  let depth = 0;
+  let u = unitById(id);
+  while (u && u.parent_id != null && unitById(u.parent_id) && u.id !== currentUnit.id) {
+    u = unitById(u.parent_id);
+    depth++;
+  }
+  return depth;
+}
+
+function unitKindOptions(selected) {
+  return UNIT_KINDS.map(k =>
+    `<option value="${k}"${k === selected ? ' selected' : ''}>${kindLabel(k)}</option>`).join('');
+}
+
+function renderUnits() {
+  const view = document.getElementById('unitsView');
+  if (!view || !currentUnit) return;
+  const isOwner = !!(currentUser && currentUser.role === 'owner');
+  const rows = unitSubtree(currentUnit.id).map(id => {
+    const u = unitById(id);
+    if (!u) return '';
+    const isRoot = currentUser && u.id === currentUser.root_id;
+    const mayEdit = isOwner || !isRoot;
+    const depth = Math.min(unitDepth(u.id), 4);
+    const addForm = unitFormFor === u.id ? `
+      <div class="unit-row-form">
+        <input type="text" id="newChildName" maxlength="80" placeholder="Name" />
+        <select id="newChildKind">${unitKindOptions('squad')}</select>
+        <button class="btn-small btn-add" onclick="createChildUnit(${u.id})">Add</button>
+        <button class="btn-small btn-cancel" onclick="unitFormFor = null; renderUnits()">Cancel</button>
+      </div>` : '';
+    const renameForm = unitRenameFor === u.id ? `
+      <div class="unit-row-form">
+        <input type="text" id="renameUnitName" maxlength="80" value="${escapeHtml(u.name)}" />
+        <select id="renameUnitKind">${unitKindOptions(u.kind)}</select>
+        <button class="btn-small btn-add" onclick="saveUnitRename(${u.id})">Save</button>
+        <button class="btn-small btn-cancel" onclick="unitRenameFor = null; renderUnits()">Cancel</button>
+      </div>` : '';
+    return `<div class="unit-row" style="margin-left:${depth * 22}px">
+      <div class="unit-row-main">
+        <div class="unit-row-name">${escapeHtml(u.name)}</div>
+        <div class="unit-row-meta">${escapeHtml(kindLabel(u.kind))} · ${unitHeadcount(u.id)} personnel</div>
+      </div>
+      <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; renderUnits()">Add child</button>
+      ${mayEdit ? `<button class="btn-small btn-edit" onclick="unitRenameFor = ${u.id}; unitFormFor = null; renderUnits()">Rename</button>` : ''}
+      ${mayEdit ? `<button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>` : ''}
+      ${addForm}${renameForm}
+    </div>`;
+  }).join('');
+  view.innerHTML = `
+    <button class="soldier-back" onclick="closeUnits()">&larr; Back to roster</button>
+    <div class="directory-head">
+      <h2>Units &mdash; ${escapeHtml(unitLabel(currentUnit))}</h2>
+      <span class="directory-count">${unitSubtree(currentUnit.id).length} in this tree</span>
+    </div>
+    ${rows}`;
+  const focus = document.getElementById('newChildName') || document.getElementById('renameUnitName');
+  if (focus) focus.focus();
+}
+
+// Every write re-pulls the tree: names, counts and parentage all move together,
+// and currentUnit is a member of that array, not a copy of one.
+async function refreshUnitsPage() {
+  await loadUnits();
+  currentUnit = unitById(currentUnit.id) || currentUnit;
+  renderUnits();
+}
+
+async function createChildUnit(parentId) {
+  const name = document.getElementById('newChildName').value.trim();
+  const kind = document.getElementById('newChildKind').value;
+  if (!name) return;
+  const created = await api('POST', '/units', { name, kind, parent_id: parentId });
+  if (!created) return;
+  unitFormFor = null;
+  await refreshUnitsPage();
+}
+
+async function saveUnitRename(id) {
+  const name = document.getElementById('renameUnitName').value.trim();
+  const kind = document.getElementById('renameUnitKind').value;
+  if (!name) return;
+  const saved = await api('PUT', `/units/${id}`, { name, kind });
+  if (!saved) return;
+  unitRenameFor = null;
+  await refreshUnitsPage();
+  if (id === currentUnit.id) document.getElementById('unitName').value = currentUnit.name;
+}
+
+async function deleteUnit(id) {
+  const u = unitById(id);
+  if (!u) return;
+  // api() already toasts the server's 409 ("3 people, 1 unit below it").
+  if (!await confirmDialog(`Delete ${u.name}?`, 'Only an empty unit can be deleted.', 'Delete')) return;
+  const gone = await api('DELETE', `/units/${id}`);
+  if (!gone) return;
+  if (id === currentUnit.id) { goHome(); return; }
+  await refreshUnitsPage();
+}
+
 // ─── Personnel Directory (full page) ───
 let directoryRows = [];
 
@@ -4283,13 +4451,14 @@ async function openDirectory(push = true) {
   document.body.classList.remove('availability-active');
   document.body.classList.remove('lists-active');
   document.body.classList.remove('audit-active');
+  document.body.classList.remove('units-active');
   document.body.classList.remove('settings-active');
   document.body.classList.add('directory-active');
-  if (push) pushAppRoute(currentPlatoon, 'directory');
+  if (push) pushAppRoute(currentUnit, 'directory');
   syncNavActive();
   const view = document.getElementById('directoryView');
   view.innerHTML = '<div class="dash-section-empty">Loading directory…</div>';
-  const data = await api('GET', `/directory?platoon=${currentPlatoon}`);
+  const data = await api('GET', `/directory?unit=${currentUnit.id}`);
   if (!data || data.error) {
     view.innerHTML = '<div class="dash-section-empty">Could not load the directory.</div>';
     return;
@@ -4301,7 +4470,7 @@ async function openDirectory(push = true) {
 function closeDirectoryPage(push = true) {
   if (!document.body.classList.contains('directory-active')) return;
   document.body.classList.remove('directory-active');
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
   render();
 }
 
@@ -4323,9 +4492,10 @@ async function openAvailability(push = true) {
   closeDirectoryPage(false);
   closeTdyLists(false);
   closeAuditLog(false);
+  closeUnits(false);
   closeSettings(false);
   document.body.classList.add('availability-active');
-  if (push) pushAppRoute(currentPlatoon, 'availability');
+  if (push) pushAppRoute(currentUnit, 'availability');
   syncNavActive();
   if (!availability.from) availability.from = getTodayStr();
   renderAvailability();
@@ -4336,7 +4506,7 @@ async function openAvailability(push = true) {
 function closeAvailabilityPage(push = true) {
   if (!document.body.classList.contains('availability-active')) return;
   document.body.classList.remove('availability-active');
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
   render();
 }
 
@@ -4348,7 +4518,7 @@ async function loadAvailability() {
   availability.error = '';
   renderAvailabilityResults();
   const data = await api('GET',
-    `/availability?platoon=${currentPlatoon}&date=${from}${to ? `&to=${to}` : ''}`);
+    `/availability?unit=${currentUnit.id}&date=${from}${to ? `&to=${to}` : ''}`);
   if (req !== availability.req) return;   // a newer date was picked mid-flight
   if (!data || data.error) availability.error = 'Could not check availability.';
   else availability.data = data;
@@ -4509,7 +4679,7 @@ function formationQueue(people, todayStr) {
 }
 
 function startFormation() {
-  if (!currentPlatoon) return;
+  if (!currentUnit) return;
   const split = formationQueue(personnel, getTodayStr());
   formation = {
     ids: split.queue.map(p => p.id),
@@ -4680,7 +4850,7 @@ function formationDoneHTML() {
 }
 
 // ─── Schools / Locations pages ─────────────────────────────────────────────
-// Per-platoon picklists behind the TDY modal. Order is meaningful: the saved
+// Per-unit picklists behind the TDY modal. Order is meaningful: the saved
 // order is exactly the dropdown order, so the sort buttons and drag-to-reorder
 // rewrite the list rather than just changing how it is displayed.
 const LIST_PAGES = {
@@ -4698,11 +4868,12 @@ function openTdyLists(kind = 'schools', push = true) {
   closeDirectoryPage(false);
   closeAvailabilityPage(false);
   closeAuditLog(false);
+  closeUnits(false);
   closeSettings(false);
   listsKind = LIST_PAGES[kind] ? kind : 'schools';
   listSelected = new Set();
   document.body.classList.add('lists-active');
-  if (push) pushAppRoute(currentPlatoon, listsKind);
+  if (push) pushAppRoute(currentUnit, listsKind);
   renderTdyLists();
   syncNavActive();
 }
@@ -4710,7 +4881,7 @@ function openTdyLists(kind = 'schools', push = true) {
 function closeTdyLists(push = true) {
   if (!document.body.classList.contains('lists-active')) return;
   document.body.classList.remove('lists-active');
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
   render();
 }
 
@@ -4753,7 +4924,7 @@ function renderTdyLists() {
                  onclick="openTdyLists('${kind}')">${cfg.title}</button>`).join('')}
     </div>
     <div class="directory-head">
-      <h2>${page.title} — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+      <h2>${page.title} — ${escapeHtml(unitLabel(currentUnit))}</h2>
       <span class="directory-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
       <div class="list-sort-actions">
         ${listSelected.size
@@ -4785,7 +4956,7 @@ function renderTdyLists() {
 
 // Only the edited list is sent — halves the writes and the audit noise.
 async function saveTdyLists(kind = listsKind) {
-  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, { [`tdy_${kind}`]: tdyLists[kind] });
+  const saved = await api('PUT', `/settings?unit=${currentUnit.id}`, { [`tdy_${kind}`]: tdyLists[kind] });
   if (saved) applyTdyLists(saved);
   renderTdyLists();
   ['awaySchool', 'awayLocation'].forEach(base => pickRender(base));
@@ -4994,8 +5165,9 @@ function sortRows(rows, state, valueOf) {
 }
 
 // ─── Directory page ───
-const DIRECTORY_COLUMNS = [
+const DIRECTORY_COLUMNS_BASE = [
   { key: 'name',   label: 'Name' },
+  { key: 'unit',   label: 'Unit' },
   { key: 'status', label: 'Status' },
   { key: 'return', label: 'Return' },
   { key: 'next',   label: 'Next Scheduled' },
@@ -5004,11 +5176,17 @@ const DIRECTORY_COLUMNS = [
   { key: 'mos',    label: 'MOS' },
   { key: 'phone',  label: 'Phone' }
 ];
+// The Unit column only says something once the current unit has children.
+function directoryColumns() {
+  const showUnit = !!(currentUnit && unitChildren(currentUnit.id).length);
+  return DIRECTORY_COLUMNS_BASE.filter(c => c.key !== 'unit' || showUnit);
+}
 let directorySort = { key: 'name', dir: 1 };
 
 function directoryValue(r, key) {
   switch (key) {
     case 'name':   return `${r.last} ${r.first}`.toLowerCase();
+    case 'unit':   return unitLabel(unitById(r.unit_id)).toLowerCase();
     case 'status': return STATUS_LABELS[r.status] || r.status || '';
     case 'return': return (r.status !== 'present' && r.to_date) ? r.to_date : '';
     case 'next':   return r.next_absence ? r.next_absence.from_date : '';
@@ -5072,7 +5250,7 @@ function closePersonDetails() {
 function editPersonById(id) {
   const i = personnel.findIndex(p => p.id === id);
   if (i < 0) {
-    alert('Open the roster for this platoon first, then edit from there.');
+    alert('Open the roster for this unit first, then edit from there.');
     return;
   }
   openEditModal(i);
@@ -5092,6 +5270,8 @@ function renderDirectory() {
     !term || `${r.rank} ${r.last} ${r.first} ${r.mos || ''}`.toLowerCase().includes(term)
   );
   const rows = sortRows(filtered, directorySort, directoryValue);
+  const columns = directoryColumns();
+  const showUnit = columns.some(c => c.key === 'unit');
   const body = rows.map(r => {
     const ret = (r.status !== 'present' && r.to_date) ? formatDateShort(r.to_date) : '—';
     const nxt = r.next_absence
@@ -5102,6 +5282,7 @@ function renderDirectory() {
     // heading because the table header is not on screen.
     return `<tr onclick="openSoldierPage(${r.id})">
       <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
+      ${showUnit ? `<td data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
       <td data-label="Status">${statusText(r.status)}</td>
       <td data-label="Return">${ret}</td>
       <td data-label="Next Scheduled">${r.next_absence ? escapeHtml(nxt) : dash}</td>
@@ -5131,8 +5312,8 @@ function renderDirectory() {
     </div>
     <div class="directory-table-wrap">
       <table class="directory-table">
-        <thead><tr>${sortHeaders(DIRECTORY_COLUMNS, directorySort, 'sortDirectory')}<th class="dir-actions"><span class="sr-only">Actions</span></th></tr></thead>
-        <tbody>${body || `<tr><td colspan="${DIRECTORY_COLUMNS.length + 1}" class="dir-muted">No personnel found.</td></tr>`}</tbody>
+        <thead><tr>${sortHeaders(columns, directorySort, 'sortDirectory')}<th class="dir-actions"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>${body || `<tr><td colspan="${columns.length + 1}" class="dir-muted">No personnel found.</td></tr>`}</tbody>
       </table>
     </div>`;
   const search = document.getElementById('directorySearch');
@@ -5169,8 +5350,9 @@ function openSoldierPage(id, push = true) {
   document.body.classList.remove('availability-active');
   document.body.classList.remove('lists-active');
   document.body.classList.remove('audit-active');
+  document.body.classList.remove('units-active');
   document.body.classList.remove('settings-active');
-  if (push) pushAppRoute(currentPlatoon, 'soldier', id);
+  if (push) pushAppRoute(currentUnit, 'soldier', id);
   document.body.classList.add('soldier-active');
   renderSoldierPage();
   window.scrollTo({ top: 0 });
@@ -5189,7 +5371,7 @@ function closeSoldierPage(push = true) {
   if (!document.body.classList.contains('soldier-active')) return;
   document.body.classList.remove('soldier-active');
   currentSoldierId = null;
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
 }
 
 function setSoldierTab(tab) {
@@ -5217,14 +5399,13 @@ function renderSoldierPage() {
   const p = currentSoldierPerson();
   if (!view || !p) return;
   const absCount = scheduledEventsFor(p).length;
-  const platoonLabel = currentPlatoon === 'hq' ? 'HQ' : `${currentPlatoon} Platoon`;
   view.innerHTML = `
     <button class="soldier-back" onclick="closeSoldierPage()">&larr; Back to roster</button>
     <div class="soldier-hero">
       <div class="soldier-avatar">${soldierInitials(p)}</div>
       <div class="soldier-hero-main">
         <div class="soldier-hero-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)} ${dashPill(p.status)}</div>
-        <div class="soldier-hero-sub">${escapeHtml(platoonLabel)}</div>
+        <div class="soldier-hero-sub">${escapeHtml(unitLabel(unitById(p.unit_id) || currentUnit))}</div>
       </div>
       <div class="soldier-hero-actions">
         <button class="dash-btn dash-btn-primary" onclick="saveProfile()">Save changes</button>
@@ -6005,7 +6186,7 @@ function setAwayStatus(status) {
 }
 
 // ─── School / location picklists ───────────────────────────────────────────
-// Per-platoon lists live in settings (see the TDY Lists page). A field is a
+// Per-unit lists live in settings (see the TDY Lists page). A field is a
 // <select> plus a hidden "Other" text box; pickValue() is the single reader.
 let tdyLists = { schools: [], locations: [] };
 const PICK_KIND = { awaySchool: 'schools', awayLocation: 'locations' };
@@ -6062,7 +6243,7 @@ async function pickSaveCustoms(bases) {
     tdyLists[kind] = [...tdyLists[kind], ...additions[kind]].sort((a, b) => a.localeCompare(b));
     payload[`tdy_${kind}`] = tdyLists[kind];
   });
-  const saved = await api('PUT', `/settings?platoon=${currentPlatoon}`, payload);
+  const saved = await api('PUT', `/settings?unit=${currentUnit.id}`, payload);
   if (saved) applyTdyLists(saved);
 }
 
@@ -6298,6 +6479,26 @@ function updateFutureNotice() {
 // ─── Add / Edit Person Modal ───
 let editIndex = -1;
 
+// A soldier belongs to one unit in the subtree. With nothing beneath the
+// current unit there is no choice to make, so the row stays hidden.
+function syncAddUnitSelect(selected) {
+  const row = document.getElementById('addUnitRow');
+  const sel = document.getElementById('addUnitSelect');
+  const ids = unitChildren(currentUnit.id).length ? unitSubtree(currentUnit.id) : [];
+  row.style.display = ids.length ? 'block' : 'none';
+  sel.innerHTML = ids.map(id => {
+    const u = unitById(id);
+    return `<option value="${id}">${escapeHtml(unitLabel(u))}</option>`;
+  }).join('');
+  sel.value = String(ids.includes(Number(selected)) ? Number(selected) : currentUnit.id);
+}
+
+function addModalUnitId() {
+  const sel = document.getElementById('addUnitSelect');
+  const row = document.getElementById('addUnitRow');
+  return row.style.display === 'none' || !sel.value ? currentUnit.id : Number(sel.value);
+}
+
 function openAddModal() {
   editIndex = -1;
   document.getElementById('modalTitle').textContent = 'Add Person';
@@ -6309,6 +6510,7 @@ function openAddModal() {
   document.getElementById('addNotes').disabled = false;
   document.getElementById('addNotesLabel').textContent = 'Notes (optional)';
   document.getElementById('deletePersonBtn').style.display = 'none';
+  syncAddUnitSelect(currentUnit.id);
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
@@ -6333,6 +6535,7 @@ function openEditModal(i) {
     notesLbl.textContent = 'Notes (managed via TDY / Leave modal)';
   }
   document.getElementById('deletePersonBtn').style.display = 'inline-block';
+  syncAddUnitSelect(p.unit_id || currentUnit.id);
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
 }
@@ -6358,13 +6561,15 @@ async function savePerson() {
     const p = personnel[editIndex];
     p.rank = rank; p.last = last; p.first = first;
     if (p.status === 'present') p.notes = notes;
+    const moved = addModalUnitId();
+    if (moved !== p.unit_id) p.unit_id = moved;
     await apiUpdate(p);
   } else {
-    const newPerson = await api('POST', '/personnel', { rank, last, first, platoon: currentPlatoon });
+    const newPerson = await api('POST', '/personnel', { rank, last, first, unit_id: addModalUnitId() });
     if (!newPerson || !newPerson.id) return;
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
-      status: newPerson.status, notes: newPerson.notes || '',
+      unit_id: newPerson.unit_id, status: newPerson.status, notes: newPerson.notes || '',
       from: newPerson.from_date || '', to: newPerson.to_date || '',
       present_date: newPerson.present_date || '',
       scheduled_events: []
@@ -6434,11 +6639,11 @@ async function confirmImport() {
   btn.disabled = true; // no double-click double import
   // Add sequentially to preserve order
   for (const r of adds) {
-    const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first, platoon: currentPlatoon });
+    const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first, unit_id: currentUnit.id });
     if (!newPerson || !newPerson.id) break;
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
-      status: newPerson.status, notes: '', from: '', to: '', present_date: '',
+      unit_id: newPerson.unit_id, status: newPerson.status, notes: '', from: '', to: '', present_date: '',
       scheduled_events: []
     });
   }
@@ -6473,7 +6678,7 @@ function showReportModal(title, text, historyUnitName) {
 function generateStrengthReport() {
   if (reportBlockedByUnaccounted()) return;
 
-  const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
+  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
   const roster = personnel;
   const byStatus = [
     ['TDY',     roster.filter(p => p.status === 'tdy').length],
@@ -6493,7 +6698,7 @@ function generateStrengthReport() {
 function generateReport() {
   if (reportBlockedByUnaccounted()) return;
 
-  const unitName = document.getElementById('unitName').value || '2nd Platoon Accountability';
+  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
   const today = formatDate(new Date());
 
   const present = personnel.filter(p => isPresentToday(p)).sort(rankSort);
@@ -6798,7 +7003,7 @@ function printRoster() { window.print(); }
 // record. saveToHistory fires-and-forgets the POST; api() already toasts and
 // resyncs on failure, so nothing extra is needed here.
 function saveToHistory(reportText, unitName) {
-  api('POST', '/reports', { platoon: currentPlatoon, unit_name: unitName, text: reportText });
+  api('POST', '/reports', { unit_id: currentUnit.id, unit_name: unitName, text: reportText });
 }
 
 let _historyMigrated = false;
@@ -6813,8 +7018,10 @@ async function migrateLegacyReportHistory() {
   if (!Array.isArray(legacy) || !legacy.length) return;
   try {
     for (const r of legacy) {
+      // Legacy rows carry a platoon key that no longer maps to anything, so
+      // they are filed under the unit whose roster is open.
       const saved = await api('POST', '/reports', {
-        platoon: r.platoon || currentPlatoon, unit_name: r.unitName || '',
+        unit_id: currentUnit.id, unit_name: r.unitName || '',
         text: r.text || '', created_at: r.timestamp || ''
       });
       if (!saved) throw new Error('migration save failed');
@@ -6827,7 +7034,7 @@ async function migrateLegacyReportHistory() {
 
 async function openHistory() {
   await migrateLegacyReportHistory();
-  const history = await api('GET', `/reports?platoon=${currentPlatoon}`);
+  const history = await api('GET', `/reports?unit=${currentUnit.id}`);
   const list = document.getElementById('historyList');
   if (!history || !history.length) {
     list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
@@ -6903,7 +7110,7 @@ async function loadDutyRoster() {
   const list = document.getElementById('dutyList');
   if (!list) return;
   list.innerHTML = '<div class="duty-row"><div class="duty-meta">Loading duty...</div></div>';
-  const query = `platoon=${currentPlatoon}&date=${encodeURIComponent(date)}`;
+  const query = `unit=${currentUnit.id}&date=${encodeURIComponent(date)}`;
   const [rows, away] = await Promise.all([
     api('GET', `/duty?${query}`),
     api('GET', `/duty/conflicts?${query}`)
@@ -6948,7 +7155,7 @@ async function addDutyEntry() {
   // The server owns rank/last/first now — it fills the snapshot from the
   // database so a stale client cannot write a name nobody has.
   const payload = {
-    platoon: currentPlatoon,
+    unit_id: currentUnit.id,
     date: document.getElementById('dutyDate').value || getTodayStr(),
     duty_type: document.getElementById('dutyType').value || 'CQ',
     person_id: person.id,
@@ -6996,15 +7203,16 @@ async function openAuditLog(push = true) {
   closeDirectoryPage(false);
   closeAvailabilityPage(false);
   closeTdyLists(false);
+  closeUnits(false);
   closeSettings(false);
   document.body.classList.add('audit-active');
-  if (push) pushAppRoute(currentPlatoon, 'audit');
+  if (push) pushAppRoute(currentUnit, 'audit');
   syncNavActive();
   const view = document.getElementById('auditView');
   view.innerHTML = '<div class="dash-section-empty">Loading audit log…</div>';
   // Small table (hundreds of rows) — pull it all once, then sort/filter/page
   // in the browser so those act on the whole log, not just the current page.
-  const data = await api('GET', `/audit?platoon=${currentPlatoon}&limit=5000`);
+  const data = await api('GET', `/audit?unit=${currentUnit.id}&limit=5000`);
   if (!data || data.error) {
     view.innerHTML = '<div class="dash-section-empty">Could not load the audit log.</div>';
     return;
@@ -7018,7 +7226,7 @@ async function openAuditLog(push = true) {
 function closeAuditLog(push = true) {
   if (!document.body.classList.contains('audit-active')) return;
   document.body.classList.remove('audit-active');
-  if (push) pushAppRoute(currentPlatoon, 'accountability');
+  if (push) pushAppRoute(currentUnit, 'accountability');
   render();
 }
 
@@ -7074,7 +7282,7 @@ function renderAuditLog() {
   view.innerHTML = `
     <button class="soldier-back" onclick="closeAuditLog()">&larr; Back to roster</button>
     <div class="directory-head">
-      <h2>Audit Log — ${escapeHtml(platoonLabel(currentPlatoon))}</h2>
+      <h2>Audit Log — ${escapeHtml(unitLabel(currentUnit))}</h2>
       <span class="directory-count">${matched.length} of ${auditRows.length}</span>
     </div>
     <div class="audit-filters">
@@ -7131,12 +7339,34 @@ function showAppScreen(screen) {
     document.body.classList.remove('availability-active');
     document.body.classList.remove('lists-active');
     document.body.classList.remove('audit-active');
+    document.body.classList.remove('units-active');
     document.body.classList.remove('settings-active');
     currentSoldierId = null;
   }
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
+  document.getElementById('createUnitScreen').style.display = screen === 'createUnit' ? 'flex' : 'none';
   document.getElementById('platoonScreen').style.display = screen === 'platoon' ? 'block' : 'none';
+}
+
+function showCreateUnitScreen() {
+  showAppScreen('createUnit');
+  const sel = document.getElementById('newUnitKind');
+  sel.innerHTML = UNIT_KINDS.map(k => `<option value="${k}">${kindLabel(k)}</option>`).join('');
+  document.getElementById('newUnitName').focus();
+}
+
+async function createRootUnit() {
+  const name = document.getElementById('newUnitName').value.trim();
+  const kind = document.getElementById('newUnitKind').value;
+  const err = document.getElementById('createUnitError');
+  err.style.display = 'none';
+  if (!name) { err.textContent = 'Give the unit a name.'; err.style.display = 'block'; return; }
+  const unit = await api('POST', '/units', { name, kind });
+  if (!unit) return;
+  currentUser = await api('GET', '/me');
+  await loadUnits();
+  loadHome();
 }
 
 function showLoginScreen() {
@@ -7144,6 +7374,7 @@ function showLoginScreen() {
   document.body.classList.remove('app-authenticated');
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('homeScreen').style.display = 'none';
+  document.getElementById('createUnitScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
@@ -7160,8 +7391,8 @@ async function loadAuthConfig() {
   if (authConfig) return authConfig;
   const res = await fetch('/api/auth/config', { credentials: 'same-origin' });
   authConfig = await res.json();
-  // The server owns the duty-day clock; adopt it so the two cannot drift.
-  if (authConfig && authConfig.timezone) APP_TZ = authConfig.timezone;
+  // The duty-day clock is per unit now, so it arrives with the signed-in user
+  // (/api/me, /api/auth/sync) and with GET /api/settings — not from here.
   if (authConfig && authConfig.app_env && authConfig.app_env !== 'production') document.body.dataset.env = authConfig.app_env;
   return authConfig;
 }
@@ -7586,7 +7817,7 @@ async function showInviteNote() {
       return;
     }
     const who = data.label ? `${data.label} — ` : '';
-    noteEl.textContent = `${who}invited to ${data.access}. Create an account below to accept.`;
+    noteEl.textContent = `${who}invited to ${data.unit_name} as ${data.role}. Create an account below to accept.`;
     setAuthView('signup');
   } catch (e) {
     noteEl.textContent = '';
@@ -7616,15 +7847,9 @@ async function syncClerkUser() {
     res = await post();
   }
   const data = await res.json();
-  if (!res.ok) {
-    // 403 = invite-only rejection. Their Clerk account exists but has no app
-    // account, so sign them back out instead of looping on every reload.
-    if (res.status === 403 && clerk) {
-      clearInviteToken();
-      await clerk.signOut().catch(() => {});
-    }
-    throw new Error(data.error || 'Unable to sync the Clerk user with the app.');
-  }
+  // Signup is self-serve now: a Clerk account with no app account gets one and
+  // lands on the create-unit screen, so nothing here signs anybody back out.
+  if (!res.ok) throw new Error(data.error || 'Unable to sync the Clerk user with the app.');
   clearInviteToken();
   return data;
 }
@@ -7645,28 +7870,17 @@ function openClerkProfile() {
   }
 }
 
-function userHasAccess(platoon) {
-  if (!currentUser) return false;
-  if (currentUser.is_admin) return true;
-  return currentUser.platoons.split(',').map(p => p.trim()).includes(platoon);
-}
-
-function defaultAccessiblePlatoon() {
-  if (currentPlatoon && userHasAccess(currentPlatoon)) return currentPlatoon;
-  return PLATOONS.find(platoon => userHasAccess(platoon)) || '';
-}
-
-function appRoutePath(platoon, section, soldierId) {
-  if (platoon && PLATOON_PATHS[platoon]) {
-    if (section === 'soldier' && soldierId != null) return `/${PLATOON_PATHS[platoon]}/soldier/${soldierId}`;
-    return `/${PLATOON_PATHS[platoon]}/${section || 'accountability'}`;
+function appRoutePath(unit, section, soldierId) {
+  if (unit && unit.slug) {
+    if (section === 'soldier' && soldierId != null) return `/${unit.slug}/soldier/${soldierId}`;
+    return `/${unit.slug}/${section || 'accountability'}`;
   }
   return '/';
 }
 
-function pushAppRoute(platoon, section, soldierId = null, replace = false) {
-  const state = { platoon: platoon || '', section: section || 'home', soldierId };
-  const path = appRoutePath(platoon, section, soldierId);
+function pushAppRoute(unit, section, soldierId = null, replace = false) {
+  const state = { unit: unit ? unit.id : null, section: section || 'home', soldierId };
+  const path = appRoutePath(unit, section, soldierId);
   if (replace) history.replaceState(state, '', path);
   else history.pushState(state, '', path);
 }
@@ -7674,41 +7888,30 @@ function pushAppRoute(platoon, section, soldierId = null, replace = false) {
 function parseAppRoute() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
   const parts = path ? path.split('/') : [];
-  if (parts.length && PATH_TO_PLATOON[parts[0]]) {
-    const platoon = PATH_TO_PLATOON[parts[0]];
-    if (parts[1] === 'soldier' && parts[2]) {
-      return { platoon, section: 'soldier', soldierId: parseInt(parts[2], 10) };
-    }
+  const unit = parts.length ? unitBySlug(parts[0]) : null;
+  if (unit) {
+    if (parts[1] === 'soldier' && parts[2]) return { unit, section: 'soldier', soldierId: parseInt(parts[2], 10) };
     // /tdy-lists shipped briefly before the split into Schools + Locations.
     const section = parts[1] === 'tdy-lists' ? 'schools' : (parts[1] || 'accountability');
-    return { platoon, section };
+    return { unit, section };
   }
-
-  const params = new URLSearchParams(window.location.search);
-  const p = params.get('platoon');
-  if (PLATOONS.includes(p)) return { platoon: p, section: 'accountability' };
-  return { platoon: '', section: 'home' };
+  return { unit: null, section: 'home' };
 }
 
 function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
+  if (currentUser && currentUser.needs_unit) { showCreateUnitScreen(); return; }
   const route = parseAppRoute();
-  if (route.platoon && !userHasAccess(route.platoon)) {
-    loadHome();
-    return;
-  }
-  if (route.platoon) {
-    selectPlatoon(route.platoon, false, route.section === 'soldier' ? route.soldierId : null);
-    if (route.section === 'directory') openDirectory(false);
-    else if (route.section === 'availability') openAvailability(false);
-    else if (route.section === 'audit') openAuditLog(false);
-    else if (route.section === 'settings') openSettings(false);
-    else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
-  } else {
-    loadHome();
-  }
+  if (!route.unit) { loadHome(); return; }
+  selectUnit(route.unit, false, route.section === 'soldier' ? route.soldierId : null);
+  if (route.section === 'directory') openDirectory(false);
+  else if (route.section === 'availability') openAvailability(false);
+  else if (route.section === 'audit') openAuditLog(false);
+  else if (route.section === 'settings') openSettings(false);
+  else if (route.section === 'units') openUnits(false);
+  else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
 }
 
 async function initApp() {
@@ -7731,6 +7934,9 @@ async function initApp() {
       }
     }
     currentUser = await syncClerkUser();
+    // /api/auth/config no longer carries the zone; the user's own row does.
+    if (currentUser && currentUser.timezone) APP_TZ = currentUser.timezone;
+    await loadUnits();
     routeAfterLogin();
   } catch(e) {
     showLoginScreen();
@@ -7740,55 +7946,49 @@ async function initApp() {
   }
 }
 
-// ─── Platoon routing ───
-let currentPlatoon = '';
+// ─── Unit routing ───
 
 async function loadHome() {
   if (!currentUser) { showLoginScreen(); return; }
+  if (currentUser.needs_unit) { showCreateUnitScreen(); return; }
   showAppScreen('home');
-
-  // Show admin items only for admins
-  const isAdmin = currentUser && currentUser.is_admin;
-  document.getElementById('manageUsersMenuItem').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('manageUsersMenuItem').style.display = 'block';
   document.getElementById('backupGroupHeader').style.display = 'flex';
-
   syncInstallButton();
-
-  // Filter platoon cards by access
-  PLATOONS.forEach(p => {
-    const card = document.getElementById(`card-${p}`);
-    if (card) card.style.display = userHasAccess(p) ? '' : 'none';
-  });
-
-  try {
-    const data = await api('GET', '/platoons');
-    if (!data) return;
-    for (const [key, info] of Object.entries(data)) {
-      const el = document.getElementById(`count-${key}`);
-      if (el) el.textContent = `${info.count} personnel`;
-    }
-  } catch(e) { /* counts are decorative */ }
+  await loadUnits();
+  renderHome();
 }
 
-function selectPlatoon(platoon, push = true, pendingSoldier = null) {
-  if (!userHasAccess(platoon)) {
-    loadHome();
-    return;
-  }
-  currentPlatoon = platoon;
+function renderHome() {
+  const wrap = document.getElementById('unitCards');
+  const top = unitById(currentUser.unit_id);
+  if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
+  const rows = [];
+  (function walk(u, depth) {
+    rows.push(`<button class="platoon-card unit-card" data-depth="${Math.min(depth, 3)}" onclick="selectUnitById(${u.id})">
+      <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
+      <div class="platoon-card-name">${escapeHtml(u.name)}</div>
+      <div class="platoon-card-count">${unitHeadcount(u.id)} personnel</div>
+    </button>`);
+    unitChildren(u.id).forEach(c => walk(c, depth + 1));
+  })(top, 0);
+  wrap.innerHTML = rows.join('');
+}
+
+function selectUnitById(id) { const u = unitById(id); if (u) selectUnit(u); }
+
+function selectUnit(unit, push = true, pendingSoldier = null) {
+  if (!unit) { loadHome(); return; }
+  currentUnit = unit;
   pendingSoldierId = pendingSoldier;
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
-  document.body.classList.remove('directory-active');
-  document.body.classList.remove('availability-active');
-  document.body.classList.remove('lists-active');
-  document.body.classList.remove('audit-active');
-  document.body.classList.remove('settings-active');
-  if (push) pushAppRoute(platoon, 'accountability');
+  ['directory-active', 'availability-active', 'lists-active', 'audit-active', 'settings-active', 'units-active']
+    .forEach(c => document.body.classList.remove(c));
+  if (push) pushAppRoute(unit, 'accountability');
   showAppScreen('platoon');
   const sideUser = document.getElementById('dashSideUser');
   if (sideUser && currentUser) {
-    const platoonLabel = platoon === 'hq' ? 'HQ' : `${platoon} Platoon`;
-    sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(platoonLabel)}`;
+    sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(unitLabel(unit))}`;
   }
   load();
 }
@@ -7845,8 +8045,8 @@ async function installApp() {
 }
 
 function goHome() {
-  currentPlatoon = '';
-  pushAppRoute('', 'home');
+  currentUnit = null;
+  pushAppRoute(null, 'home');
   personnel = [];
   loadHome();
 }
@@ -7869,6 +8069,7 @@ async function refreshUserList() {
     wrap.innerHTML = '<p class="modal-empty">No one yet. Create an invite link below to add someone.</p>';
     return;
   }
+  const isOwner = !!(currentUser && currentUser.role === 'owner');
   wrap.innerHTML = users.map(u => {
     const isSelf = currentUser && u.id === currentUser.id;
     const rawLabel = u.full_name || u.username;
@@ -7879,11 +8080,10 @@ async function refreshUserList() {
     const handle = u.username && u.username !== u.full_name && u.username !== u.email
       ? `@${u.username}` : '';
     const meta = [u.email, handle].filter(Boolean).join(' • ');
-    const badges = u.is_admin
-      ? `<span class="platoon-badge admin-badge">Admin</span>`
-      : (u.platoons || '').split(',').filter(p => p.trim()).map(p =>
-          `<span class="platoon-badge">${platoonBadgeLabel(p)}</span>`
-        ).join('') || `<span style="color:#636e72;font-size:0.78em">No access</span>`;
+    const unit = unitLabel(unitById(u.unit_id));
+    const badges = unit
+      ? `<span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(unit)} \u00b7 ${escapeHtml(u.role || '')}</span>`
+      : `<span style="color:#636e72;font-size:0.78em">No access</span>`;
     return `<div class="user-row">
       <div class="user-row-name-block">
         <div class="user-row-name">${label}${isSelf ? ' <span style="color:#636e72;font-size:0.72em">(you)</span>' : ''}</div>
@@ -7891,7 +8091,7 @@ async function refreshUserList() {
       </div>
       <div class="user-row-badges">${badges}</div>
       <button class="row-icon-btn" onclick="openUserEditModal(${u.id})" title="Edit access" aria-label="Edit access for ${label}">${ICON_PENCIL}</button>
-      ${!isSelf ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access">${ICON_REMOVE}</button>` : ''}
+      ${!isSelf && isOwner ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access">${ICON_REMOVE}</button>` : ''}
     </div>`;
   }).join('');
   // Attach delete handlers here instead of inline onclick — user display names
@@ -7905,8 +8105,35 @@ async function refreshUserList() {
   });
 }
 
-// ─── Invite links (admin) ───
-const INVITE_PLATOON_CHECKS = { '1st': 'invChk1st', '2nd': 'invChk2nd', hq: 'invChkHq' };
+// ─── Invite links ───
+// Access is one unit plus one role, in both places that hand it out, so both
+// build their two selects from here.
+const ACCESS_ROLES = { leader: 'Leader', owner: 'Owner' };
+
+function accessUnitOptions(selectedId) {
+  const base = currentUser ? currentUser.unit_id : null;
+  if (base == null) return '';
+  return unitSubtree(base).map(id =>
+    `<option value="${id}"${id === Number(selectedId) ? ' selected' : ''}>${escapeHtml(unitLabel(unitById(id)))}</option>`
+  ).join('');
+}
+
+// "Owner" is only on offer when an owner is granting it at the root itself —
+// everywhere else the only thing to be is the leader of that unit.
+function accessRoleOptions(selectedRole, unitId) {
+  const canOwn = currentUser && currentUser.role === 'owner' && Number(unitId) === currentUser.root_id;
+  const roles = canOwn ? ['leader', 'owner'] : ['leader'];
+  return roles.map(r =>
+    `<option value="${r}"${r === selectedRole ? ' selected' : ''}>${ACCESS_ROLES[r]}</option>`).join('');
+}
+
+function syncRoleSelect(unitSelectId, roleSelectId, role) {
+  const unitSel = document.getElementById(unitSelectId);
+  const roleSel = document.getElementById(roleSelectId);
+  const want = role || roleSel.value || 'leader';
+  roleSel.innerHTML = accessRoleOptions(want, unitSel.value);
+  if (!roleSel.value) roleSel.value = 'leader';
+}
 
 async function refreshInviteList() {
   const invites = await api('GET', '/invites');
@@ -7918,10 +8145,7 @@ async function refreshInviteList() {
     return;
   }
   wrap.innerHTML = pending.map(i => {
-    const badges = i.is_admin
-      ? '<span class="platoon-badge admin-badge">Admin</span>'
-      : (i.platoons || '').split(',').filter(p => p.trim())
-          .map(p => `<span class="platoon-badge">${platoonBadgeLabel(p)}</span>`).join('');
+    const badges = `<span class="platoon-badge${i.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(i.unit_name || '')} \u00b7 ${escapeHtml(i.role || '')}</span>`;
     return `<div class="user-row">
       <div class="user-row-name-block">
         <div class="user-row-name">${escapeHtml(i.label || 'Unnamed invite')}</div>
@@ -7943,13 +8167,9 @@ async function refreshInviteList() {
 
 function openInviteModal() {
   document.getElementById('inviteLabel').value = '';
-  document.getElementById('inviteAdmin').checked = false;
-  Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
-    const box = document.getElementById(id);
-    box.checked = false;
-    box.disabled = false;
-    box.closest('.opt-row').classList.remove('is-disabled');
-  });
+  const unitSel = document.getElementById('invUnit');
+  unitSel.innerHTML = accessUnitOptions(currentUnit ? currentUnit.id : (currentUser && currentUser.unit_id));
+  syncRoleSelect('invUnit', 'invRole', 'leader');
   document.getElementById('inviteError').style.display = 'none';
   document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('inviteModal').classList.add('active');
@@ -7960,26 +8180,15 @@ function closeInviteModal() {
   document.getElementById('userMgmtModal').classList.add('active');
 }
 
-function toggleInviteAdminCheck() {
-  const isAdmin = document.getElementById('inviteAdmin').checked;
-  Object.values(INVITE_PLATOON_CHECKS).forEach(id => {
-    const box = document.getElementById(id);
-    box.disabled = isAdmin;
-    if (isAdmin) box.checked = false;
-    box.closest('.opt-row').classList.toggle('is-disabled', isAdmin);
-  });
-}
-
 async function createInvite() {
-  const is_admin = document.getElementById('inviteAdmin').checked;
-  const platoons = Object.entries(INVITE_PLATOON_CHECKS)
-    .filter(([, id]) => document.getElementById(id).checked).map(([p]) => p).join(',');
+  const unit_id = Number(document.getElementById('invUnit').value);
+  const role = document.getElementById('invRole').value;
   const errEl = document.getElementById('inviteError');
-  if (!is_admin && !platoons) {
-    errEl.textContent = 'Pick at least one platoon.'; errEl.style.display = 'block'; return;
+  if (!unit_id) {
+    errEl.textContent = 'Pick a unit.'; errEl.style.display = 'block'; return;
   }
   const label = document.getElementById('inviteLabel').value.trim();
-  const result = await api('POST', '/invites', { label, platoons, is_admin });
+  const result = await api('POST', '/invites', { label, unit_id, role });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error creating invite.'; errEl.style.display = 'block'; return;
   }
@@ -8010,22 +8219,29 @@ async function openUserEditModal(userId) {
   document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
   document.getElementById('userEditUsername').disabled = false;
-  document.getElementById('userEditAdmin').checked = false;
-  document.getElementById('chk1st').checked = false;
-  document.getElementById('chk2nd').checked = false;
-  document.getElementById('chkHq').checked = false;
-  document.getElementById('userEditError').style.display = 'none';
+  document.getElementById('userUnit').innerHTML = '';
+  document.getElementById('userRole').innerHTML = '';
+  const errEl = document.getElementById('userEditError');
+  errEl.style.display = 'none';
+  const saveBtn = document.getElementById('userEditSave');
+  saveBtn.disabled = false;
   const users = await api('GET', '/users');
   if (!users) return;
   const u = users.find(x => x.id === userId);
   if (u) {
     document.getElementById('userEditUsername').value = u.username;
-    document.getElementById('userEditAdmin').checked = !!u.is_admin;
-    const pl = (u.platoons || '').split(',').map(p => p.trim());
-    document.getElementById('chk1st').checked = pl.includes('1st');
-    document.getElementById('chk2nd').checked = pl.includes('2nd');
-    document.getElementById('chkHq').checked = pl.includes('hq');
-    toggleAdminCheck();
+    // Their unit is not in the tree this browser loaded, so none of the options
+    // is theirs: the browser would select the first one and Save would move them
+    // there without anyone choosing it. Say so and take Save away instead. A
+    // null unit_id is different — that is someone to attach, so offer the list.
+    if (u.unit_id != null && !unitById(u.unit_id)) {
+      errEl.textContent = "This user's unit is outside your view; ask an owner to move them.";
+      errEl.style.display = 'block';
+      saveBtn.disabled = true;
+    } else {
+      document.getElementById('userUnit').innerHTML = accessUnitOptions(u.unit_id);
+      syncRoleSelect('userUnit', 'userRole', u.role || 'leader');
+    }
   }
   document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('userEditModal').classList.add('active');
@@ -8036,24 +8252,15 @@ function closeUserEdit() {
   document.getElementById('userMgmtModal').classList.add('active');
 }
 
-function toggleAdminCheck() {
-  const isAdmin = document.getElementById('userEditAdmin').checked;
-  ['chk1st','chk2nd','chkHq'].forEach(id => {
-    document.getElementById(id).disabled = isAdmin;
-    if (isAdmin) document.getElementById(id).checked = false;
-  });
-}
-
 async function saveUserEdit() {
   const username = document.getElementById('userEditUsername').value.trim();
-  const is_admin = document.getElementById('userEditAdmin').checked;
   const errEl = document.getElementById('userEditError');
   if (!username) {
     errEl.textContent = 'A display name is required.'; errEl.style.display = 'block'; return;
   }
-  const platoons = is_admin ? '*' :
-    ['1st','2nd','hq'].filter(p => document.getElementById(`chk${p === 'hq' ? 'Hq' : p}`).checked).join(',');
-  const result = await api('PUT', `/users/${editingUserId}`, { username, is_admin, platoons });
+  const unit_id = Number(document.getElementById('userUnit').value);
+  const role = document.getElementById('userRole').value;
+  const result = await api('PUT', `/users/${editingUserId}`, { username, unit_id, role });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;
   }
@@ -8095,18 +8302,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.addEventListener('popstate', () => {
   const route = parseAppRoute();
-  if (route.platoon && !userHasAccess(route.platoon)) {
-    loadHome();
-    return;
-  }
-  if (route.platoon) {
+  if (route.unit) {
     const wantSoldier = route.section === 'soldier' ? route.soldierId : null;
-    if (route.platoon !== currentPlatoon) {
-      selectPlatoon(route.platoon, false, wantSoldier);
+    if (route.unit.id !== (currentUnit && currentUnit.id)) {
+      selectUnit(route.unit, false, wantSoldier);
       if (route.section === 'directory') openDirectory(false);
       else if (route.section === 'availability') openAvailability(false);
       else if (route.section === 'audit') openAuditLog(false);
       else if (route.section === 'settings') openSettings(false);
+      else if (route.section === 'units') openUnits(false);
       else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
     } else if (wantSoldier != null) {
       openSoldierPage(wantSoldier, false);
@@ -8118,6 +8322,8 @@ window.addEventListener('popstate', () => {
       openAuditLog(false);
     } else if (route.section === 'settings') {
       openSettings(false);
+    } else if (route.section === 'units') {
+      openUnits(false);
     } else if (LIST_PAGES[route.section]) {
       openTdyLists(route.section, false);
     } else {
@@ -8126,6 +8332,7 @@ window.addEventListener('popstate', () => {
       closeAvailabilityPage(false);
       closeTdyLists(false);
       closeAuditLog(false);
+      closeUnits(false);
       closeSettings(false);
     }
   } else { loadHome(); }
@@ -8145,7 +8352,7 @@ function exportCSV() {
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${currentPlatoon}-platoon-${today}.csv`;
+  a.download = `${currentUnit.slug}-${today}.csv`;
   a.click();
 }
 
@@ -8165,7 +8372,7 @@ function resetDay() {
 function closeResetConfirm() { document.getElementById('resetConfirmModal').classList.remove('active'); }
 async function confirmReset() {
   closeResetConfirm();
-  await api('POST', '/reset', { platoon: currentPlatoon });
+  await api('POST', '/reset', { unit_id: currentUnit.id });
   personnel.forEach(p => { if (p.status === 'present') p.present_date = ''; });
   render();
 }
@@ -8284,7 +8491,7 @@ initApp();
 <div class="modal-overlay" id="userMgmtModal">
   <div class="modal modal-wide">
     <h2>Manage Access</h2>
-    <p class="modal-sub">Who can sign in, and which platoons they can see.</p>
+    <p class="modal-sub">Who can sign in, and which unit they lead.</p>
     <div class="modal-section">
       <div class="modal-section-head"><h3>People</h3></div>
       <div id="userListWrap" class="user-list"></div>
@@ -8321,18 +8528,10 @@ initApp();
     <h2>New Invite Link</h2>
     <label>Who is it for? (optional)</label>
     <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
-    <label>Platoon access</label>
-    <div class="opt-list">
-      <label class="opt-row"><input type="checkbox" id="invChk1st" /><span class="opt-row-label">1st Platoon</span></label>
-      <label class="opt-row"><input type="checkbox" id="invChk2nd" /><span class="opt-row-label">2nd Platoon</span></label>
-      <label class="opt-row"><input type="checkbox" id="invChkHq"  /><span class="opt-row-label">HQ Platoon</span></label>
-      <label class="opt-row opt-row-strong">
-        <input type="checkbox" id="inviteAdmin" onchange="toggleInviteAdminCheck()" />
-        <span class="opt-row-label">Administrator
-          <span class="opt-row-hint">Every platoon, plus user management.</span>
-        </span>
-      </label>
-    </div>
+    <label for="invUnit">Unit</label>
+    <select id="invUnit" onchange="syncRoleSelect('invUnit', 'invRole')"></select>
+    <label for="invRole">Role</label>
+    <select id="invRole"></select>
     <p class="modal-note">The link works once and expires in 7 days. Send it however you like — they create their own account with it.</p>
     <div id="inviteError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
@@ -8360,20 +8559,14 @@ initApp();
     <h2 id="userEditTitle">Edit Access</h2>
     <label>Display Name</label>
     <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
-    <label>Platoon Access</label>
-    <div class="platoon-checks">
-      <label><input type="checkbox" id="chk1st" /> 1st Platoon</label>
-      <label><input type="checkbox" id="chk2nd" /> 2nd Platoon</label>
-      <label><input type="checkbox" id="chkHq"  /> HQ Platoon</label>
-    </div>
-    <label class="admin-check-label">
-      <input type="checkbox" id="userEditAdmin" onchange="toggleAdminCheck()" />
-      Administrator (all platoons + user management)
-    </label>
+    <label for="userUnit">Unit</label>
+    <select id="userUnit" onchange="syncRoleSelect('userUnit', 'userRole')"></select>
+    <label for="userRole">Role</label>
+    <select id="userRole"></select>
     <div id="userEditError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeUserEdit()">Cancel</button>
-      <button class="btn-small btn-add" onclick="saveUserEdit()">Save</button>
+      <button class="btn-small btn-add" id="userEditSave" onclick="saveUserEdit()">Save</button>
     </div>
   </div>
 </div>
