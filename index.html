@@ -1173,12 +1173,118 @@
     color: var(--theme_text);
     font-size: 1.65rem;
   }
-  /* The home screen is the unit tree now: one column, indented by depth. */
-  #unitCards { grid-template-columns: minmax(0, 1fr); width: min(620px, 100%); }
-  .unit-card { text-align: left; }
-  .unit-card[data-depth="1"] { margin-left: 24px; }
-  .unit-card[data-depth="2"] { margin-left: 48px; }
-  .unit-card[data-depth="3"] { margin-left: 72px; }
+  /* ─── The home screen is the unit tree, drawn as an org chart ───
+     One card at the top, a column per direct child across the row beneath it,
+     and everything deeper stacked down its own column on an elbow connector.
+     The markup is nested <ul>/<li>; the phone media query at the bottom of
+     this block folds the same markup back into a plain indented tree, because
+     columns that wrap would tear their connectors in half. */
+  #unitCards {
+    display: block; width: min(1200px, 100%); max-width: 100%; min-width: 0;
+  }
+  .org-chart {
+    /* Wide organisations scroll here, inside the chart. The page never does.
+       `safe center` is the whole reason this is a flex box: plain centring of
+       an over-wide child scrolls its left-hand columns off where nothing can
+       reach them. A browser that does not know `safe` drops the declaration
+       and gets flex-start, which is left-aligned but never unreachable. */
+    display: flex; justify-content: safe center;
+    overflow-x: auto; overflow-y: hidden; max-width: 100%;
+    padding: 2px 2px 8px; --org-line: var(--theme_border-strong); --org-drop: 18px;
+  }
+  .org-chart ul { list-style: none; margin: 0; padding: 0; }
+  /* Sized to its widest row and never shrunk, so the columns keep the widths
+     the connectors were drawn against. */
+  .org-chart > .org-root { flex: 0 0 auto; width: max-content; margin: 0; }
+  .org-top { display: flex; flex-direction: column; align-items: center; }
+  .org-top > .unit-card-top { position: relative; }
+  /* The drop from the top card into the bar. */
+  .org-top > .unit-card-top::after {
+    content: ''; position: absolute; top: 100%; left: 50%;
+    height: var(--org-drop); border-left: 1px solid var(--org-line);
+  }
+  .org-chart[data-cols="0"] .unit-card-top::after { content: none; }
+  .org-branches {
+    display: flex; align-items: flex-start; justify-content: center;
+    margin-top: var(--org-drop);
+  }
+  .org-col {
+    position: relative; flex: 0 0 auto; box-sizing: border-box;
+    min-width: 198px; max-width: 260px; padding: var(--org-drop) 8px 0;
+  }
+  /* The bar, in halves, so it starts at the first column's centre and stops at
+     the last one's — with a single column both halves are dropped and only the
+     vertical line remains. */
+  .org-col::before, .org-col::after {
+    content: ''; position: absolute; top: 0; width: 50%;
+    border-top: 1px solid var(--org-line);
+  }
+  .org-col::before { left: 0; }
+  .org-col::after { right: 0; }
+  .org-col:first-child::before, .org-col:last-child::after { border-top: 0; }
+  /* The tick from the bar down into each column head. */
+  .org-col > .unit-card::before {
+    content: ''; position: absolute; bottom: 100%; left: 50%;
+    height: var(--org-drop); border-left: 1px solid var(--org-line);
+  }
+  /* Level 2 and deeper: a spine down the left of the stack, a tick into each
+     card. The last child's spine stops at its own tick, so nothing dangles. */
+  .org-stack { margin-left: 12px; }
+  .org-stack > .org-node {
+    position: relative; padding: 10px 0 0 14px;
+  }
+  .org-stack > .org-node::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    border-left: 1px solid var(--org-line);
+  }
+  .org-stack > .org-node:last-child::before { bottom: auto; height: 27px; }
+  .org-stack > .org-node::after {
+    content: ''; position: absolute; left: 0; top: 27px; width: 14px;
+    border-top: 1px solid var(--org-line);
+  }
+  /* Compact enough to read as a diagram; the top card carries a little more.
+     Scoped to #unitCards so these beat the roomier `body.light-mode
+     .platoon-card` sizing without a specificity fight in every rule. */
+  #unitCards .unit-card {
+    position: relative; display: block; width: 100%; min-width: 0;
+    text-align: left; padding: 11px 13px; min-height: 44px;
+  }
+  #unitCards .platoon-card-label { font-size: 0.62em; margin-bottom: 2px; }
+  #unitCards .platoon-card-name { font-size: 0.92em; line-height: 1.25; }
+  #unitCards .platoon-card-count { font-size: 0.7em; margin-top: 2px; }
+  #unitCards .unit-card:hover { transform: none; }
+  #unitCards .unit-card-top {
+    width: auto; min-width: 200px; max-width: 300px; text-align: center;
+    padding: 14px 22px; border-color: var(--theme_border-strong);
+  }
+  #unitCards .unit-card-top .platoon-card-name { font-size: 1.1em; }
+  @media (max-width: 700px) {
+    /* Phones get the indented tree the chart replaced: same markup, one
+       column, elbows all the way down. Columns must not wrap — the bar would
+       be drawn between cards that are no longer beside each other. */
+    .org-chart { display: block; overflow-x: visible; padding-bottom: 0; }
+    .org-chart > .org-root { width: auto; }
+    .org-top { display: block; }
+    .org-top > .unit-card-top::after { content: none; }
+    #unitCards .unit-card-top { width: 100%; min-width: 0; max-width: none; text-align: left; }
+    .org-branches { display: block; margin-top: 0; margin-left: 12px; }
+    .org-col {
+      min-width: 0; max-width: none; width: auto; padding: 10px 0 0 14px;
+    }
+    .org-col::before {
+      left: 0; top: 0; bottom: 0; width: auto;
+      border-top: 0; border-left: 1px solid var(--org-line);
+    }
+    .org-col:last-child::before { bottom: auto; height: 27px; }
+    .org-col::after {
+      left: 0; right: auto; top: 27px; width: 14px;
+      border-top: 1px solid var(--org-line);
+    }
+    /* Puts back the tick the chart's "no bar past the last column" rule
+       takes away — down here that ::after is an elbow, not half a bar. */
+    .org-col:last-child::after { border-top: 1px solid var(--org-line); }
+    .org-col > .unit-card::before { content: none; }
+  }
   .home-install {
     /* Block-level with a fitted width, so `margin: auto` actually centres it:
        loadHome() sets #homeScreen to display:block inline, which beats the
@@ -8382,21 +8488,41 @@ async function loadHome() {
   renderHome();
 }
 
+// The home screen is an order-of-battle diagram: the top unit centred, one
+// column per direct child side by side beneath it, everything deeper stacked
+// down its own column. This is the whole of that markup and nothing else —
+// pure, so tests/test_org_chart_js.py can lift it out and run it under node.
+// Nested <ul>/<li> rather than flat rows, because the phone stylesheet folds
+// the same markup back into one indented tree with a media query.
+function orgChartHtml(top, childrenOf, headcountOf) {
+  if (!top) return '';
+  const card = (u, extra) => `<button class="platoon-card unit-card${extra}" onclick="selectUnitById(${Number(u.id)})">
+        <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
+        <div class="platoon-card-name">${escapeHtml(u.name)}</div>
+        <div class="platoon-card-count">${Number(headcountOf(u.id))} personnel</div>
+      </button>`;
+  const stack = (u) => {
+    const kids = childrenOf(u.id);
+    if (!kids.length) return '';
+    return `<ul class="org-stack">${kids.map(k => `<li class="org-node">${card(k, '')}${stack(k)}</li>`).join('')}</ul>`;
+  };
+  const cols = childrenOf(top.id);
+  // No children means no connectors at all, so the row is not emitted empty.
+  const branches = cols.length
+    ? `<ul class="org-branches">${cols.map(c => `<li class="org-node org-col">${card(c, '')}${stack(c)}</li>`).join('')}</ul>`
+    : '';
+  // data-cols is what the stylesheet reads to know there is no bar to draw.
+  return `<div class="org-chart" data-cols="${cols.length}"><ul class="org-root">`
+    + `<li class="org-node org-top">${card(top, ' unit-card-top')}${branches}</li>`
+    + `</ul></div>`;
+}
+
 function renderHome() {
   const wrap = document.getElementById('unitCards');
   const top = unitById(currentUser.unit_id);
   renderHomeLead(top);
   if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
-  const rows = [];
-  (function walk(u, depth) {
-    rows.push(`<button class="platoon-card unit-card" data-depth="${Math.min(depth, 3)}" onclick="selectUnitById(${u.id})">
-      <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
-      <div class="platoon-card-name">${escapeHtml(u.name)}</div>
-      <div class="platoon-card-count">${unitHeadcount(u.id)} personnel</div>
-    </button>`);
-    unitChildren(u.id).forEach(c => walk(c, depth + 1));
-  })(top, 0);
-  wrap.innerHTML = rows.join('');
+  wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount);
 }
 
 // Plain text off currentUser and the loaded tree — what you lead, and who
