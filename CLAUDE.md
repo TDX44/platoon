@@ -44,7 +44,10 @@ python tests/test_report_history.py   # report history persistence
 python tests/test_availability.py     # who is free on date X (date-window rules)
 python tests/test_formation_order.py  # formation queue rule (runs the JS under node)
 python tests/test_timezone.py          # the duty day follows the unit, not the server
-python tests/test_mobile_layout.py    # layout geometry: overflow, duplicated row
+python tests/test_mobile_layout.py    # layout geometry on home (org chart, incl. a
+                                      # wide org), roster, directory, availability,
+                                      # units, settings, soldier, formation and the
+                                      # create-unit screen: overflow, duplicated row
                                       # metadata, modal control fit, tap targets
 python tests/test_tenancy.py          # RLS default-deny, cross-tenant 404s, boot guard
 python tests/test_units.py            # unit CRUD, slug uniqueness, owner-only gates
@@ -63,8 +66,12 @@ list). Install once with:
 pip install playwright && playwright install chromium
 ```
 
-Without that, the test prints `ok (skipped: playwright not installed)` and
-exits 0 — it never fails a developer's box that hasn't installed browsers.
+Without that, the test prints
+`SKIPPED (not ok): playwright not installed — layout checks did NOT run` and
+exits 0 — it never fails a developer's box that hasn't installed browsers. The
+line deliberately does not say "ok": this test skipped its way through the
+whole unit-tree rewrite while it was broken. CI installs chromium, so CI always
+runs it for real.
 
 `gunicorn` is not in `requirements.txt`; it is installed only inside the Docker image.
 

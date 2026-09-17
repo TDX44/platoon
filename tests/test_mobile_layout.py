@@ -10,16 +10,19 @@ that are true of a correct layout and false of every bug above, so it does
 not rot the way a pixel baseline does.
 
 The app requires Clerk auth, so a plain browser load renders nothing. This
-drives the SPA the same way the frontend drives itself: it starts a real
-server, loads '/', then pokes the page's own globals (`personnel`,
-`currentPlatoon`, `render()`) exactly the way `load()` would after a real
-login, and stubs `api()` for the one extra network call the directory view
-makes. server.py is not touched or weakened.
+drives the SPA the same way a signed-in browser does: it starts a real
+server, loads '/', stubs `api()` with a fixture unit tree, then calls the
+app's own entry points — `loadHome()`, `selectUnit()`, `openDirectory()`,
+`openUnits()`, `openSettings()`, `openSoldierPage()`, `startFormation()`,
+`showCreateUnitScreen()` — rather than hand-building the DOM. server.py is
+not touched or weakened.
 
 Run with: python tests/test_mobile_layout.py
 Requires Playwright + a chromium browser (dev-only, not in requirements.txt):
     pip install playwright && playwright install chromium
-Without those installed, this prints "ok (skipped: ...)" and exits 0.
+Without those installed this prints a loud SKIPPED line and exits 0 — the
+skip is deliberately not the word "ok", because this test spent the whole
+unit-tree rewrite silently skipping while it was broken.
 """
 import os
 import socket
@@ -33,11 +36,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dbharness  # noqa: E402
 _schema = dbharness.setup()
 
+# A skip is not a pass. Anything that greps this file's output for "ok" must
+# not be fooled by a run in which nothing was measured.
+SKIP_PREFIX = 'SKIPPED (not ok): '
+SKIP_SUFFIX = ' — layout checks did NOT run'
+
 try:
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 except ImportError:
-    print('ok (skipped: playwright not installed)')
+    print(SKIP_PREFIX + 'playwright not installed' + SKIP_SUFFIX)
     sys.exit(0)
 
 import server  # noqa: E402  (must follow the DATA_DIR override)
@@ -46,6 +54,7 @@ import server  # noqa: E402  (must follow the DATA_DIR override)
 # must ask the same question. Using date.today() here made CI fail on its
 # UTC runner every evening between 1900 and midnight Central.
 TODAY = date.fromisoformat(server.app_today())
+APP_TZ = server.app_timezone()
 
 
 def day(offset):
@@ -54,38 +63,74 @@ def day(offset):
 
 LONG_NOTE = 'Attending Advanced Individual Readiness and Combatives Recertification Course, extended stay pending follow-on orders'
 
+# ─── The unit tree ───
+# Company → two platoons → a squad → a team, which is the shape every screen
+# below has to survive: four levels of indentation on the Units page, a
+# three-row org chart on the home screen, and a Unit column in the directory
+# (which only appears when the current unit has children).
+UNITS_FIXTURE = [
+    {'id': 1, 'parent_id': None, 'kind': 'company', 'name': 'Headhunter Company',
+     'slug': 'headhunter-company', 'count': 0, 'logo': None},
+    {'id': 2, 'parent_id': 1, 'kind': 'platoon', 'name': '1st Platoon',
+     'slug': '1st-platoon', 'count': 2, 'logo': None},
+    {'id': 3, 'parent_id': 1, 'kind': 'platoon', 'name': '2nd Platoon',
+     'slug': '2nd-platoon', 'count': 3, 'logo': None},
+    {'id': 4, 'parent_id': 3, 'kind': 'squad', 'name': 'Alpha Squad',
+     'slug': 'alpha-squad', 'count': 2, 'logo': None},
+    {'id': 5, 'parent_id': 4, 'kind': 'team', 'name': 'Team Bravo (Weapons)',
+     'slug': 'team-bravo', 'count': 1, 'logo': None},
+]
+ROOT_UNIT_ID = 1
+
+# A company with nine platoons abreast: the org chart's columns are 198px
+# minimum, so this is ~1800px of chart inside a 320px screen. The chart is a
+# deliberate overflow-x:auto box, so the *page* must still not scroll.
+WIDE_UNITS_FIXTURE = [dict(UNITS_FIXTURE[0])] + [
+    {'id': 100 + i, 'parent_id': 1, 'kind': 'platoon',
+     'name': f'{i}th Platoon (Forward Support)', 'slug': f'p{i}', 'count': 11, 'logo': None}
+    for i in range(1, 10)
+]
+
 # One person per status the roster renders, plus one carrying a future
 # scheduled_events entry, plus long-content stress (long notes, long last name).
-# Names are obviously fake. Shape matches what index.html's load() builds
-# (personnel = data.map(...)), which is what we bypass by writing it directly.
+# Shape matches what index.html's load() builds (personnel = data.map(...));
+# ROSTER_FIXTURE below turns the same people back into what the API returns.
 PERSONNEL_FIXTURE = [
-    {'id': 1, 'rank': 'SPC', 'last': 'Testperson-Featherstonehaugh', 'first': 'Wanda',
+    {'id': 1, 'unit_id': 2, 'rank': 'SPC', 'last': 'Testperson-Featherstonehaugh', 'first': 'Wanda',
      'status': 'tdy', 'notes': LONG_NOTE, 'from': day(-1), 'to': day(6),
      'present_date': '', 'scheduled_events': []},
-    {'id': 2, 'rank': 'SGT', 'last': 'Fixtureton', 'first': 'Ray',
+    {'id': 2, 'unit_id': 2, 'rank': 'SGT', 'last': 'Fixtureton', 'first': 'Ray',
      'status': 'present', 'notes': '', 'from': '', 'to': '',
      'present_date': TODAY.isoformat(), 'scheduled_events': []},
-    {'id': 3, 'rank': 'PFC', 'last': 'Placeholder', 'first': 'Nia',
+    {'id': 3, 'unit_id': 3, 'rank': 'PFC', 'last': 'Placeholder', 'first': 'Nia',
      'status': 'present', 'notes': '', 'from': '', 'to': '',
      'present_date': '', 'scheduled_events': []},
-    {'id': 4, 'rank': 'CPL', 'last': 'Sampleford', 'first': 'Kai',
+    {'id': 4, 'unit_id': 3, 'rank': 'CPL', 'last': 'Sampleford', 'first': 'Kai',
      'status': 'leave', 'notes': 'Block leave', 'from': day(2), 'to': day(10),
      'present_date': '', 'scheduled_events': []},
-    {'id': 5, 'rank': 'SPC', 'last': 'Dummyval', 'first': 'Theo',
+    {'id': 5, 'unit_id': 3, 'rank': 'SPC', 'last': 'Dummyval', 'first': 'Theo',
      'status': 'pass', 'notes': '', 'from': day(0), 'to': day(1),
      'present_date': '', 'scheduled_events': []},
-    {'id': 6, 'rank': 'SSG', 'last': 'Exampleson', 'first': 'Priya',
+    {'id': 6, 'unit_id': 4, 'rank': 'SSG', 'last': 'Exampleson', 'first': 'Priya',
      'status': 'other', 'notes': 'Staff Duty Recovery', 'from': day(-1), 'to': day(0),
      'present_date': '', 'scheduled_events': []},
-    {'id': 7, 'rank': 'SGT', 'last': 'Mockridge', 'first': 'Dev',
+    {'id': 7, 'unit_id': 4, 'rank': 'SGT', 'last': 'Mockridge', 'first': 'Dev',
      'status': 'ftr', 'notes': '', 'from': day(-3), 'to': day(-1),
      'present_date': '', 'scheduled_events': []},
-    {'id': 9, 'rank': 'SPC', 'last': 'Placeholderman', 'first': 'Ola',
+    {'id': 9, 'unit_id': 5, 'rank': 'SPC', 'last': 'Placeholderman', 'first': 'Ola',
      'status': 'present', 'notes': '', 'from': '', 'to': '',
      'present_date': TODAY.isoformat(),
-     'scheduled_events': [{'id': 99, 'person_id': 9, 'platoon': '2nd', 'status': 'tdy',
+     'scheduled_events': [{'id': 99, 'person_id': 9, 'unit_id': 5, 'status': 'tdy',
                             'from_date': day(14), 'to_date': day(22),
                             'notes': 'IO - Dothan, AL', 'location': '', 'state': 'scheduled'}]},
+]
+
+# What GET /api/personnel returns — the same people, backend field names.
+ROSTER_FIXTURE = [
+    {'id': p['id'], 'unit_id': p['unit_id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first'],
+     'status': p['status'], 'notes': p['notes'], 'from_date': p['from'], 'to_date': p['to'],
+     'present_date': p['present_date'], 'scheduled_events': p['scheduled_events']}
+    for p in PERSONNEL_FIXTURE
 ]
 
 
@@ -98,7 +143,7 @@ def _next_absence(p):
 
 # What GET /api/directory returns — same fixture, backend field names.
 DIRECTORY_FIXTURE = [
-    {'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first'],
+    {'id': p['id'], 'unit_id': p['unit_id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first'],
      'status': p['status'], 'from_date': p['from'], 'to_date': p['to'], 'notes': p['notes'],
      'dod_id': '1234567890', 'dob': None, 'mos': '35F', 'section': 'S2', 'phone': '',
      'next_absence': _next_absence(p)}
@@ -107,7 +152,7 @@ DIRECTORY_FIXTURE = [
 
 # What GET /api/availability returns, built from the same people.
 AVAILABILITY_FIXTURE = {
-    'platoon': '2nd', 'date': day(3), 'to': day(9), 'span': 7,
+    'unit': ROOT_UNIT_ID, 'date': day(3), 'to': day(9), 'span': 7,
     'available': [{'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']}
                   for p in PERSONNEL_FIXTURE if p['status'] == 'present'],
     'unavailable': [{'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first'],
@@ -118,6 +163,49 @@ AVAILABILITY_FIXTURE = {
                     if p['status'] in ('tdy', 'leave', 'pass', 'other', 'ftr')],
 }
 
+# The signed-in user: an owner at the root, so every Units-page control and the
+# owner-only Organisation settings row are on screen to be measured.
+USER_FIXTURE = {
+    'id': 1, 'username': 'ada.fixture', 'email': 'ada@example.invalid',
+    'full_name': 'SFC Ada Fixtureton-Placeholder', 'unit_id': ROOT_UNIT_ID,
+    'unit_name': 'Headhunter Company', 'unit_slug': 'headhunter-company',
+    'role': 'owner', 'root_id': ROOT_UNIT_ID, 'timezone': APP_TZ,
+    'needs_unit': False, 'invited_by': '',
+}
+
+# Leader chips on the Units page, one of them on a deep unit.
+USERS_FIXTURE = [
+    USER_FIXTURE,
+    {'id': 2, 'username': 'ray.leader', 'email': 'ray@example.invalid',
+     'full_name': 'SSG Ray Fixtureton', 'unit_id': 3, 'unit_name': '2nd Platoon',
+     'unit_slug': '2nd-platoon', 'role': 'leader', 'root_id': ROOT_UNIT_ID,
+     'timezone': APP_TZ, 'needs_unit': False},
+    {'id': 3, 'username': 'nia.leader', 'email': 'nia@example.invalid',
+     'full_name': 'SGT Nia Placeholder-Sampleford', 'unit_id': 4, 'unit_name': 'Alpha Squad',
+     'unit_slug': 'alpha-squad', 'role': 'leader', 'root_id': ROOT_UNIT_ID,
+     'timezone': APP_TZ, 'needs_unit': False},
+]
+
+# Invite chips: one long label with a Copy/Revoke pair, one owner invite.
+INVITES_FIXTURE = [
+    {'token': 'a' * 32, 'label': 'Incoming platoon sergeant, reports 15th',
+     'unit_id': 2, 'unit_name': '1st Platoon', 'role': 'leader',
+     'created_by': 'SFC Ada Fixtureton-Placeholder',
+     'expires_at': day(5) + ' 09:00:00', 'status': 'pending'},
+    {'token': 'b' * 32, 'label': 'Company XO', 'unit_id': ROOT_UNIT_ID,
+     'unit_name': 'Headhunter Company', 'role': 'owner', 'created_by': 'SFC Ada Fixtureton-Placeholder',
+     'expires_at': day(1) + ' 09:00:00', 'status': 'pending'},
+]
+
+SETTINGS_FIXTURE = {
+    'unit_name': 'Headhunter Company', 'kind': 'company',
+    'tdy_schools': ['Air Assault', 'Combatives Level 1', 'Ranger'],
+    'tdy_locations': ['Fort Example', 'Dothan, AL'],
+    'timezone': APP_TZ,
+}
+
+PROFILE_FIXTURE = {'dod_id': '1234567890', 'mos': '35F', 'section': 'S2', 'phone': ''}
+
 WIDTHS = [320, 390, 1280]
 # ponytail: honest current floor, not an aspirational one. Measured directly
 # against this app at 320/390px: the shortest real button today is the
@@ -125,6 +213,9 @@ WIDTHS = [320, 390, 1280]
 # (row-menu triggers, section headers, bottom nav) is 34px+. 28px gives 1px of
 # rendering slack. Raise this only once .dash-btn-sm is redesigned taller.
 MIN_TAP_TARGET_PX = 28
+
+ROSTER_BUTTONS = '#personnelBody button, .dash-header-actions button, .dash-bottomnav button'
+HOME_CARDS = '#unitCards .unit-card'
 
 
 def free_port():
@@ -159,18 +250,47 @@ def stop_server(httpd, thread):
     thread.join(timeout=5)
 
 
+# Stub the one thing a signed-out browser cannot have — the API — and then let
+# the app drive itself. `window.__units` is what GET /units answers, so the
+# wide-organisation pass is a change of fixture, not a change of code path.
 INIT_JS = """
-(fixture) => {
+async (fixture) => {
+  window.__fixture = fixture;
+  window.__units = fixture.units;
   window.api = async (method, path) => {
-    if (path.startsWith('/directory')) return fixture.directory;
-    if (path.startsWith('/availability')) return fixture.availability;
+    const p = String(path).split('?')[0];
+    if (p === '/units') return window.__units;
+    if (p === '/personnel') return fixture.roster;
+    if (p === '/settings') return fixture.settings;
+    if (p === '/directory') return fixture.directory;
+    if (p === '/availability') return fixture.availability;
+    if (p === '/users') return fixture.users;
+    if (p === '/invites') return fixture.invites;
+    if (p === '/me') return fixture.user;
+    if (/^\\/personnel\\/\\d+\\/profile$/.test(p)) return fixture.profile;
     return [];
   };
-  personnel = fixture.personnel;
-  currentPlatoon = '2nd';
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('platoonScreen').style.display = 'block';
-  render();
+  // initApp() is still racing us towards Clerk, which a test box cannot
+  // reach. Whatever it concludes, it must not blank the screen we draw here.
+  showLoginScreen = () => {};
+  currentUser = fixture.user;
+  await loadHome();
+}
+"""
+
+SHOW_HOME_JS = """
+async (units) => { window.__units = units; await loadHome(); }
+"""
+
+# selectUnit() is the real "open this unit" path (route push, logo, sidebar
+# identity, then load()). It does not return load()'s promise, so the second
+# await is what makes the render deterministic rather than timing-dependent.
+ENTER_UNIT_JS = """
+async (unitId) => {
+  window.__units = window.__fixture.units;
+  await loadUnits();
+  selectUnit(unitById(unitId));
+  await load();
 }
 """
 
@@ -179,9 +299,9 @@ def overflowing_elements(page):
     """Elements whose right edge extends past the viewport (1px slack).
 
     Skips anything inside a deliberate horizontal-scroll container
-    (overflow-x: auto/scroll, e.g. the desktop directory table) — that
-    content is meant to scroll within its own box, not bleed past the
-    screen the way the real bugs did.
+    (overflow-x: auto/scroll, e.g. the desktop directory table and the home
+    screen's org chart) — that content is meant to scroll within its own box,
+    not bleed past the screen the way the real bugs did.
     """
     return page.evaluate("""
     () => {
@@ -216,6 +336,27 @@ def check_no_horizontal_overflow(page, width, view_label):
     )
     bad = overflowing_elements(page)
     assert not bad, f'{view_label} @ {width}px: element(s) overflow the viewport: {bad}'
+
+
+def check_fits_width(page, width, selector, view_label):
+    """A panel wider than the screen that is also centred overflows to the
+    *left*, where neither scrollWidth nor a right-edge test can see it."""
+    bad = page.evaluate("""
+    (sel) => {
+      const vw = window.innerWidth;
+      const out = [];
+      document.querySelectorAll(sel).forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (r.width > vw + 1 || r.left < -1 || r.right > vw + 1) {
+          out.push(sel + ' left=' + Math.round(r.left) + ' width=' + Math.round(r.width));
+        }
+      });
+      if (!out.length && !document.querySelector(sel)) out.push(sel + ' is not on screen');
+      return out;
+    }
+    """, selector)
+    assert not bad, f'{view_label} @ {width}px: panel does not fit the viewport: {bad}'
 
 
 def check_no_duplicate_meta(page, width):
@@ -287,21 +428,21 @@ def check_modal_controls_fit(page, width):
     assert not bad, f'TDY/Leave modal @ {width}px: control(s) wider than viewport: {bad}'
 
 
-def check_tap_targets(page, width):
-    bad = page.evaluate(f"""
-    () => {{
+def check_tap_targets(page, width, selector, view_label):
+    bad = page.evaluate("""
+    ([sel, min]) => {
       const bad = [];
-      document.querySelectorAll('#personnelBody button, .dash-header-actions button, .dash-bottomnav button').forEach(el => {{
+      document.querySelectorAll(sel).forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;  // not visible
-        if (r.height < {MIN_TAP_TARGET_PX}) {{
+        if (r.height < min) {
           bad.push((el.id ? '#' + el.id : el.className || el.tagName) + ' height=' + r.height.toFixed(1));
-        }}
-      }});
+        }
+      });
       return bad;
-    }}
-    """)
-    assert not bad, f'accountability @ {width}px: button(s) under {MIN_TAP_TARGET_PX}px tall: {bad}'
+    }
+    """, [selector, MIN_TAP_TARGET_PX])
+    assert not bad, f'{view_label} @ {width}px: control(s) under {MIN_TAP_TARGET_PX}px tall: {bad}'
 
 
 def check_formation_fits(page, width, height, label):
@@ -327,13 +468,33 @@ def check_formation_fits(page, width, height, label):
     assert not bad, f'formation mode ({label}) @ {width}x{height}: off-screen or clipped: {bad}'
 
 
+def check_home(page, width, units, label):
+    """The home screen is the whole org chart. The chart scrolls inside itself
+    on purpose; the page it sits on must not, at any width, however wide the
+    organisation gets."""
+    page.evaluate(SHOW_HOME_JS, units)
+    cards = page.evaluate("document.querySelectorAll('%s').length" % HOME_CARDS)
+    assert cards, f'{label} @ {width}px: the org chart drew no unit cards'
+    check_no_horizontal_overflow(page, width, label)
+    if width < 900:
+        check_tap_targets(page, width, HOME_CARDS, label)
+
+
 def run_checks(page, base_url):
-    fixture = {'personnel': PERSONNEL_FIXTURE, 'directory': DIRECTORY_FIXTURE,
-               'availability': AVAILABILITY_FIXTURE}
+    fixture = {'units': UNITS_FIXTURE, 'roster': ROSTER_FIXTURE, 'directory': DIRECTORY_FIXTURE,
+               'availability': AVAILABILITY_FIXTURE, 'users': USERS_FIXTURE,
+               'invites': INVITES_FIXTURE, 'settings': SETTINGS_FIXTURE,
+               'user': USER_FIXTURE, 'profile': PROFILE_FIXTURE}
     for width in WIDTHS:
         page.set_viewport_size({'width': width, 'height': 900})
         page.goto(f'{base_url}/', wait_until='load')
         page.evaluate(INIT_JS, fixture)
+
+        # Home: the org chart, normal tree and a nine-across organisation.
+        check_home(page, width, UNITS_FIXTURE, 'home')
+        check_home(page, width, WIDE_UNITS_FIXTURE, 'home (wide org)')
+
+        page.evaluate(ENTER_UNIT_JS, ROOT_UNIT_ID)
 
         check_no_horizontal_overflow(page, width, 'accountability')
         check_no_duplicate_meta(page, width)
@@ -341,7 +502,7 @@ def run_checks(page, base_url):
             check_rows_are_one_height(page, width)
         check_modal_controls_fit(page, width)
         if width < 900:
-            check_tap_targets(page, width)
+            check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
 
         page.evaluate('openDirectory()')
         page.wait_for_timeout(50)
@@ -351,6 +512,29 @@ def run_checks(page, base_url):
         page.wait_for_timeout(100)
         check_no_horizontal_overflow(page, width, 'availability')
         page.evaluate('closeAvailabilityPage()')
+
+        # Units: four levels of indent, leader chips and invite chips.
+        page.evaluate('(async () => { openUnits(); await refreshUnitsPage(); })()')
+        page.wait_for_timeout(50)
+        assert page.evaluate("document.querySelectorAll('.unit-chip-invite').length"), (
+            f'units @ {width}px: no invite chips rendered — fixture is stale')
+        check_no_horizontal_overflow(page, width, 'units')
+        page.evaluate('closeUnits()')
+
+        # Settings, including the Unit card's logo row.
+        page.evaluate('openSettings()')
+        assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
+            f'settings @ {width}px: the Unit logo row did not render')
+        check_no_horizontal_overflow(page, width, 'settings')
+        page.evaluate('closeSettings()')
+
+        # A soldier page, with the "Edit name & rank" button the hero grew.
+        page.evaluate('openSoldierPage(1)')
+        page.wait_for_timeout(50)
+        assert page.evaluate("!!document.querySelector('.soldier-hero-edit')"), (
+            f'soldier @ {width}px: the Edit name & rank button did not render')
+        check_no_horizontal_overflow(page, width, 'soldier')
+        page.evaluate('closeSoldierPage(); render()')
 
         # Formation mode is full-screen, so short viewports are the real test —
         # the five reason buttons must still fit on the smallest phone.
@@ -364,6 +548,15 @@ def run_checks(page, base_url):
             page.evaluate('exitFormation()')
         page.set_viewport_size({'width': width, 'height': 900})
 
+        # First run: the signed-in user belongs to no unit yet. Last, because
+        # it swaps the platoon screen out from under everything above.
+        page.evaluate('showCreateUnitScreen()')
+        # The panel is centred in a flex column, so a panel too wide to shrink
+        # hangs off *both* edges — half of which scrollWidth cannot see. That
+        # is what check_fits_width is for, so it is asked first.
+        check_fits_width(page, width, '#createUnitScreen .login-card', 'create unit')
+        check_no_horizontal_overflow(page, width, 'create unit')
+
 
 def main():
     try:
@@ -374,7 +567,7 @@ def main():
                 try:
                     browser = pw.chromium.launch()
                 except PlaywrightError:
-                    print('ok (skipped: playwright browser binary not installed)')
+                    print(SKIP_PREFIX + 'playwright chromium binary not installed' + SKIP_SUFFIX)
                     return
                 try:
                     page = browser.new_page()
