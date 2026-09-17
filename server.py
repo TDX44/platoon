@@ -1,15 +1,18 @@
+import base64
+import binascii
+import hashlib
 import json
 import os
 import re
 import secrets
 import string
-import base64
+import struct
 from datetime import datetime, date
 from functools import wraps
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from urllib.error import URLError
-from flask import Flask, request, jsonify, send_from_directory, session, g, has_request_context
+from flask import Flask, Response, request, jsonify, send_from_directory, session, g, has_request_context
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
@@ -1320,10 +1323,107 @@ def _unit_row(conn, unit_id):
     return conn.execute('SELECT * FROM units WHERE id = %s', (unit_id,)).fetchone()
 
 
-def _unit_json(row, count=None):
+# ── Unit logo ──
+# A `settings` row (unit_id, key='logo', value=base64 PNG) — no new table and no
+# migration, because that is all the shape this needs. It is inherited: a unit
+# with none of its own shows the nearest one above it, so a company sets one
+# logo and every team under it is branded.
+
+LOGO_KEY = 'logo'
+LOGO_MAX_PX = 512           # the built-in mark is 512x512; nothing may exceed it
+LOGO_MAX_BYTES = 400 * 1024
+# Refuse a monstrous payload on its length alone, before base64 builds a decoded
+# copy of it in memory. 4/3 with room for padding and a data: prefix.
+LOGO_MAX_B64 = (LOGO_MAX_BYTES + 2) // 3 * 4 + 64
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+PNG_DATA_URI = 'data:image/png;base64,'
+
+
+def _validate_logo_png(value):
+    """(png bytes, width, height) — or ValueError carrying a sentence for the user.
+
+    The one gate every logo passes, whether it arrived from the browser or out
+    of a backup file, which is user input wearing a hat. Stdlib only: a PNG's
+    size lives at a fixed offset, so there is nothing here worth an image
+    library.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError('Send the logo as base64-encoded PNG bytes.')
+    raw64 = value.strip()
+    if raw64.startswith(PNG_DATA_URI):
+        raw64 = raw64[len(PNG_DATA_URI):]
+    too_big = (f'That image is larger than {LOGO_MAX_BYTES // 1024} KB. '
+               'Save it smaller and try again.')
+    if len(raw64) > LOGO_MAX_B64:
+        raise ValueError(too_big)
+    try:
+        raw = base64.b64decode(raw64, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError('That does not decode as base64. Re-upload the image.')
+    if len(raw) > LOGO_MAX_BYTES:
+        raise ValueError(too_big)
+    # A PNG opens with the 8-byte signature, then an 8-byte chunk header, then
+    # IHDR's width and height. Anything shorter than 24 bytes is lying about
+    # being one, and slicing it without this check is a 500, not a refusal.
+    if len(raw) < 24 or not raw.startswith(PNG_SIGNATURE) or raw[12:16] != b'IHDR':
+        raise ValueError('That file is not a PNG. Upload a PNG image.')
+    width, height = struct.unpack('>II', raw[16:24])
+    if not (1 <= width <= LOGO_MAX_PX and 1 <= height <= LOGO_MAX_PX):
+        raise ValueError(f'The logo must be at most {LOGO_MAX_PX} x {LOGO_MAX_PX} pixels; '
+                         f'that one is {width} x {height}.')
+    return raw, width, height
+
+
+def _logo_version(value):
+    """The cache-buster the client appends as ?v=.
+
+    It must agree with the md5() the resolution query computes in SQL, or a
+    PUT and the next /api/units would disagree about the same stored bytes.
+    Not a security hash — it only has to change when the logo does.
+    """
+    return hashlib.md5(value.encode('ascii'), usedforsecurity=False).hexdigest()[:12]
+
+
+def _resolved_logos(conn):
+    """{unit_id: {'unit_id': owner, 'v': hash} or None} for every unit in this tenant.
+
+    Two queries for the whole tree; the walk upward happens in Python, because
+    one query per unit is how a units page becomes forty round trips.
+    Resolution has to see units ABOVE the caller's own subtree — a team
+    leader's sidebar shows the company's logo — which is exactly what RLS
+    already scopes these two SELECTs to: the tenant, no more and no less.
+    """
+    parent = {r['id']: r['parent_id'] for r in
+              conn.execute('SELECT id, parent_id FROM units').fetchall()}
+    owned = {r['unit_id']: r['v'] for r in conn.execute(
+        'SELECT unit_id, substr(md5(value), 1, 12) AS v FROM settings '
+        'WHERE key = %s AND unit_id IS NOT NULL', (LOGO_KEY,)).fetchall()}
+    resolved = {}
+    for start in parent:
+        chain, cur, seen = [], start, set()
+        while cur is not None and cur not in resolved and cur not in owned and cur not in seen:
+            seen.add(cur)
+            chain.append(cur)
+            cur = parent.get(cur)
+        if cur is None or cur in seen:
+            found = None                       # nothing up the path (or a cycle)
+        elif cur in resolved:
+            found = resolved[cur]
+        else:
+            found = {'unit_id': cur, 'v': owned[cur]}
+        for unit_id in chain:
+            resolved[unit_id] = found
+        resolved.setdefault(start, found)
+    return resolved
+
+
+def _unit_json(row, count=None, logos=None):
     out = {k: row[k] for k in ('id', 'parent_id', 'kind', 'name', 'slug')}
     if count is not None:
         out['count'] = count
+    # Always present, never guessed: a caller that skipped resolution would
+    # otherwise quietly report "no logo" for a unit that has one.
+    out['logo'] = (logos or {}).get(row['id'])
     return out
 
 
@@ -1347,7 +1447,8 @@ def list_units():
         'SELECT u.*, (SELECT COUNT(*) FROM personnel p WHERE p.unit_id = u.id) AS n '
         'FROM units u WHERE u.id = ANY(%s) ORDER BY u.parent_id NULLS FIRST, u.name', (list(ids),)
     ).fetchall()
-    return jsonify([_unit_json(r, r['n']) for r in rows])
+    logos = _resolved_logos(conn)
+    return jsonify([_unit_json(r, r['n'], logos) for r in rows])
 
 
 @app.route('/api/units', methods=['POST'])
@@ -1383,7 +1484,7 @@ def create_unit():
         g.pop('subtree', None)
         _seed_root_defaults(conn, root_id, root_id)
         log_action('UNIT_CREATE', f'Created {kind} "{name}" (new organisation)', root_id)
-        return jsonify(_unit_json(_unit_row(conn, root_id), 0)), 201
+        return jsonify(_unit_json(_unit_row(conn, root_id), 0, _resolved_logos(conn))), 201
 
     if user.get('unit_id') is None or not can_access(parent_id):
         return jsonify({'error': 'Forbidden'}), 403
@@ -1399,7 +1500,8 @@ def create_unit():
                      (parent['root_id'], row['id'], f'tdy_{k}', '[]'))
     g.pop('subtree', None)
     log_action('UNIT_CREATE', f'Created {kind} "{name}" under {parent["name"]}', row['id'])
-    return jsonify(_unit_json(row, 0)), 201
+    # A brand-new unit has no logo of its own but already inherits its parent's.
+    return jsonify(_unit_json(row, 0, _resolved_logos(conn))), 201
 
 
 @app.route('/api/units/<int:unit_id>', methods=['PUT'])
@@ -1429,7 +1531,7 @@ def update_unit(unit_id):
     values.append(unit_id)
     conn.execute(f'UPDATE units SET {", ".join(fields)} WHERE id = %s', values)
     log_action('UNIT_RENAME', f'{row["name"]} -> {data.get("name", row["name"])} ({data.get("kind", row["kind"])})', unit_id)
-    return jsonify(_unit_json(_unit_row(conn, unit_id)))
+    return jsonify(_unit_json(_unit_row(conn, unit_id), None, _resolved_logos(conn)))
 
 
 @app.route('/api/units/<int:unit_id>', methods=['DELETE'])
@@ -1458,6 +1560,91 @@ def delete_unit(unit_id):
     g.pop('subtree', None)
     log_action('UNIT_DELETE', f'Deleted {row["kind"]} "{row["name"]}"', row['parent_id'])
     return jsonify({'success': True})
+
+
+def _logo_writable(conn, unit_id):
+    """The guard both writing verbs share.
+
+    Another tenant's id is a 404 (RLS never showed us the row) and so is a
+    made-up one: same answer either way, so nothing here says whether a unit
+    exists. Inside the tenant but outside your subtree is an ordinary 403.
+    """
+    if _unit_row(conn, unit_id) is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not can_access(unit_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    return None
+
+
+@app.route('/api/units/<int:unit_id>/logo', methods=['PUT'])
+@attached_required
+def set_unit_logo(unit_id):
+    conn = get_db()
+    denied = _logo_writable(conn, unit_id)
+    if denied:
+        return denied
+    data = request.get_json(silent=True) or {}
+    try:
+        raw, width, height = _validate_logo_png(data.get('png_base64'))
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    # Store the re-encoded bytes, not the string that arrived: a data: prefix,
+    # stray whitespace or non-canonical padding would otherwise change the
+    # version hash without changing the image.
+    value = base64.b64encode(raw).decode('ascii')
+    conn.execute(
+        'INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s) '
+        'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
+        (_root(), unit_id, LOGO_KEY, value))
+    log_action('UNIT_LOGO', f'Logo set ({width}x{height}, {len(raw)} bytes)', unit_id)
+    return jsonify({'logo': {'unit_id': unit_id, 'v': _logo_version(value)}})
+
+
+@app.route('/api/units/<int:unit_id>/logo', methods=['DELETE'])
+@attached_required
+def clear_unit_logo(unit_id):
+    conn = get_db()
+    denied = _logo_writable(conn, unit_id)
+    if denied:
+        return denied
+    removed = conn.execute('DELETE FROM settings WHERE unit_id = %s AND key = %s',
+                           (unit_id, LOGO_KEY)).rowcount
+    # Idempotent, and only a real removal is audited: the log says what changed.
+    if removed:
+        log_action('UNIT_LOGO', 'Logo removed', unit_id)
+    return jsonify({'success': True})
+
+
+@app.route('/api/units/<int:unit_id>/logo', methods=['GET'])
+@attached_required
+def get_unit_logo(unit_id):
+    """The PNG of the nearest unit on self -> parent -> ... -> root that has one.
+
+    Deliberately NOT gated on can_access: any attached member of the tenant may
+    read any unit's resolved logo, because a team leader's own sidebar shows
+    the company's mark and a logo is branding, not data.
+    """
+    conn = get_db()
+    if _unit_row(conn, unit_id) is None:
+        return jsonify({'error': 'Not found'}), 404
+    resolved = _resolved_logos(conn).get(unit_id)
+    row = conn.execute('SELECT value FROM settings WHERE unit_id = %s AND key = %s',
+                       (resolved['unit_id'], LOGO_KEY)).fetchone() if resolved else None
+    try:
+        raw, _, _ = _validate_logo_png(row['value']) if row else (None, 0, 0)
+    except ValueError:
+        # Stored bytes that would not survive their own validator: say there is
+        # no logo rather than hand a browser something nobody vouched for.
+        app.logger.warning('unit %s holds an unreadable logo', resolved['unit_id'])
+        raw = None
+    if raw is None:
+        return jsonify({'error': 'Not found'}), 404
+    return Response(raw, mimetype='image/png', headers={
+        # The client cache-busts with ?v=<hash>, so the bytes at a given URL
+        # genuinely never change. Private: it is one tenant's mark.
+        'Cache-Control': 'private, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
+    })
 
 
 # ── Personnel routes ──
@@ -2432,10 +2619,21 @@ def import_backup():
             continue
         if uid is None and s['key'] != TIMEZONE_KEY:
             continue
+        value = s['value']
+        if s['key'] == LOGO_KEY:
+            # A backup file is user input, so its logo goes through the same
+            # gate a PUT does. One rotten value drops its own row and is
+            # counted — it must not take the whole restore down with it.
+            try:
+                raw, _, _ = _validate_logo_png(value)
+            except ValueError:
+                skipped_rows += 1
+                continue
+            value = base64.b64encode(raw).decode('ascii')
         conn.execute(
             'INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s) '
             'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
-            (root_id, uid, s['key'], s['value']))
+            (root_id, uid, s['key'], value))
 
     skipped_users = []
     for u in payload.get('users', []):
