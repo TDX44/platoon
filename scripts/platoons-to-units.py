@@ -86,31 +86,49 @@ def main():
     for t in SCOPED:
         for p, uid in child.items():
             conn.execute(f'UPDATE {t} SET unit_id = %s, root_id = %s WHERE platoon = %s', (uid, root_id, p))
-        stray = count(conn, t, "root_id IS NULL AND platoon <> ''")
+        # `platoon IS NOT NULL` matters: init_db() dropped the NOT NULL on this
+        # column, and NULL <> '' is NULL, so a NULL would slip past a bare
+        # `platoon <> ''` and only surface as a raw traceback from step 5's
+        # SET NOT NULL. Every anomaly here has to leave through die().
+        stray = count(conn, t, "root_id IS NULL AND platoon IS NOT NULL AND platoon <> ''")
         if stray:
             die(conn, f'{t}: {stray} rows with a platoon that is not 1st/2nd/hq')
         if t == 'audit_log':
-            conn.execute("UPDATE audit_log SET root_id = %s WHERE platoon = ''", (root_id,))
-        else:
-            n = count(conn, t, 'root_id IS NULL')
-            if n:
-                die(conn, f'{t}: {n} rows with an empty platoon')
+            # A company-wide entry (LOGIN, and anything the system logged with
+            # no platoon) belongs to the root with no unit. '' and NULL both
+            # mean exactly that.
+            conn.execute("UPDATE audit_log SET root_id = %s WHERE platoon IS NULL OR platoon = ''", (root_id,))
+        n = count(conn, t, 'root_id IS NULL')
+        if n:
+            die(conn, f'{t}: {n} rows with an empty or NULL platoon')
         print(f'  {t}: {count(conn, t)} rows scoped')
     conn.execute('UPDATE personnel_profile SET root_id = %s', (root_id,))
 
     # 3. People and invites.
-    def place(is_admin, platoons):
-        keys = [k for k in (platoons or '').split(',') if k.strip()]
-        if is_admin or platoons == '*':
+    def place(table, r):
+        # Strip and dedupe before comparing anything: A0's own reader was
+        # `[p.strip() for p in platoons.split(',') if p.strip()]`, so ' 2nd' was
+        # a working grant and '2nd,2nd' was one platoon, not two. Comparing the
+        # raw string would quietly unattach the first and hand the second
+        # company-wide visibility as a multi-platoon leader.
+        keys = sorted({k.strip() for k in (r['platoons'] or '').split(',') if k.strip()})
+        if r['is_admin'] or keys == ['*']:
             return root_id, 'owner', root_id
-        if len(keys) == 1 and keys[0] in child:
+        # An unrecognised platoon is bad data, not an instruction to unattach
+        # someone. Every other path here dies on it; so does this one.
+        unknown = [k for k in keys if k not in child]
+        if unknown:
+            die(conn, f'{table} {r["k"]!r} ({r["label"]}): platoon {", ".join(repr(k) for k in unknown)} '
+                      'is not 1st/2nd/hq — fix or remove the row and re-run')
+        if len(keys) == 1:
             return child[keys[0]], 'leader', root_id
-        if len(keys) > 1:
+        if keys:
             return root_id, 'leader', root_id
         return None, 'leader', None
-    for table, id_col in (('users', 'id'), ('invites', 'token')):
-        for r in conn.execute(f'SELECT {id_col} AS k, is_admin, platoons FROM {table}').fetchall():
-            unit_id, role, rid = place(r['is_admin'], r['platoons'])
+    for table, id_col, label_col in (('users', 'id', 'username'), ('invites', 'token', 'label')):
+        for r in conn.execute(
+                f'SELECT {id_col} AS k, {label_col} AS label, is_admin, platoons FROM {table}').fetchall():
+            unit_id, role, rid = place(table, r)
             conn.execute(f'UPDATE {table} SET unit_id = %s, role = %s, root_id = %s WHERE {id_col} = %s',
                          (unit_id, role, rid, r['k']))
         print(f'  {table}: {count(conn, table)} placed')
@@ -158,6 +176,10 @@ def main():
         if row and row['last'] != last:
             die(conn, f'personnel id {pid} is {row["last"]!r}, expected {last!r}')
     owners = count(conn, 'users', "role = 'owner' AND unit_id = %s", (root_id,))
+    # Nobody could grant anybody anything afterwards, and the only way back is
+    # pg_restore. Refuse rather than commit a company no one administers.
+    if not owners:
+        die(conn, 'no user would hold owner at the root — grant an admin before migrating')
     print(f'  verified: {after}, {owners} owner(s) at the root')
 
     # 7. Resync the identity sequences. A no-op on a database whose ids all came

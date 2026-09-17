@@ -63,9 +63,15 @@ def build_a0_fixture():
                  "(12, 3, '2nd', 'pass', '2026-08-01', '2026-08-02', 'completed')")
     conn.execute("INSERT INTO duty_roster (date, platoon, person_id, rank, last, first) VALUES ('2026-09-20', '2nd', 7, 'SPC', 'Seven', 'B')")
     conn.execute("INSERT INTO report_history (platoon, unit_name, text) VALUES ('2nd', '2nd Platoon', 'r1'), ('1st', '1st', 'r2')")
-    conn.execute("INSERT INTO audit_log (username, action, platoon) VALUES ('boss', 'LOGIN', ''), ('boss', 'ADD_PERSON', '2nd'), ('system', 'ABSENCE_ACTIVATE', '1st')")
+    # The NULL is deliberate: init_db() drops audit_log's NOT NULL on `platoon`,
+    # so a company-wide row written in between carries NULL rather than ''.
+    conn.execute("INSERT INTO audit_log (username, action, platoon) VALUES ('boss', 'LOGIN', ''), ('boss', 'ADD_PERSON', '2nd'), "
+                 "('system', 'ABSENCE_ACTIVATE', '1st'), ('system', 'BOOT', NULL)")
+    # 'spacey' and 'dupe' are the shapes A0's own reader accepted: it stripped
+    # each key, so ' 2nd' was a real grant and '2nd,2nd' was one platoon.
     users = [('jon', 1, '*', 'c1'), ('jca', 1, '*', 'c2'), ('cal', 0, '2nd', 'c3'), ('ben', 0, '2nd', 'c4'),
-             ('multi', 0, '1st,2nd', 'c5'), ('nobody', 0, '', 'c6'), ('local.only', 0, '2nd', '')]
+             ('multi', 0, '1st,2nd', 'c5'), ('nobody', 0, '', 'c6'), ('local.only', 0, '2nd', ''),
+             ('spacey', 0, ' 2nd', 'c7'), ('dupe', 0, '2nd,2nd', 'c8')]
     for u in users:
         conn.execute("INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email) VALUES (%s, 'x', %s, %s, %s, %s)",
                      (u[0], u[1], u[2], u[3], f'{u[0]}@example.com'))
@@ -94,8 +100,8 @@ def main():
         build_a0_fixture()
         import server  # noqa: F401  — init_db() runs here: additive columns, RLS, functions
 
-        # An invite that maps nowhere would fail `invites.unit_id NOT NULL` with
-        # a column name; the script names the token instead and rolls back whole.
+        # Every migration the script refuses must refuse the same way: exit 1, a
+        # message that names the offending row, and a database nobody touched.
         tables = ['personnel', 'scheduled_events', 'duty_roster', 'report_history', 'audit_log',
                   'personnel_profile', 'settings', 'users', 'invites', 'units']
 
@@ -105,20 +111,64 @@ def main():
                 return {t: conn.execute(f'SELECT count(*) AS n FROM {t}').fetchone()['n'] for t in tables}
             finally:
                 conn.close()
-        conn = dbharness.owner_conn()
-        conn.execute("INSERT INTO invites (token, label, platoons, is_admin, expires_at) "
-                     "VALUES ('t-orphan', 'o', '', 0, '2099-01-01 00:00:00')")
-        conn.commit(); conn.close()
-        pre = counts()
-        orphaned = run_script('Headquarters Company')
-        out = orphaned.stdout + orphaned.stderr
-        assert orphaned.returncode == 1, out
-        assert 't-orphan' in out, out
-        assert counts() == pre, (pre, counts())
-        assert pre['units'] == 0, pre
-        conn = dbharness.owner_conn()
-        conn.execute("DELETE FROM invites WHERE token = 't-orphan'")
-        conn.commit(); conn.close()
+
+        def run_sql(sql):
+            conn = dbharness.owner_conn()
+            try:
+                conn.execute(sql)
+                conn.commit()
+            finally:
+                conn.close()
+
+        def abort_case(name, setup, undo, needles):
+            run_sql(setup)
+            pre = counts()
+            proc = run_script('Headquarters Company')
+            out = proc.stdout + proc.stderr
+            assert proc.returncode == 1, (name, out)
+            for needle in needles:
+                assert needle in out, (name, needle, out)
+            assert counts() == pre, (name, pre, counts())
+            assert pre['units'] == 0, (name, pre)
+            run_sql(undo)
+
+        # An invite that maps nowhere would fail `invites.unit_id NOT NULL` with
+        # a column name; the script names the token instead and rolls back whole.
+        abort_case('homeless invite',
+                   "INSERT INTO invites (token, label, platoons, is_admin, expires_at) "
+                   "VALUES ('t-orphan', 'o', '', 0, '2099-01-01 00:00:00')",
+                   "DELETE FROM invites WHERE token = 't-orphan'",
+                   ['t-orphan'])
+        # A platoon that is not 1st/2nd/hq is bad data, not a request to
+        # unattach someone: it names the user and the value rather than
+        # committing them into limbo.
+        abort_case('unknown platoon on a user',
+                   "INSERT INTO users (username, password_hash, is_admin, platoons, clerk_user_id, email) "
+                   "VALUES ('third', 'x', 0, '3rd', 'c9', 'third@example.com')",
+                   "DELETE FROM users WHERE username = 'third'",
+                   ['third', '3rd'])
+        # Same rule for an invite: R6's guard covers an unknown name, not only
+        # an empty one.
+        abort_case('unknown platoon on an invite',
+                   "INSERT INTO invites (token, label, platoons, is_admin, expires_at) "
+                   "VALUES ('t-third', 'tl', '3rd', 0, '2099-01-01 00:00:00')",
+                   "DELETE FROM invites WHERE token = 't-third'",
+                   ['t-third', '3rd'])
+        # Outside audit_log a NULL platoon is unplaceable, and it has to leave
+        # through die() rather than as a traceback from step 5's SET NOT NULL.
+        abort_case('NULL platoon on a soldier',
+                   # An explicit id: the fixture inserted ids by hand, so
+                   # personnel_id_seq is still at 1 until the migration resyncs it.
+                   "INSERT INTO personnel (id, rank, last, first, status, platoon) "
+                   "VALUES (99, 'PV2', 'Null', 'N', 'present', NULL)",
+                   "DELETE FROM personnel WHERE last = 'Null'",
+                   ['personnel: 1 rows with an empty or NULL platoon'])
+        # Nobody left to administer the company, and the only way back is
+        # pg_restore.
+        abort_case('no owner at the root',
+                   "UPDATE users SET is_admin = 0, platoons = '2nd' WHERE username IN ('jon', 'jca')",
+                   "UPDATE users SET is_admin = 1, platoons = '*' WHERE username IN ('jon', 'jca')",
+                   ['no user would hold owner at the root'])
 
         proc = run_script('Headquarters Company')
         assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -144,12 +194,19 @@ def main():
         assert ev[10]['unit_id'] == by_slug['1stplatoon']['id'] and ev[10]['to_date'] == ''
         audit = conn.execute("SELECT action, unit_id FROM audit_log ORDER BY id").fetchall()
         assert audit[0]['unit_id'] is None and audit[1]['unit_id'] == by_slug['2ndplatoon']['id']
+        # A NULL platoon means the same as '' here: the root, no unit — not a
+        # row left behind for step 5's SET NOT NULL to crash on.
+        assert (audit[3]['action'], audit[3]['unit_id']) == ('BOOT', None), audit[3]
 
         u = {r['username']: r for r in conn.execute('SELECT * FROM users').fetchall()}
         assert (u['jon']['unit_id'], u['jon']['role']) == (root['id'], 'owner')
         assert (u['jca']['unit_id'], u['jca']['role']) == (root['id'], 'owner')
         assert (u['cal']['unit_id'], u['cal']['role']) == (by_slug['2ndplatoon']['id'], 'leader')
         assert (u['multi']['unit_id'], u['multi']['role']) == (root['id'], 'leader')
+        # ' 2nd' is one platoon once stripped, not an unknown one; '2nd,2nd' is
+        # one platoon once deduped, not a multi-platoon company-wide leader.
+        assert (u['spacey']['unit_id'], u['spacey']['role']) == (by_slug['2ndplatoon']['id'], 'leader')
+        assert (u['dupe']['unit_id'], u['dupe']['role']) == (by_slug['2ndplatoon']['id'], 'leader')
         assert u['nobody']['unit_id'] is None and u['nobody']['root_id'] is None
         assert 'is_admin' not in u['jon'] and 'platoons' not in u['jon']
         inv = {r['token']: r for r in conn.execute('SELECT * FROM invites').fetchall()}
