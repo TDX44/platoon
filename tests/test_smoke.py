@@ -55,6 +55,7 @@ ALLOWED_PLATOON_TOKENS = (
     'platoon-tracker-change-in-production',  # the dev-only default secret
     'platoon-backup-',                      # the backup download filename
     'platoon_owner', 'platoon_app',          # the two database roles
+    'platoon-accountability/',               # the User-Agent sent to api.clerk.com
 )
 
 

@@ -6,11 +6,14 @@ import re
 import secrets
 import string
 import struct
+import time
 from datetime import datetime, date
 from functools import wraps
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from urllib.error import URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from flask import Flask, Response, request, jsonify, send_from_directory, session, g, has_request_context
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -76,6 +79,25 @@ CLERK_ENABLED = bool(CLERK_PUBLISHABLE_KEY and CLERK_JWKS_URL)
 _JWKS_CLIENT = PyJWKClient(CLERK_JWKS_URL, lifespan=3600, timeout=5) if CLERK_ENABLED else None
 _JWKS_LAST_GOOD = None
 CLERK_UNREACHABLE = 'Sign-in is temporarily unavailable — could not reach Clerk. Try again in a moment.'
+
+# ── The platform operator ──
+# One person runs this instance, and /api/admin/* is theirs: read-only, across
+# every tenant. The grant is an email address, and the only trustworthy source
+# for one is Clerk itself. `users.email` is written from the /api/auth/sync
+# request BODY, so it is the caller's own claim about themselves and can never
+# be more than a hint; the session JWT carries `sub` and no email (this
+# instance uses Clerk's default token, which has no email claim), so the
+# address is fetched from Clerk's Backend API keyed on that `sub`.
+# Set PLATFORM_ADMIN_EMAILS to an empty string to turn the dashboard off.
+PLATFORM_ADMIN_EMAILS = frozenset(
+    e.strip().lower() for e in
+    os.environ.get('PLATFORM_ADMIN_EMAILS', 'jonathon.carr5@gmail.com').split(',') if e.strip())
+CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '').strip()
+CLERK_API_USERS = 'https://api.clerk.com/v1/users/'
+PLATFORM_ADMIN_TTL_SECONDS = 300
+# {clerk_user_id: (expires_at_monotonic, verdict)}. Per worker process, so a
+# restart simply re-asks. Never keyed on anything the caller typed.
+_PLATFORM_ADMIN_CACHE = {}
 
 # The duty day belongs to the unit, not to the server or the viewer. prodsrv02
 # runs UTC, so date.today() rolled over at 1900 local and marked people away for
@@ -265,8 +287,18 @@ def is_owner(user):
     return bool(user) and user.get('role') == 'owner'
 
 
+# Client routes that are not a unit. parseAppRoute() in index.html looks a
+# slug up before it considers anything else, so a unit that took one of these
+# would either shadow the page or — if the page wins — be unreachable itself.
+# Reserving the slug rather than refusing the NAME keeps "Admin" a legal thing
+# to call a section; only the URL moves aside.
+RESERVED_SLUGS = ('admin',)
+
+
 def slugify(name):
     s = re.sub(r'[^a-z0-9]+', '-', (name or '').lower()).strip('-')
+    if s in RESERVED_SLUGS:
+        return f'{s}-unit'
     return s or 'unit'
 
 
@@ -581,7 +613,7 @@ def init_db():
             sys.stderr.flush()
 
         # ── RLS policies and the pre-tenant front door: every boot, idempotent ──
-        for name in ('rls.sql', 'auth_functions.sql'):
+        for name in ('rls.sql', 'auth_functions.sql', 'admin_functions.sql'):
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sql', name), encoding='utf-8') as fh:
                 cur.execute(fh.read())
 
@@ -963,6 +995,109 @@ def owner_required(f):
     return decorated
 
 
+# ── The platform operator's gate ──
+
+def _clerk_verified_email(clerk_user_id):
+    """This Clerk account's primary email address — but only if Clerk itself
+    says it is verified. '' when it is not, or when there is none.
+
+    Raises on anything that is not a clean answer (no secret key, a timeout, a
+    non-2xx, unparseable JSON) so the caller fails closed instead of guessing.
+
+    api.clerk.com sits behind Cloudflare, which answers urllib's default
+    User-Agent with error 1010 — hence the explicit one. The timeout matters
+    too: gunicorn runs sync workers, and a hung request here parks one.
+    """
+    if not CLERK_SECRET_KEY:
+        raise RuntimeError('CLERK_SECRET_KEY is not set; no platform admin can be verified')
+    req = Request(CLERK_API_USERS + quote(str(clerk_user_id), safe=''),
+                  headers={'Authorization': f'Bearer {CLERK_SECRET_KEY}',
+                           'Accept': 'application/json',
+                           'User-Agent': 'platoon-accountability/1.0'})
+    with urlopen(req, timeout=5) as resp:
+        data = json.load(resp)
+    primary = data.get('primary_email_address_id')
+    for entry in data.get('email_addresses') or []:
+        if entry.get('id') != primary:
+            continue
+        # An unverified address is one anybody can type into a sign-up form.
+        if (entry.get('verification') or {}).get('status') != 'verified':
+            return ''
+        return (entry.get('email_address') or '').strip().lower()
+    return ''
+
+
+def _platform_admin_verdict(clerk_user_id):
+    """Is this Clerk account the operator of this instance?
+
+    Cached per Clerk id, positive AND negative, for a few minutes: the
+    dashboard is several requests plus a Refresh button and none of them
+    should cost a round trip to Clerk, and caching only the "yes" would let
+    any signed-in stranger make us call Clerk as often as they liked. A
+    failure is not cached either way — an outage must not pin a stale verdict.
+    """
+    if not clerk_user_id or not PLATFORM_ADMIN_EMAILS:
+        return False
+    now = time.monotonic()
+    hit = _PLATFORM_ADMIN_CACHE.get(clerk_user_id)
+    if hit and hit[0] > now:
+        return hit[1]
+    verdict = _clerk_verified_email(clerk_user_id) in PLATFORM_ADMIN_EMAILS
+    if len(_PLATFORM_ADMIN_CACHE) > 512:
+        # ponytail: one operator and a handful of curious accounts — a flush is
+        # cheaper than an LRU. Revisit if this ever holds real traffic.
+        _PLATFORM_ADMIN_CACHE.clear()
+    _PLATFORM_ADMIN_CACHE[clerk_user_id] = (now + PLATFORM_ADMIN_TTL_SECONDS, verdict)
+    return verdict
+
+
+def platform_admin_required(f):
+    """The person who runs the instance, and nobody else.
+
+    Deliberately not one of the tenant decorators: it declares NO tenant (the
+    routes behind it read across all of them, through the SECURITY DEFINER
+    admin_ functions) and it does not care whether the caller is attached to a
+    unit. The identity comes from the verified session token's `sub` and
+    nothing else — never a header, a query string or a body.
+
+    A signed-in non-admin gets 404, not 403: there is no reason to tell them
+    the surface exists. No session at all is 401, like every other API route.
+    An unreachable Clerk is 503 and closed.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        claims, error = _verify_clerk_session_token()
+        if error:
+            return jsonify({'error': error}), _auth_status_for(error)
+        g.auth_claims = claims
+        try:
+            allowed = _platform_admin_verdict(claims.get('sub'))
+        except Exception as exc:
+            app.logger.warning('platform admin check failed: %s', exc)
+            return jsonify({'error': CLERK_UNREACHABLE}), 503
+        if not allowed:
+            return jsonify({'error': 'Not found'}), 404
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _platform_admin_flag(u):
+    """Whether to offer this user the Admin menu, for /api/me and /api/auth/sync.
+
+    The stored email is only a hint, so it decides one thing: whether asking
+    Clerk is worth it at all. Every ordinary sign-in stops on the first line
+    and costs nothing; the operator's costs one lookup per TTL, and it is
+    Clerk's verified answer — not the stored row — that returns True.
+    """
+    if (u.get('email') or '').strip().lower() not in PLATFORM_ADMIN_EMAILS:
+        return False
+    try:
+        return _platform_admin_verdict(u.get('clerk_user_id') or '')
+    except Exception as exc:
+        app.logger.warning('platform admin check failed: %s', exc)
+        return False
+
+
 # ── Error handling ──
 # Without this an unhandled exception is a bare 500 that nobody ever sees: the
 # traceback goes nowhere useful and an /api/ caller gets an HTML error page it
@@ -1146,7 +1281,8 @@ def auth_sync():
     set_tenant(get_db(), user['root_id'])
     g.tz = _tenant_timezone(get_db(), user['root_id']) if user['root_id'] else FALLBACK_TZ
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
-    return jsonify({**_user_json(get_db(), user), 'invited_by': _invited_by(get_db(), user)})
+    return jsonify({**_user_json(get_db(), user), 'invited_by': _invited_by(get_db(), user),
+                    'platform_admin': _platform_admin_flag(user)})
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -1158,7 +1294,33 @@ def logout():
 @login_required
 def me():
     return jsonify({**_user_json(get_db(), g.current_user),
-                    'invited_by': _invited_by(get_db(), g.current_user)})
+                    'invited_by': _invited_by(get_db(), g.current_user),
+                    'platform_admin': _platform_admin_flag(g.current_user)})
+
+
+# ── Platform operator dashboard ──
+# The only cross-tenant read surface in the app. It declares no tenant and
+# every number in it comes from sql/admin_functions.sql, which is where the
+# rule about what may and may not be exposed is written down.
+
+@app.route('/api/admin/overview', methods=['GET'])
+@platform_admin_required
+def admin_overview():
+    conn = get_db()
+    # No tenant, so this is FALLBACK_TZ — the same coarse clock auth_invite()
+    # is filtered on before a tenant is known. Invite expiry stamps are written
+    # in each tenant's own zone, so "pending" here can be a few hours out at
+    # the edges; it is a dashboard count, not a gate.
+    now = app_stamp()
+    totals = conn.execute('SELECT * FROM admin_totals(%s)', (now,)).fetchone()
+    orgs = conn.execute('SELECT * FROM admin_organisations(%s)', (now,)).fetchall()
+    recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (25,)).fetchall()
+    return jsonify({
+        'totals': dict(totals),
+        'organisations': [dict(r) for r in orgs],
+        'recent_users': [dict(r) for r in recent],
+        'generated_at': now,
+    })
 
 
 # ── User management ──

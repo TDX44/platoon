@@ -171,6 +171,38 @@ USER_FIXTURE = {
     'unit_name': 'Headhunter Company', 'unit_slug': 'headhunter-company',
     'role': 'owner', 'root_id': ROOT_UNIT_ID, 'timezone': APP_TZ,
     'needs_unit': False, 'invited_by': '',
+    # Also the operator of the instance, so the Admin menu item, the Settings
+    # row and the /admin screen itself are all on screen to be measured.
+    'platform_admin': True,
+}
+
+# What GET /api/admin/overview returns. Deliberately wide content — long
+# organisation names, long owner emails, nine columns — because the admin
+# tables are the widest thing the app draws on a 320px phone.
+ADMIN_FIXTURE = {
+    'generated_at': TODAY.isoformat() + ' 06:30:00',
+    'totals': {'organisations': 3, 'unit_count': 1284, 'personnel_count': 9876,
+               'user_count': 142, 'unattached_users': 37, 'pending_invites': 6,
+               'database_bytes': 86423219},
+    'organisations': [
+        {'org_id': 1, 'org_name': 'Headhunter Company (Forward Support Battalion)',
+         'org_slug': 'headhunter-company', 'org_kind': 'company',
+         'created_stamp': '2026-01-02 03:04:05', 'unit_count': 5, 'personnel_count': 42,
+         'user_count': 7, 'owner_emails': 'ada.fixtureton-placeholder@example.invalid',
+         'pending_invites': 2, 'has_logo': True,
+         'last_activity': TODAY.isoformat() + ' 06:00:00', 'audit_7d': 173},
+        {'org_id': 2, 'org_name': 'Second Placeholder Battalion', 'org_slug': 'second-placeholder',
+         'org_kind': 'company', 'created_stamp': '2026-02-02 03:04:05', 'unit_count': 2,
+         'personnel_count': 8, 'user_count': 1, 'owner_emails': None, 'pending_invites': 0,
+         'has_logo': False, 'last_activity': None, 'audit_7d': 0},
+    ],
+    'recent_users': [
+        {'user_id': 9, 'email': 'brand.new.signup@example.invalid', 'full_name': 'PFC Brand Newsignup',
+         'role': 'leader', 'org_name': None, 'signed_in': True},
+        {'user_id': 8, 'email': 'ada.fixtureton-placeholder@example.invalid',
+         'full_name': 'SFC Ada Fixtureton-Placeholder', 'role': 'owner',
+         'org_name': 'Headhunter Company (Forward Support Battalion)', 'signed_in': True},
+    ],
 }
 
 # Leader chips on the Units page, one of them on a deep unit.
@@ -267,6 +299,7 @@ async (fixture) => {
     if (p === '/users') return fixture.users;
     if (p === '/invites') return fixture.invites;
     if (p === '/me') return fixture.user;
+    if (p === '/admin/overview') return fixture.admin;
     if (/^\\/personnel\\/\\d+\\/profile$/.test(p)) return fixture.profile;
     return [];
   };
@@ -484,7 +517,8 @@ def run_checks(page, base_url):
     fixture = {'units': UNITS_FIXTURE, 'roster': ROSTER_FIXTURE, 'directory': DIRECTORY_FIXTURE,
                'availability': AVAILABILITY_FIXTURE, 'users': USERS_FIXTURE,
                'invites': INVITES_FIXTURE, 'settings': SETTINGS_FIXTURE,
-               'user': USER_FIXTURE, 'profile': PROFILE_FIXTURE}
+               'user': USER_FIXTURE, 'profile': PROFILE_FIXTURE,
+               'admin': ADMIN_FIXTURE}
     for width in WIDTHS:
         page.set_viewport_size({'width': width, 'height': 900})
         page.goto(f'{base_url}/', wait_until='load')
@@ -547,6 +581,16 @@ def run_checks(page, base_url):
             check_no_horizontal_overflow(page, width, 'formation')
             page.evaluate('exitFormation()')
         page.set_viewport_size({'width': width, 'height': 900})
+
+        # The platform dashboard: two nine-column tables on a 320px phone.
+        # They scroll inside their own wrappers; the page must not.
+        page.evaluate('(async () => { await openAdmin(false); })()')
+        page.wait_for_timeout(50)
+        assert page.evaluate("document.querySelectorAll('#adminScreen .admin-table tbody tr').length >= 4"), (
+            f'admin @ {width}px: the dashboard tables did not render — fixture is stale')
+        check_no_horizontal_overflow(page, width, 'admin')
+        if width < 900:
+            check_tap_targets(page, width, '#adminScreen button', 'admin')
 
         # First run: the signed-in user belongs to no unit yet. Last, because
         # it swaps the platoon screen out from under everything above.

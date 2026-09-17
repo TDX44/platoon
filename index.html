@@ -2311,6 +2311,67 @@
   .directory-table th.sorted { color: var(--cp-accent); }
   .directory-table th.sorted .sort-caret { opacity: 1; }
 
+  /* ── Platform admin (/admin) ──
+     Its own screen, not a page inside the dashboard: it is not scoped to a
+     unit, and the operator reaches it from the home screen with no unit
+     selected. Everything below reuses the --cp-* tokens, so dark mode is
+     inherited rather than restated. */
+  #adminScreen {
+    display: none; flex-direction: column; gap: 18px;
+    padding: 24px 16px 48px; max-width: 1100px; margin: 0 auto; width: 100%;
+    box-sizing: border-box;
+  }
+  .admin-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
+  .admin-head h1 {
+    margin: 0; font-size: 1.5em; color: var(--cp-text-strong); letter-spacing: -0.01em;
+  }
+  .admin-generated { color: var(--cp-muted); font-size: 0.82em; font-variant-numeric: tabular-nums; }
+  .admin-head .admin-actions { margin-left: auto; display: flex; gap: 8px; }
+  .admin-totals {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  }
+  .admin-total {
+    background: var(--cp-surface); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius-lg); padding: 12px 14px; min-width: 0;
+  }
+  .admin-total-n {
+    font-size: 1.5em; font-weight: 700; color: var(--cp-text-strong);
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .admin-total-label {
+    margin-top: 2px; font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--cp-muted);
+  }
+  .admin-section h2 {
+    margin: 0 0 8px; font-size: 0.78em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--cp-muted);
+  }
+  /* The tables scroll inside their own box; the page never scrolls sideways. */
+  .admin-table-wrap {
+    overflow-x: auto; background: var(--cp-surface);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+  }
+  .admin-table { width: 100%; border-collapse: collapse; font-size: 0.84em; }
+  .admin-table th {
+    text-align: left; background: var(--cp-subtle); color: var(--cp-muted);
+    font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 9px 12px; border-bottom: 1px solid var(--cp-border); white-space: nowrap;
+  }
+  .admin-table th.sortable { cursor: pointer; user-select: none; }
+  .admin-table th.sortable:hover { color: var(--cp-text); background: var(--cp-hover); }
+  .admin-table th .sort-caret { opacity: 0.35; margin-left: 5px; font-size: 0.9em; }
+  .admin-table th.sorted { color: var(--cp-accent); }
+  .admin-table th.sorted .sort-caret { opacity: 1; }
+  .admin-table td {
+    padding: 9px 12px; border-bottom: 1px solid var(--cp-hairline);
+    color: var(--cp-text); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .admin-table tbody tr:last-child td { border-bottom: none; }
+  .admin-table .admin-strong { font-weight: 600; color: var(--cp-text-strong); }
+  .admin-table .admin-muted { color: var(--cp-muted); }
+  .admin-yes { color: var(--cp-green); font-weight: 600; }
+
   /* Status as a colored dot + plain text, not a pill */
   .status-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
   .status-cell::before {
@@ -3399,6 +3460,9 @@
       <div class="menu-submenu" id="usersGroup">
         <button onclick="openClerkProfile();closeHamburger()">Manage Account</button>
         <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">People &amp; invites</button>
+        <!-- Shown only to the operator of this instance (currentUser.platform_admin,
+             which /api/me only returns after Clerk has confirmed the address). -->
+        <button id="adminMenuItem" onclick="openAdmin();closeHamburger()" style="display:none">Admin</button>
       </div>
 
       <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
@@ -3441,6 +3505,11 @@
     </form>
   </div>
 </div>
+
+<!-- ─── Platform admin (/admin) ───
+     Read-only, cross-tenant, and only ever reached by whoever runs the
+     instance: the server answers /api/admin/* with 404 to everyone else. -->
+<div id="adminScreen"></div>
 
 <!-- ─── Platoon Screen ─── -->
 <div id="platoonScreen">
@@ -4619,6 +4688,9 @@ function renderSettings() {
         ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
         ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
         ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
+        ${currentUser && currentUser.platform_admin
+          ? settingsNavRow('Admin', 'Every organisation on this instance. Operator only.', 'openAdmin()')
+          : ''}
         ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
       </section>
     </div>`;
@@ -7821,6 +7893,165 @@ function renderAuditLog() {
   }
 }
 
+// ─── Platform admin (/admin) ─────────────────────────────────────────────
+// Read-only, cross-tenant, one fetch. Not a page inside the dashboard: it has
+// no unit, so it is its own screen (showAppScreen('admin')) and never touches
+// currentUnit. The server answers /api/admin/* with 404 to anyone who is not
+// the verified operator, so this is a convenience gate, not the security one —
+// currentUser.platform_admin comes back from /api/me and only hides the menu.
+const ADMIN_ORG_COLUMNS = [
+  { key: 'org_name',         label: 'Organisation' },
+  { key: 'unit_count',       label: 'Units' },
+  { key: 'personnel_count',  label: 'Personnel' },
+  { key: 'user_count',       label: 'Users' },
+  { key: 'pending_invites',  label: 'Invites' },
+  { key: 'has_logo',         label: 'Logo' },
+  { key: 'audit_7d',         label: '7-day activity' },
+  { key: 'last_activity',    label: 'Last activity' },
+  { key: 'created_stamp',    label: 'Created' },
+];
+const ADMIN_USER_COLUMNS = [
+  { key: 'email',     label: 'Email' },
+  { key: 'full_name', label: 'Name' },
+  { key: 'role',      label: 'Role' },
+  { key: 'org_name',  label: 'Organisation' },
+  { key: 'signed_in', label: 'Signed in' },
+];
+let adminData = null;
+let adminOrgSort = { key: 'personnel_count', dir: -1 };
+let adminUserSort = { key: 'user_id', dir: -1 };
+
+// Pinned to en-US rather than the viewer's locale: this page is one person's,
+// and a fixed grouping separator is what makes the numbers line up in the
+// tabular-numeral columns (and what lets the tests assert on them).
+function adminNum(n) { return Number(n || 0).toLocaleString('en-US'); }
+
+function adminBytes(n) {
+  const bytes = Number(n || 0);
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0, v = bytes;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+}
+
+function adminCell(value) {
+  if (value === null || value === undefined || value === '') return '<span class="admin-muted">—</span>';
+  if (value === true) return '<span class="admin-yes">yes</span>';
+  if (value === false) return '<span class="admin-muted">no</span>';
+  if (typeof value === 'number') return escapeHtml(adminNum(value));
+  return escapeHtml(String(value));
+}
+
+// Blanks sink, booleans sort as 0/1, everything else goes through as-is.
+function adminSortValue(row, key) {
+  const v = row[key];
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  return v;
+}
+
+// The whole page, from one payload. Pure, so tests/test_platform_admin_js.py
+// can run it under node and prove no server string ever becomes markup.
+function adminOverviewHtml(data, orgSort, userSort) {
+  if (!data) return '<div class="dash-section-empty">Loading…</div>';
+  const t = data.totals || {};
+  const totals = [
+    ['Organisations', adminNum(t.organisations)],
+    ['Units', adminNum(t.unit_count)],
+    ['Personnel', adminNum(t.personnel_count)],
+    ['Users', adminNum(t.user_count)],
+    ['Unattached', adminNum(t.unattached_users)],
+    ['Pending invites', adminNum(t.pending_invites)],
+    ['Database', adminBytes(t.database_bytes)],
+  ].map(([label, value]) => `<div class="admin-total">
+        <div class="admin-total-n">${escapeHtml(value)}</div>
+        <div class="admin-total-label">${label}</div>
+      </div>`).join('');
+
+  const orgs = sortRows(data.organisations || [], orgSort, adminSortValue);
+  const orgRows = orgs.map(o => `<tr>
+      <td class="admin-strong">${adminCell(o.org_name)}<div class="admin-muted">${adminCell(o.org_slug)} · ${adminCell(o.org_kind)}</div>
+        <div class="admin-muted">${adminCell(o.owner_emails)}</div></td>
+      <td>${adminCell(o.unit_count)}</td>
+      <td>${adminCell(o.personnel_count)}</td>
+      <td>${adminCell(o.user_count)}</td>
+      <td>${adminCell(o.pending_invites)}</td>
+      <td>${adminCell(o.has_logo)}</td>
+      <td>${adminCell(o.audit_7d)}</td>
+      <td>${adminCell(o.last_activity)}</td>
+      <td>${adminCell(o.created_stamp)}</td>
+    </tr>`).join('');
+
+  const users = sortRows(data.recent_users || [], userSort, adminSortValue);
+  const userRows = users.map(u => `<tr>
+      <td class="admin-strong">${adminCell(u.email)}</td>
+      <td>${adminCell(u.full_name)}</td>
+      <td>${adminCell(u.role)}</td>
+      <td>${adminCell(u.org_name)}</td>
+      <td>${adminCell(u.signed_in)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="admin-head">
+      <h1>Platform admin</h1>
+      <span class="admin-generated">Generated ${adminCell(data.generated_at)}</span>
+      <span class="admin-actions">
+        <button type="button" class="dash-btn dash-btn-ghost" onclick="goHome()">&larr; Home</button>
+        <button type="button" class="dash-btn dash-btn-primary" onclick="refreshAdmin()">Refresh</button>
+      </span>
+    </div>
+    <div class="admin-totals">${totals}</div>
+    <section class="admin-section">
+      <h2>Organisations</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr>${sortHeaders(ADMIN_ORG_COLUMNS, orgSort, 'sortAdminOrgs')}</tr></thead>
+          <tbody>${orgRows || `<tr><td colspan="${ADMIN_ORG_COLUMNS.length}" class="admin-muted">No organisations yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="admin-section">
+      <h2>Recent users</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr>${sortHeaders(ADMIN_USER_COLUMNS, userSort, 'sortAdminUsers')}</tr></thead>
+          <tbody>${userRows || `<tr><td colspan="${ADMIN_USER_COLUMNS.length}" class="admin-muted">No users yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+function renderAdmin() {
+  const view = document.getElementById('adminScreen');
+  if (view) view.innerHTML = adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
+}
+
+function sortAdminOrgs(key) { toggleSort(adminOrgSort, key); renderAdmin(); }
+function sortAdminUsers(key) { toggleSort(adminUserSort, key); renderAdmin(); }
+
+async function refreshAdmin() {
+  const data = await api('GET', '/admin/overview');
+  // A non-admin who typed the URL gets a 404 here; api() has already reported
+  // it, and there is nothing to draw, so leave the screen alone and go home.
+  if (!data || data.error) { goHome(); return; }
+  adminData = data;
+  renderAdmin();
+}
+
+function openAdmin(push = true) {
+  showAppScreen('admin');
+  if (push) history.pushState({ section: 'admin' }, '', '/admin');
+  adminData = null;
+  renderAdmin();
+  refreshAdmin();
+  window.scrollTo({ top: 0 });
+}
+
+function closeAdmin() {
+  adminData = null;
+  goHome();
+}
+
 // ─── Event Listeners ───
 let unitNameTimer;
 document.getElementById('unitName').addEventListener('input', () => {
@@ -7854,6 +8085,10 @@ function showAppScreen(screen) {
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
   document.getElementById('createUnitScreen').style.display = screen === 'createUnit' ? 'flex' : 'none';
   document.getElementById('platoonScreen').style.display = screen === 'platoon' ? 'block' : 'none';
+  // The platform dashboard belongs to no unit, so it is a screen of its own
+  // rather than a page inside the dashboard shell.
+  document.getElementById('adminScreen').style.display = screen === 'admin' ? 'flex' : 'none';
+  document.body.classList.toggle('admin-active', screen === 'admin');
 }
 
 function showCreateUnitScreen() {
@@ -7890,6 +8125,8 @@ function showLoginScreen(view) {
   document.getElementById('homeScreen').style.display = 'none';
   document.getElementById('createUnitScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
+  document.getElementById('adminScreen').style.display = 'none';
+  document.body.classList.remove('admin-active');
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
   showInviteNote();
@@ -8554,6 +8791,10 @@ function pushAppRoute(unit, section, soldierId = null, replace = false) {
 function parseAppRoute() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
   const parts = path ? path.split('/') : [];
+  // Before any slug lookup, so a unit can never take this URL away from the
+  // platform dashboard. The server reserves the slug as well, so no unit ends
+  // up unreachable either — see RESERVED_SLUGS in server.py.
+  if (parts[0] === 'admin') return { unit: null, section: 'admin' };
   const unit = parts.length ? unitBySlug(parts[0]) : null;
   if (unit) {
     if (parts[1] === 'soldier' && parts[2]) return { unit, section: 'soldier', soldierId: parseInt(parts[2], 10) };
@@ -8568,8 +8809,16 @@ function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
-  if (currentUser && currentUser.needs_unit) { showCreateUnitScreen(); return; }
   const route = parseAppRoute();
+  // Before the needs_unit check: /admin is not unit-scoped, so an operator who
+  // belongs to no unit must still land on it rather than on the "name your
+  // unit" screen. Anyone else asking for it is sent home — and the API would
+  // 404 them anyway.
+  if (route.section === 'admin' && currentUser && currentUser.platform_admin) {
+    openAdmin(false);
+    return;
+  }
+  if (currentUser && currentUser.needs_unit) { showCreateUnitScreen(); return; }
   if (!route.unit) { loadHome(); return; }
   selectUnit(route.unit, false, route.section === 'soldier' ? route.soldierId : null);
   if (route.section === 'directory') openDirectory(false);
@@ -8668,6 +8917,8 @@ async function loadHome() {
   if (currentUser.needs_unit) { showCreateUnitScreen(); return; }
   showAppScreen('home');
   document.getElementById('manageUsersMenuItem').style.display = 'block';
+  document.getElementById('adminMenuItem').style.display =
+    currentUser.platform_admin ? 'block' : 'none';
   document.getElementById('backupGroupHeader').style.display = 'flex';
   syncInstallButton();
   await loadUnits();
@@ -9096,6 +9347,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.addEventListener('popstate', () => {
   const route = parseAppRoute();
+  if (route.section === 'admin') {
+    if (currentUser && currentUser.platform_admin) openAdmin(false);
+    else loadHome();
+    return;
+  }
   if (route.unit) {
     const wantSoldier = route.section === 'soldier' ? route.soldierId : null;
     if (route.unit.id !== (currentUnit && currentUnit.id)) {

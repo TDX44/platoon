@@ -18,6 +18,11 @@ services:
       # and the Postgres DEFAULTs run in the db container, not this one.)
       TZ: America/Chicago
       PLATOON_TZ: America/Chicago
+      # Who may open /admin. Everything else the app needs comes straight out
+      # of .env via env_file above (including CLERK_SECRET_KEY, which the
+      # /admin gate uses to confirm the address with Clerk); this one is named
+      # here as well so the default is visible without opening .env.
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-jonathon.carr5@gmail.com}
       DATABASE_URL: postgresql://platoon_app:${DB_APP_PASSWORD}@db:5432/platoon
       MIGRATION_DATABASE_URL: postgresql://platoon_owner:${DB_OWNER_PASSWORD}@db:5432/platoon
     volumes:

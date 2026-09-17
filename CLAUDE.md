@@ -54,6 +54,9 @@ python tests/test_units.py            # unit CRUD, slug uniqueness, owner-only g
 python tests/test_auth_flow.py        # signup states: needs_unit, invite, legacy claim
 python tests/test_units_migration.py  # platoons-to-units.py against a fixture shaped like prod
 python tests/test_unit_tree_js.py     # frontend tree helpers (unitById/unitBySlug/...), under node
+python tests/test_platform_admin.py   # /admin: the Clerk-verified email gate, the
+                                      # cross-tenant counts, what the payload may not carry
+python tests/test_platform_admin_js.py # the /admin page's markup, under node
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -413,6 +416,54 @@ invite carries the target unit and role and expires after
 frontend stashes the token in `sessionStorage` so it survives Clerk's
 email-verification and OAuth redirects. Invites are deliberately left out of
 backup/restore — they are short-lived credentials, not data.
+
+### Platform admin
+
+One person runs this instance, and `/admin` is theirs: a **read-only,
+cross-tenant** dashboard (totals, one row per organisation, the newest users)
+served by `GET /api/admin/overview`. It is not an app role — `owner` and
+`leader` are still the only roles inside a tenant — it is the operator of the
+server.
+
+**Who.** `PLATFORM_ADMIN_EMAILS` (comma-separated, case-insensitive, default
+`jonathon.carr5@gmail.com`; empty turns the dashboard off). The address is
+compared against **Clerk's** copy, never ours: `users.email` is written from
+the `/api/auth/sync` request body, so it is the caller's own claim about
+themselves, and a stranger can put any address in their row. The session JWT
+carries `sub` and no email (this instance uses Clerk's default token), so
+`_clerk_verified_email()` asks Clerk's Backend API — `GET
+https://api.clerk.com/v1/users/<sub>` with `CLERK_SECRET_KEY` — for the
+`primary_email_address_id` entry and requires `verification.status ==
+'verified'`. api.clerk.com is behind Cloudflare, which rejects urllib's
+default User-Agent with error 1010, so one is sent explicitly. The verdict is
+cached per Clerk id for five minutes, **positive and negative** (caching only
+the yes would let any signed-in stranger make us call Clerk at will); a
+failure is cached neither way. **An unreachable Clerk fails closed** (503),
+never open. `platform_admin_required` declares **no tenant**, works whether or
+not the admin is attached to a unit, and answers a signed-in non-admin with
+**404** — the surface is not advertised. `/api/me` and `/api/auth/sync` carry
+`platform_admin`, and that flag costs a Clerk call only when the stored email
+already matches the list, so an ordinary sign-in never touches Clerk.
+
+**What it may show.** Every number comes from the three `admin_*` SECURITY
+DEFINER functions in **`sql/admin_functions.sql`**, installed at boot beside
+`auth_functions.sql`. That file's header is the rule: counts, sizes,
+timestamps, organisation names/slugs, and app users' email/name/role — and
+nothing else. No soldier names, no profile rows, no audit `details`, no invite
+tokens, no logo bytes, no Clerk ids. **The database cannot tell an admin
+request from any other** — `platoon_app` holds EXECUTE on all three — so every
+Python caller must sit behind `platform_admin_required`, and
+`tests/test_platform_admin.py` greps `server.py` to prove it.
+
+**The slug `admin` is reserved** (`RESERVED_SLUGS` in `server.py`, applied in
+`slugify()`, which both the root and child creation paths go through): a unit
+named "Admin" gets `admin-unit`, because the client resolves `/admin` before
+it looks a slug up and a unit holding that slug would otherwise be
+unreachable. The page is its own screen (`#adminScreen`,
+`showAppScreen('admin')`), not a page inside the dashboard shell, because it
+is not scoped to a unit — the operator opens it from the home screen with no
+`currentUnit`. Tests: `tests/test_platform_admin.py`,
+`tests/test_platform_admin_js.py`.
 
 ### Day reset — there is no background worker
 
