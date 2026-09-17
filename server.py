@@ -105,6 +105,11 @@ def validate_timezone(name):
         raise ValueError(f'{name!r} is not a known timezone')
 
 
+# A bad PLATOON_TZ is a boot failure, not a 500 on every request that asks the
+# time. The old module-level ZoneInfo(FALLBACK_TZ) caught it here; keep that.
+validate_timezone(FALLBACK_TZ)
+
+
 def _tenant_timezone(conn, root_id):
     """The stored zone for a root, falling back rather than failing: a bad
     stored value must never take the app down."""
@@ -875,6 +880,13 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
+    # Pre-tenant, so this is FALLBACK_TZ: it is only the coarse filter that
+    # fetches the invite row. The expiry that counts is re-checked below on the
+    # invite's OWN tenant clock, which is the clock create_invite wrote it on.
+    # ponytail: when FALLBACK_TZ runs ahead of the tenant's zone this filter is
+    # the stricter of the two and can drop an invite a few hours early. That
+    # fails safe (it never admits an expired one) and the alternative is
+    # changing auth_invite(), which belongs to Task 1's sql/auth_functions.sql.
     now = app_stamp()
     try:
         existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
@@ -890,6 +902,16 @@ def sync_clerk_user(payload):
 
         token = (payload.get('invite_token') or '').strip()
         invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, now)).fetchone() if token else None
+        if invite:
+            # Declare the invite's tenant now, so both the expiry it is judged
+            # against and the accepted_at it is stamped with are read on the
+            # clock that minted it. An invite that has run out on that clock is
+            # simply absent — the caller lands unattached, as if they had none.
+            set_tenant(conn, invite['root_id'])
+            g.tz = _tenant_timezone(conn, invite['root_id']) if invite['root_id'] else FALLBACK_TZ
+            now = app_stamp()
+            if invite['expires_at'] <= now:
+                invite = None
         legacy = conn.execute('SELECT * FROM auth_user_by_identity(%s, %s)', (email, username)).fetchone()
 
         if legacy:
@@ -1289,6 +1311,7 @@ def preview_invite(token):
     if not row:
         return jsonify({'valid': False}), 404
     set_tenant(conn, row['root_id'])
+    g.tz = _tenant_timezone(conn, row['root_id']) if row['root_id'] else FALLBACK_TZ
     unit = _unit_row(conn, row['unit_id'])
     return jsonify({'valid': True, 'label': row['label'], 'unit_name': unit['name'] if unit else '',
                     'kind': unit['kind'] if unit else '', 'role': row['role']})
@@ -2081,6 +2104,7 @@ def add_duty():
     data = request.get_json() or {}
     if not can_access(data.get('unit_id')):
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id = int(data['unit_id'])
     conn = get_db()
     try:
         person_id = int(data.get('person_id'))
@@ -2089,6 +2113,11 @@ def add_duty():
     person = _person_or_none(conn, person_id)
     if person is None or not can_access(person['unit_id']):
         return jsonify({'error': 'Pick a soldier from this unit.'}), 400
+    # Reachable is not the same as belonging: an owner can see every soldier in
+    # the tree, but booking one onto a unit they are not in is the pre-A1
+    # "another platoon" mistake wearing a new name.
+    if person['unit_id'] not in subtree_ids(conn, unit_id):
+        return jsonify({'error': 'That soldier is not in this unit.'}), 400
 
     date_str = data.get('date', '')
     duty_type = data.get('duty_type', 'CQ')

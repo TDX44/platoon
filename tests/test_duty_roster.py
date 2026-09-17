@@ -118,6 +118,15 @@ def check_outside_the_subtree_is_refused(client):
         "another tenant's duty entry does not exist from here"
     assert client.get(f"/api/duty?unit={OTHER['root']}").status_code == 403
 
+    # Reachable is not the same as belonging: the owner can see both platoons,
+    # but a 2nd-platoon soldier still cannot be booked onto the sibling unit.
+    homebody = add_person('SGT', 'Containment', 'Case')
+    r = post_duty(client, homebody, day(0), unit_id=sibling)
+    assert r.status_code == 400, r.get_json()
+    assert r.get_json()['error'] == 'That soldier is not in this unit.', r.get_json()
+    # ...and the same soldier onto their own unit is fine.
+    assert post_duty(client, homebody, day(0)).status_code == 201
+
     dbharness.as_user(LEADER)
     assert client.get(f'/api/duty?unit={sibling}').status_code == 403
     assert client.get(f'/api/duty/conflicts?unit={sibling}').status_code == 403

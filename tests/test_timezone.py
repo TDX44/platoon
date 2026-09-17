@@ -172,6 +172,64 @@ def check_auth_sync_reports_the_tenants_zone():
     assert payload['timezone'] == 'Europe/Berlin', payload
 
 
+def check_invite_acceptance_uses_the_tenants_clock():
+    """create_invite() writes expires_at with app_stamp(), i.e. on the tenant's
+    clock. sync_clerk_user() therefore has to judge that expiry, and write
+    accepted_at, on the same clock — not on the pre-tenant fallback."""
+    t = dbharness.make_tree('Invite Tz Co')
+    berlin_now = datetime.now(ZoneInfo('Europe/Berlin'))
+
+    def mint(token, expires_at):
+        conn = dbharness.owner_conn()
+        conn.execute('UPDATE settings SET value = %s WHERE root_id = %s AND key = %s',
+                     ('Europe/Berlin', t['root'], server.TIMEZONE_KEY))
+        conn.execute(
+            'INSERT INTO invites (token, label, unit_id, role, root_id, created_by, expires_at, created_at) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
+            (token, 'PSG', t['child'], 'leader', t['root'], 'boss',
+             expires_at.strftime('%Y-%m-%d %H:%M:%S'), berlin_now.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit(); conn.close()
+
+    def sync(clerk_id, token):
+        with server.app.test_request_context('/api/auth/sync', method='POST'):
+            g.auth_claims = {'sub': clerk_id}
+            user, err = server.sync_clerk_user({'username': clerk_id, 'email': f'{clerk_id}@example.com',
+                                                'full_name': 'T', 'invite_token': token})
+            assert err is None, err
+            g.db_commit = True
+            server._close_db(None)
+        return user
+
+    mint('tz-invite', berlin_now + timedelta(days=1))
+    user = sync('tzinvitee', 'tz-invite')
+    assert user['unit_id'] == t['child'], user
+
+    conn = dbharness.owner_conn()
+    accepted = conn.execute(
+        "SELECT accepted_at FROM invites WHERE token = 'tz-invite'").fetchone()['accepted_at']
+    conn.close()
+    stamped = datetime.strptime(accepted, '%Y-%m-%d %H:%M:%S')
+    expected = datetime.now(ZoneInfo('Europe/Berlin')).replace(tzinfo=None)
+    assert abs((stamped - expected).total_seconds()) < 120, \
+        f'accepted_at {accepted} is not the tenant (Berlin) clock; expected about {expected}'
+    # ...and demonstrably not the fallback zone, which is 7h behind Berlin.
+    chicago = datetime.now(CENTRAL).replace(tzinfo=None)
+    assert abs((stamped - chicago).total_seconds()) > 3000, \
+        f'accepted_at {accepted} is still on the fallback (Chicago) clock'
+
+    # An invite already expired on the TENANT's clock, but not yet on the
+    # fallback's (Chicago is hours behind Berlin), must not attach anyone.
+    # Only the re-check after set_tenant can catch this one.
+    mint('tz-stale', datetime.now(ZoneInfo('Europe/Berlin')) - timedelta(hours=1))
+    stale = sync('tzstale', 'tz-stale')
+    assert stale['unit_id'] is None, \
+        'an invite already expired on the tenant clock must not attach a user'
+    conn = dbharness.owner_conn()
+    row = conn.execute("SELECT accepted_at FROM invites WHERE token = 'tz-stale'").fetchone()
+    conn.close()
+    assert row['accepted_at'] == '', 'a refused invite must not be marked accepted'
+
+
 def _assert_unit_clock(stamp, what):
     parsed = datetime.strptime(str(stamp)[:19], '%Y-%m-%d %H:%M:%S')
     central = datetime.now(CENTRAL).replace(tzinfo=None)
@@ -230,6 +288,7 @@ def main():
         check_absence_activates_on_the_units_day()
         check_timezone_is_a_tenant_setting()
         check_auth_sync_reports_the_tenants_zone()
+        check_invite_acceptance_uses_the_tenants_clock()
         check_stored_timestamps_use_the_units_clock()
         check_config_no_longer_publishes_a_timezone()
         print('ok')
