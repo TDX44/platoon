@@ -2890,11 +2890,15 @@
     gap: 8px; padding: 4px 4px 16px; text-align: center;
   }
   /* aspect-ratio, not height:auto: a unit may upload any shape up to 512px and
-     the box must not resize under the nav when it loads. */
+     the box must not resize under the nav when it loads. The built-in art is a
+     440x573 portrait; an uploaded mark is squarer, and forcing it into that
+     box would letterbox it with dead space down both sides. So: two boxes,
+     both of fixed shape and the same width, applyUnitLogo() picks which. */
   .dash-brand img {
     width: 100%; max-width: 180px; height: auto; aspect-ratio: 440 / 573;
     object-fit: contain;
   }
+  .dash-brand img.brand-custom { aspect-ratio: 1 / 1; }
   .dash-brand-name {
     color: var(--cp-side-strong); font-weight: 700; font-size: 0.78em;
     letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.35;
@@ -3985,6 +3989,15 @@ async function loadUnits() {
   units = (await api('GET', '/units')) || [];
 }
 
+// Re-pull the tree after anything that changed it. `units` is replaced
+// wholesale, so the currentUnit object every open page is holding is now a
+// stale snapshot — re-point it at the fresh row or the header, the logo and
+// the labels go on showing what was just edited away.
+async function reloadUnits() {
+  await loadUnits();
+  if (currentUnit) currentUnit = unitById(currentUnit.id) || currentUnit;
+}
+
 // ─── Unit logo ───
 // Each unit may carry its own PNG; one with none shows the nearest one above it
 // in the tree, which the server has already resolved into `unit.logo`. The
@@ -4006,8 +4019,17 @@ function unitLogoUrl(unit, fallback = BUILTIN_LOGO) {
 function applyUnitLogo() {
   const paint = (el, url, fallback) => {
     if (!el) return;
+    // The built-in sidebar art is a 440x573 portrait; an upload is any shape up
+    // to a 512 square. One box for both letterboxes whichever it was not cut
+    // for, so the class tells the stylesheet which box to use. Both are fixed,
+    // so neither shifts the layout when the image lands.
+    el.classList.toggle('brand-custom', url !== fallback);
     // A logo deleted in another tab would otherwise render as a broken image.
-    el.onerror = () => { el.onerror = null; el.src = fallback; };
+    el.onerror = () => {
+      el.onerror = null;
+      el.classList.remove('brand-custom');
+      el.src = fallback;
+    };
     el.src = url;
   };
   const top = currentUser ? unitById(currentUser.unit_id) : null;
@@ -4030,12 +4052,15 @@ function logoSettingsRow() {
   const unit = currentUnit;
   const logo = unit && unit.logo;
   const own = !!(logo && unit && logo.unit_id === unit.id);
-  const from = logo && !own ? unitById(logo.unit_id) : null;
   const limits = 'PNG or JPG, shrunk to fit 512 &times; 512.';
+  // The owner of an INHERITED logo is by definition an ancestor, and /api/units
+  // returns only this caller's own subtree — so looking it up here would miss
+  // every time and the row would say "No logo yet" beside a preview of one.
+  // The server sends the owning unit's name on the logo object instead.
   const hint = own
     ? `Shown for ${escapeHtml(unit.name)} and every unit beneath it that has none of its own. ${limits}`
-    : from
-      ? `Inherited from ${escapeHtml(unitLabel(from))}. Upload one to give ${escapeHtml(unit.name)} its own. ${limits}`
+    : logo
+      ? `Inherited from ${escapeHtml(logo.name || 'the unit above')}. Upload one to give ${escapeHtml(unit.name)} its own. ${limits}`
       : `No logo yet. It is shown for this unit and every unit beneath it. ${limits}`;
   return `<div class="settings-row">
     <img class="settings-logo-preview" src="${unitLogoUrl(unit)}" alt=""
@@ -4091,14 +4116,20 @@ async function uploadUnitLogo(input) {
   }
   // A photo can stay over 400 KB even at 512px, so step down once or twice
   // before giving up rather than refusing a picture we could have used.
-  let blob = null;
+  let blob = null, encoded = false;
   for (const max of [LOGO_MAX_PX, 384, 256]) {
     const candidate = await logoCanvasPng(bitmap, max);
-    if (candidate && candidate.size <= LOGO_MAX_BYTES) { blob = candidate; break; }
+    if (!candidate) continue;               // the encoder gave up, not the size
+    encoded = true;
+    if (candidate.size <= LOGO_MAX_BYTES) { blob = candidate; break; }
   }
   if (typeof bitmap.close === 'function') bitmap.close();
   if (!blob) {
-    alert('That image is too detailed to fit under 400 KB. Try a simpler one.');
+    // Two different failures. Telling someone their image is too detailed when
+    // the canvas simply refused to encode sends them to fix the wrong thing.
+    alert(encoded
+      ? 'That image is too detailed to fit under 400 KB. Try a simpler one.'
+      : 'That image could not be converted to a PNG. Try a different file.');
     return;
   }
   const png = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
@@ -4118,10 +4149,7 @@ async function removeUnitLogo() {
 }
 
 async function refreshUnitLogos() {
-  await loadUnits();
-  // `units` was replaced wholesale, so the old currentUnit object is a stale
-  // copy carrying the logo that was just changed.
-  currentUnit = unitById(currentUnit.id) || currentUnit;
+  await reloadUnits();
   applyUnitLogo();
   renderSettings();
 }
@@ -4223,8 +4251,7 @@ async function saveUnit() {
   // re-pull the tree so the home screen and every label agree with the header.
   const saved = await api('PUT', `/units/${currentUnit.id}`, { name });
   if (!saved) return;
-  await loadUnits();
-  currentUnit = unitById(currentUnit.id) || currentUnit;
+  await reloadUnits();
 }
 
 async function apiUpdate(p) {
@@ -4902,8 +4929,7 @@ async function createUnitInvite(unitId) {
 // and currentUnit is a member of that array, not a copy of one. The people and
 // the open invites come with it — one fetch each for the whole page.
 async function refreshUnitsPage() {
-  await loadUnits();
-  currentUnit = unitById(currentUnit.id) || currentUnit;
+  await reloadUnits();
   const [people, invites] = await Promise.all([api('GET', '/users'), api('GET', '/invites')]);
   unitUsers = people || ACCESS_FAILED;
   unitInvites = invites ? invites.filter(i => i.status === 'pending') : ACCESS_FAILED;
@@ -8662,15 +8688,17 @@ function orgChartHtml(top, childrenOf, headcountOf) {
   const stack = (u) => {
     const kids = childrenOf(u.id);
     if (!kids.length) return '';
-    return `<ul class="org-stack">${kids.map(k => `<li class="org-node">${card(k, '')}${stack(k)}</li>`).join('')}</ul>`;
+    return `<ul class="org-stack" role="list">${kids.map(k => `<li class="org-node">${card(k, '')}${stack(k)}</li>`).join('')}</ul>`;
   };
   const cols = childrenOf(top.id);
   // No children means no connectors at all, so the row is not emitted empty.
   const branches = cols.length
-    ? `<ul class="org-branches">${cols.map(c => `<li class="org-node org-col">${card(c, '')}${stack(c)}</li>`).join('')}</ul>`
+    ? `<ul class="org-branches" role="list">${cols.map(c => `<li class="org-node org-col">${card(c, '')}${stack(c)}</li>`).join('')}</ul>`
     : '';
   // data-cols is what the stylesheet reads to know there is no bar to draw.
-  return `<div class="org-chart" data-cols="${cols.length}"><ul class="org-root">`
+  // role="list" on every <ul>: Safari drops list semantics from a list styled
+  // with list-style: none, which is exactly what the chart's stylesheet does.
+  return `<div class="org-chart" data-cols="${cols.length}"><ul class="org-root" role="list">`
     + `<li class="org-node org-top">${card(top, ' unit-card-top')}${branches}</li>`
     + `</ul></div>`;
 }
