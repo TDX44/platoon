@@ -447,6 +447,7 @@
   }
   .home-title { font-size: 1.8em; font-weight: 700; color: #00d4ff; text-align: center; letter-spacing: 1px; }
   .home-subtitle { font-size: 0.9em; color: #636e72; text-align: center; margin-top: -20px; }
+  .home-lead { font-size: 0.86em; color: var(--cp-text-weak); text-align: center; margin: 6px 16px 0; line-height: 1.5; }
   .home-actions { position: absolute; top: 0; right: 0; display: flex; gap: 8px; align-items: center; }
   .btn-logout { background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.82em; transition: all 0.2s; }
   .btn-logout:hover { border-color: #e17055; color: #e17055; }
@@ -899,7 +900,7 @@
 
   /* ── Modal structure ──
      A modal that is a list of things needs the same anatomy as a page: a
-     subtitle that says what it is for, and labelled sections. Manage Access was
+     subtitle that says what it is for, and labelled sections. This modal was
      a heading followed by an undifferentiated pile of rows. */
   .modal-sub {
     margin: -6px 0 16px; color: var(--cp-muted); font-size: 0.85em; line-height: 1.45;
@@ -1895,6 +1896,27 @@
   .unit-row-meta { font-size: 0.82em; color: var(--cp-text-weak); }
   .unit-row-form { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; margin-top: 8px; }
   .unit-row-form input, .unit-row-form select { flex: 1; min-width: 120px; }
+  /* Access reads off the row, so the chips live in it: they wrap, they never
+     set a width, and every control in one is a real tap target. */
+  .unit-row-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .unit-chip {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 30px;
+    padding: 3px 10px; border-radius: 999px; font-size: 0.8em; line-height: 1.3;
+    border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-text); max-width: 100%;
+  }
+  .unit-chip-user { min-height: 40px; cursor: pointer; font-weight: 600; }
+  .unit-chip-user:hover, .unit-chip-user:focus-visible { border-color: var(--cp-accent); color: var(--cp-accent); }
+  .unit-chip-owner { border-color: var(--cp-accent); }
+  .unit-chip-none { color: var(--cp-text-weak); font-style: italic; border-style: dashed; }
+  .unit-chip-invite { color: var(--cp-text-weak); border-style: dashed; }
+  .unit-chip-text { overflow-wrap: anywhere; }
+  .unit-chip-act {
+    min-height: 40px; padding: 0 8px; border: 0; background: none; cursor: pointer;
+    color: var(--cp-accent); font-size: 1em; font-weight: 600;
+  }
+  .unit-chip-act.unit-chip-danger { color: var(--cp-red); }
+  .role-help { width: 100%; margin: -4px 0 10px; font-size: 0.8em; color: var(--cp-text-weak); line-height: 1.45; }
 
   /* ── Audit log page ── */
   .audit-view { display: none; }
@@ -3240,7 +3262,7 @@
       </button>
       <div class="menu-submenu" id="usersGroup">
         <button onclick="openClerkProfile();closeHamburger()">Manage Account</button>
-        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">Manage Access</button>
+        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">People &amp; invites</button>
       </div>
 
       <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
@@ -3249,6 +3271,7 @@
   <img src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
   <div class="home-title">Platoon Accountability</div>
   <p class="home-subtitle">Select a unit to begin</p>
+  <p class="home-lead" id="homeLead"></p>
   <div class="platoon-cards" id="unitCards"></div>
 
   <!-- Only rendered when the browser says it can install, or on iOS where it
@@ -3752,6 +3775,66 @@ function unitLabel(u) {
 function kindLabel(kind) {
   return kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : '';
 }
+
+// ─── Access, read off the tree ───
+// "Who runs 2nd Platoon?" is a question about a unit, so these four answer it
+// from `units` and one /api/users. They are pure and hold every rule the new
+// access view has; tests/test_access_ux_js.py lifts them out and runs them.
+const ACCESS_REACH_NAMES = 4;
+const ROLE_HELP = {
+  leader: 'Sees and edits this unit and everything beneath it.',
+  owner: 'Also manages the organisation: owners, time zone, removing people, backups.',
+};
+
+function roleHelp(role) {
+  return ROLE_HELP[role] || '';
+}
+
+// Owner first — they are the one whose reach is not obvious from the row —
+// then by the name the chip actually shows, so the order matches the screen.
+function leadersByUnit(users) {
+  const out = {};
+  (users || []).forEach(u => {
+    if (u.unit_id == null) return;
+    (out[u.unit_id] = out[u.unit_id] || []).push(u);
+  });
+  const shown = u => String(u.full_name || u.username || '');
+  Object.keys(out).forEach(k => out[k].sort((a, b) =>
+    (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) ||
+    shown(a).localeCompare(shown(b))));
+  return out;
+}
+
+// What a grant at this unit would actually reach. A unit outside the loaded
+// tree reaches nothing rather than throwing — the server decides either way.
+function accessReach(unitId) {
+  const ids = unitById(unitId) ? unitSubtree(unitId) : [];
+  const names = ids.map(id => unitLabel(unitById(id))).filter(Boolean);
+  return {
+    names: names.slice(0, ACCESS_REACH_NAMES),
+    more: Math.max(0, names.length - ACCESS_REACH_NAMES),
+    soldiers: ids.length ? unitHeadcount(unitId) : 0,
+    units: ids.length,
+  };
+}
+
+// Dates, never times: an invite dying at one second past midnight tonight has
+// a day left on it in every way that matters to the person sending it.
+function inviteExpiryLabel(expiresAt, nowIso) {
+  const day = s => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  };
+  const end = day(expiresAt);
+  const now = day(nowIso);
+  if (end === null || now === null) return '';
+  const days = Math.round((end - now) / 86400000);
+  if (days < 0) return 'expired';
+  if (days === 0) return 'expires today';
+  if (days === 1) return 'expires tomorrow';
+  return `expires in ${days} days`;
+}
+
 async function loadUnits() {
   units = (await api('GET', '/units')) || [];
 }
@@ -4213,7 +4296,7 @@ function renderSettings() {
       <section class="soldier-card">
         <h3>Account</h3>
         ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
-        ${settingsNavRow('Manage access', 'Who leads which unit, and invite links.', 'openUserMgmt()')}
+        ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
         ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
         ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
       </section>
@@ -4320,6 +4403,12 @@ function escapeHtml(str) {
 // owner's alone; the server enforces that too, this only hides the buttons.
 let unitFormFor = null;      // unit id whose inline "add child" form is open
 let unitRenameFor = null;    // unit id whose inline rename form is open
+let unitInviteFor = null;    // unit id whose inline "invite leader" form is open
+let unitInviteLink = null;   // { unitId, url } once that form has produced one
+// Loaded once per page render, never per row: the whole point of the chips is
+// that they cost one fetch, not one fetch per unit.
+let unitUsers = [];
+let unitInvites = [];
 
 function openUnits(push = true) {
   closeSoldierPage(false);
@@ -4330,9 +4419,12 @@ function openUnits(push = true) {
   closeSettings(false);
   unitFormFor = null;
   unitRenameFor = null;
+  unitInviteFor = null;
+  unitInviteLink = null;
   document.body.classList.add('units-active');
   if (push) pushAppRoute(currentUnit, 'units');
-  renderUnits();
+  renderUnits();          // draw from what is already loaded, then fill in
+  refreshUnitsPage();
   syncNavActive();
   window.scrollTo({ top: 0 });
 }
@@ -4363,6 +4455,8 @@ function renderUnits() {
   const view = document.getElementById('unitsView');
   if (!view || !currentUnit) return;
   const isOwner = !!(currentUser && currentUser.role === 'owner');
+  const byUnit = leadersByUnit(unitUsers);
+  const today = getTodayStr();
   const rows = unitSubtree(currentUnit.id).map(id => {
     const u = unitById(id);
     if (!u) return '';
@@ -4387,11 +4481,13 @@ function renderUnits() {
       <div class="unit-row-main">
         <div class="unit-row-name">${escapeHtml(u.name)}</div>
         <div class="unit-row-meta">${escapeHtml(kindLabel(u.kind))} · ${unitHeadcount(u.id)} personnel</div>
+        <div class="unit-row-people">${unitLeaderChips(u.id, byUnit)}${unitInviteChips(u.id, today)}</div>
       </div>
-      <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; renderUnits()">Add child</button>
-      ${mayEdit ? `<button class="btn-small btn-edit" onclick="unitRenameFor = ${u.id}; unitFormFor = null; renderUnits()">Rename</button>` : ''}
+      <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; unitInviteFor = null; renderUnits()">Add child</button>
+      <button class="btn-small btn-edit" onclick="unitInviteFor = ${u.id}; unitInviteLink = null; unitFormFor = null; unitRenameFor = null; renderUnits()">Invite leader</button>
+      ${mayEdit ? `<button class="btn-small btn-edit" onclick="unitRenameFor = ${u.id}; unitFormFor = null; unitInviteFor = null; renderUnits()">Rename</button>` : ''}
       ${mayEdit ? `<button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>` : ''}
-      ${addForm}${renameForm}
+      ${addForm}${renameForm}${unitInviteForm(u, isOwner)}
     </div>`;
   }).join('');
   view.innerHTML = `
@@ -4401,15 +4497,109 @@ function renderUnits() {
       <span class="directory-count">${unitSubtree(currentUnit.id).length} in this tree</span>
     </div>
     ${rows}`;
-  const focus = document.getElementById('newChildName') || document.getElementById('renameUnitName');
+  wireUnitRowActions(view);
+  syncRoleHelp('unitInviteRole');
+  const focus = document.getElementById('newChildName') || document.getElementById('renameUnitName')
+             || document.getElementById('unitInviteLabel');
   if (focus) focus.focus();
 }
 
+// A unit's leaders, as chips that open the access editor for that person.
+function unitLeaderChips(unitId, byUnit) {
+  const list = (byUnit || {})[unitId] || [];
+  if (!list.length) return '<span class="unit-chip unit-chip-none">No leader yet</span>';
+  return list.map(u => `<button type="button" class="unit-chip unit-chip-user${
+    u.role === 'owner' ? ' unit-chip-owner' : ''}" data-uid="${u.id}" title="Edit access">${
+    escapeHtml(u.full_name || u.username || '')}${u.role === 'owner' ? ' · owner' : ''}</button>`).join('');
+}
+
+// The invites still out for that unit, under its leaders. Tokens and labels are
+// server strings, so they travel as data- attributes, never as onclick text.
+function unitInviteChips(unitId, today) {
+  return unitInvites.filter(i => Number(i.unit_id) === Number(unitId)).map(i => {
+    const bits = [i.label || 'Unnamed invite', inviteExpiryLabel(i.expires_at, today)];
+    if (i.created_by) bits.push(`by ${i.created_by}`);
+    return `<span class="unit-chip unit-chip-invite">
+      <span class="unit-chip-text">${escapeHtml(bits.filter(Boolean).join(' · '))}</span>
+      <button type="button" class="unit-chip-act invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy link</button>
+      <button type="button" class="unit-chip-act unit-chip-danger invite-del-btn" data-token="${escapeHtml(i.token)}">Revoke</button>
+    </span>`;
+  }).join('');
+}
+
+// One optional box and one button. The role select only appears where there is
+// a second role to pick — an owner granting at the root itself.
+function unitInviteForm(u, isOwner) {
+  if (unitInviteFor !== u.id) return '';
+  if (unitInviteLink && unitInviteLink.unitId === u.id) {
+    return `<div class="unit-row-form">
+      <input type="text" class="invite-link-field" readonly value="${escapeHtml(unitInviteLink.url)}" onclick="this.select()" />
+      <button class="btn-small btn-add unit-invite-copy">Copy</button>
+      ${navigator.share ? '<button class="btn-small btn-edit unit-invite-share">Share</button>' : ''}
+      <button class="btn-small btn-cancel" onclick="unitInviteFor = null; unitInviteLink = null; renderUnits()">Done</button>
+    </div>`;
+  }
+  const canOwn = isOwner && currentUser && u.id === currentUser.root_id;
+  return `<div class="unit-row-form">
+    <input type="text" id="unitInviteLabel" maxlength="80" placeholder="Who is it for?" autocomplete="off" />
+    ${canOwn ? `<select id="unitInviteRole" onchange="syncRoleHelp('unitInviteRole')">${accessRoleOptions('leader', u.id)}</select>` : ''}
+    <button class="btn-small btn-add" onclick="createUnitInvite(${u.id})">Create link</button>
+    <button class="btn-small btn-cancel" onclick="unitInviteFor = null; renderUnits()">Cancel</button>
+    ${canOwn ? '<div class="role-help" id="unitInviteRoleHelp"></div>' : ''}
+  </div>`;
+}
+
+function wireUnitRowActions(view) {
+  const known = new Set(unitUsers.map(u => String(u.id)));
+  view.querySelectorAll('.unit-chip-user').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (known.has(btn.dataset.uid)) openUserEditModal(Number(btn.dataset.uid));
+    });
+  });
+  view.querySelectorAll('.invite-copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => copyWithFeedback(inviteUrl(btn.dataset.token), btn, 'Copy link'));
+  });
+  view.querySelectorAll('.invite-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await revokeInvite(btn.dataset.token);
+      await refreshUnitsPage();
+    });
+  });
+  const copy = view.querySelector('.unit-invite-copy');
+  if (copy && unitInviteLink) copy.addEventListener('click', () => copyWithFeedback(unitInviteLink.url, copy, 'Copy'));
+  const share = view.querySelector('.unit-invite-share');
+  if (share && unitInviteLink) share.addEventListener('click', () => shareInviteLink(unitInviteLink.url));
+}
+
+function inviteUrl(token) {
+  return `${window.location.origin}/invite/${token}`;
+}
+
+// Only offered where the browser has it; a dismissed sheet is not an error.
+function shareInviteLink(url) {
+  if (!navigator.share) return;
+  navigator.share({ title: 'Platoon Accountability', text: 'Your invite link', url })
+    .catch(e => { if (!e || e.name !== 'AbortError') showToast('Could not share that link.'); });
+}
+
+async function createUnitInvite(unitId) {
+  const label = document.getElementById('unitInviteLabel').value.trim();
+  const roleSel = document.getElementById('unitInviteRole');
+  const result = await api('POST', '/invites', { label, unit_id: unitId, role: roleSel ? roleSel.value : 'leader' });
+  if (!result || result.error) return;   // api() has already said why
+  unitInviteLink = { unitId, url: result.url };
+  await refreshUnitsPage();
+}
+
 // Every write re-pulls the tree: names, counts and parentage all move together,
-// and currentUnit is a member of that array, not a copy of one.
+// and currentUnit is a member of that array, not a copy of one. The people and
+// the open invites come with it — one fetch each for the whole page.
 async function refreshUnitsPage() {
   await loadUnits();
   currentUnit = unitById(currentUnit.id) || currentUnit;
+  const [people, invites] = await Promise.all([api('GET', '/users'), api('GET', '/invites')]);
+  unitUsers = people || [];
+  unitInvites = (invites || []).filter(i => i.status === 'pending');
   renderUnits();
 }
 
@@ -8172,6 +8362,7 @@ async function loadHome() {
 function renderHome() {
   const wrap = document.getElementById('unitCards');
   const top = unitById(currentUser.unit_id);
+  renderHomeLead(top);
   if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
   const rows = [];
   (function walk(u, depth) {
@@ -8183,6 +8374,19 @@ function renderHome() {
     unitChildren(u.id).forEach(c => walk(c, depth + 1));
   })(top, 0);
   wrap.innerHTML = rows.join('');
+}
+
+// Plain text off currentUser and the loaded tree — what you lead, and who
+// put you there, which is otherwise nowhere on screen.
+function renderHomeLead(top) {
+  const el = document.getElementById('homeLead');
+  if (!el) return;
+  if (!top) { el.textContent = ''; return; }
+  const r = accessReach(top.id);
+  const verb = currentUser.role === 'owner' ? 'You own' : 'You lead';
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const invited = currentUser.invited_by ? ` Invited by ${currentUser.invited_by}.` : '';
+  el.textContent = `${verb} ${unitLabel(top)} \u2014 ${plural(r.soldiers, 'soldier')} across ${plural(r.units, 'unit')}.${invited}`;
 }
 
 function selectUnitById(id) { const u = unitById(id); if (u) selectUnit(u); }
@@ -8261,8 +8465,11 @@ function goHome() {
   loadHome();
 }
 
-// ─── User Management ───
+// ─── People & invites ───
 let editingUserId = null;
+// Whether the edit-access modal was opened over the all-people modal (rather
+// than from a unit row), which is where Cancel and Save have to put it back.
+let userEditCameFromMgmt = false;
 
 async function openUserMgmt() {
   document.getElementById('userMgmtModal').classList.add('active');
@@ -8343,6 +8550,27 @@ function syncRoleSelect(unitSelectId, roleSelectId, role) {
   const want = role || roleSel.value || 'leader';
   roleSel.innerHTML = accessRoleOptions(want, unitSel.value);
   if (!roleSel.value) roleSel.value = 'leader';
+  syncRoleHelp(roleSelectId);
+}
+
+// A role is a promise about what someone will see, so say it in words under
+// the select, wherever one is. The help element is the select's id + 'Help'.
+function syncRoleHelp(roleSelectId) {
+  const sel = document.getElementById(roleSelectId);
+  const help = document.getElementById(roleSelectId + 'Help');
+  if (sel && help) help.textContent = roleHelp(sel.value);
+}
+
+// The blast radius of the unit currently selected, in the same words the Units
+// page uses. textContent, so no unit name can arrive as markup.
+function renderAccessReach(unitSelectId, targetId) {
+  const sel = document.getElementById(unitSelectId);
+  const el = document.getElementById(targetId);
+  if (!sel || !el) return;
+  const r = accessReach(sel.value);
+  if (!r.units) { el.textContent = ''; return; }
+  const names = r.names.join(', ') + (r.more ? `, +${r.more} more` : '');
+  el.textContent = `Will see: ${names} — ${r.soldiers} soldier${r.soldiers === 1 ? '' : 's'}`;
 }
 
 async function refreshInviteList() {
@@ -8354,21 +8582,24 @@ async function refreshInviteList() {
     wrap.innerHTML = '<p class="modal-empty">No open invites. Create one to let someone sign up.</p>';
     return;
   }
+  const today = getTodayStr();
   wrap.innerHTML = pending.map(i => {
     const badges = `<span class="platoon-badge${i.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(i.unit_name || '')} \u00b7 ${escapeHtml(i.role || '')}</span>`;
+    const meta = [inviteExpiryLabel(i.expires_at, today), i.created_by ? `by ${i.created_by}` : '']
+      .filter(Boolean).join(' \u00b7 ');
     return `<div class="user-row">
       <div class="user-row-name-block">
         <div class="user-row-name">${escapeHtml(i.label || 'Unnamed invite')}</div>
-        <div class="user-row-meta">Invited by ${escapeHtml(i.created_by || '\u2014')}</div>
+        ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
       <div class="user-row-badges">${badges}</div>
-      <button class="btn-small btn-edit invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy Link</button>
+      <button class="btn-small btn-edit invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy link</button>
       <button class="row-icon-btn row-icon-danger invite-del-btn" data-token="${escapeHtml(i.token)}" title="Revoke invite" aria-label="Revoke invite">${ICON_REMOVE}</button>
     </div>`;
   }).join('');
   wrap.querySelectorAll('.invite-copy-btn').forEach(btn => {
     btn.addEventListener('click', () =>
-      copyWithFeedback(`${window.location.origin}/invite/${btn.dataset.token}`, btn, 'Copy Link'));
+      copyWithFeedback(inviteUrl(btn.dataset.token), btn, 'Copy link'));
   });
   wrap.querySelectorAll('.invite-del-btn').forEach(btn => {
     btn.addEventListener('click', () => revokeInvite(btn.dataset.token));
@@ -8426,6 +8657,7 @@ async function revokeInvite(token) {
 
 async function openUserEditModal(userId) {
   editingUserId = userId;
+  userEditCameFromMgmt = document.getElementById('userMgmtModal').classList.contains('active');
   document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
   document.getElementById('userEditUsername').disabled = false;
@@ -8433,6 +8665,8 @@ async function openUserEditModal(userId) {
   document.getElementById('userRole').innerHTML = '';
   const errEl = document.getElementById('userEditError');
   errEl.style.display = 'none';
+  document.getElementById('userReach').textContent = '';
+  document.getElementById('userRoleHelp').textContent = '';
   const saveBtn = document.getElementById('userEditSave');
   saveBtn.disabled = false;
   const users = await api('GET', '/users');
@@ -8451,6 +8685,7 @@ async function openUserEditModal(userId) {
     } else {
       document.getElementById('userUnit').innerHTML = accessUnitOptions(u.unit_id);
       syncRoleSelect('userUnit', 'userRole', u.role || 'leader');
+      renderAccessReach('userUnit', 'userReach');
     }
   }
   document.getElementById('userMgmtModal').classList.remove('active');
@@ -8459,7 +8694,7 @@ async function openUserEditModal(userId) {
 
 function closeUserEdit() {
   document.getElementById('userEditModal').classList.remove('active');
-  document.getElementById('userMgmtModal').classList.add('active');
+  if (userEditCameFromMgmt) document.getElementById('userMgmtModal').classList.add('active');
 }
 
 async function saveUserEdit() {
@@ -8475,8 +8710,9 @@ async function saveUserEdit() {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;
   }
   closeUserEdit();
-  await refreshUserList();
-  document.getElementById('userMgmtModal').classList.add('active');
+  if (userEditCameFromMgmt) await refreshUserList();
+  // Changing who leads a unit changes the chips on the Units page under it.
+  if (document.body.classList.contains('units-active')) await refreshUnitsPage();
 }
 
 async function deleteUser(userId, username) {
@@ -8710,7 +8946,7 @@ initApp();
 <!-- User Management Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userMgmtModal">
   <div class="modal modal-wide">
-    <h2>Manage Access</h2>
+    <h2>People &amp; invites</h2>
     <p class="modal-sub">Who can sign in, and which unit they lead.</p>
     <div class="modal-section">
       <div class="modal-section-head"><h3>People</h3></div>
@@ -8751,7 +8987,8 @@ initApp();
     <label for="invUnit">Unit</label>
     <select id="invUnit" onchange="syncRoleSelect('invUnit', 'invRole')"></select>
     <label for="invRole">Role</label>
-    <select id="invRole"></select>
+    <select id="invRole" onchange="syncRoleHelp('invRole')"></select>
+    <div class="role-help" id="invRoleHelp"></div>
     <p class="modal-note">The link works once and expires in 7 days. Send it however you like — they create their own account with it.</p>
     <div id="inviteError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
@@ -8780,9 +9017,11 @@ initApp();
     <label>Display Name</label>
     <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
     <label for="userUnit">Unit</label>
-    <select id="userUnit" onchange="syncRoleSelect('userUnit', 'userRole')"></select>
+    <select id="userUnit" onchange="syncRoleSelect('userUnit', 'userRole'); renderAccessReach('userUnit', 'userReach')"></select>
+    <div class="role-help" id="userReach"></div>
     <label for="userRole">Role</label>
-    <select id="userRole"></select>
+    <select id="userRole" onchange="syncRoleHelp('userRole')"></select>
+    <div class="role-help" id="userRoleHelp"></div>
     <div id="userEditError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeUserEdit()">Cancel</button>
