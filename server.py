@@ -1110,6 +1110,25 @@ def _user_json(conn, u):
             'needs_unit': u.get('unit_id') is None}
 
 
+def _invited_by(conn, u):
+    """The display name of whoever's invite this user walked in on, or ''.
+
+    Deliberately NOT part of _user_json(): that also builds every row of
+    /api/users, and one invite query per person there is an N+1. Only the two
+    routes that answer "who am I" pay for it, and only after they have declared
+    a tenant — `invites` and `users` are both under RLS, so this can never see
+    past the caller's own organisation.
+    """
+    if not u.get('root_id') or not u.get('clerk_user_id'):
+        return ''
+    row = conn.execute(
+        'SELECT COALESCE(NULLIF(usr.full_name, %s), i.created_by) AS name '
+        'FROM invites i LEFT JOIN users usr ON usr.username = i.created_by '
+        'WHERE i.accepted_by = %s ORDER BY i.accepted_at DESC LIMIT 1',
+        ('', u['clerk_user_id'])).fetchone()
+    return (row['name'] or '') if row else ''
+
+
 @app.route('/api/auth/sync', methods=['POST'])
 @clerk_auth_required
 def auth_sync():
@@ -1125,7 +1144,7 @@ def auth_sync():
     set_tenant(get_db(), user['root_id'])
     g.tz = _tenant_timezone(get_db(), user['root_id']) if user['root_id'] else FALLBACK_TZ
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
-    return jsonify(_user_json(get_db(), user))
+    return jsonify({**_user_json(get_db(), user), 'invited_by': _invited_by(get_db(), user)})
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -1136,7 +1155,8 @@ def logout():
 @app.route('/api/me', methods=['GET'])
 @login_required
 def me():
-    return jsonify(_user_json(get_db(), g.current_user))
+    return jsonify({**_user_json(get_db(), g.current_user),
+                    'invited_by': _invited_by(get_db(), g.current_user)})
 
 
 # ── User management ──

@@ -150,6 +150,56 @@ class _Racer:
         return getattr(self._conn, name)
 
 
+def me_for(user):
+    """GET /api/me as `user`, the way the app asks who it is signed in as."""
+    dbharness.as_user(user)
+    with server.app.test_client() as client:
+        res = client.get('/api/me')
+    assert res.status_code == 200, res.get_data(as_text=True)
+    return res.get_json()
+
+
+def test_me_names_whoever_invited_you():
+    """The home screen says who put you here, so /api/me has to know."""
+    t = dbharness.make_tree('November Co')
+    make_invite(t, 'tok-who')
+    user, err = sync('clerk_invited', 'invited@example.com', 'tok-who')
+    assert err is None, err
+    # 'boss' has no users row at all, so the invite's own created_by stands.
+    assert me_for(user)['invited_by'] == 'boss', me_for(user)
+
+    # And when the inviter IS a local row with a real name, that name wins —
+    # nobody wants to be told they were invited by "clerk_a1b2c3".
+    conn = dbharness.owner_conn()
+    conn.execute(
+        "INSERT INTO users (username, password_hash, clerk_user_id, email, full_name, unit_id, role, root_id) "
+        "VALUES ('boss', 'x', 'clerk_boss', 'boss@example.com', 'CPT Alvarez', %s, 'owner', %s)",
+        (t['root'], t['root']))
+    conn.commit(); conn.close()
+    assert me_for(user)['invited_by'] == 'CPT Alvarez', me_for(user)
+
+
+def test_a_founder_was_invited_by_nobody():
+    t = dbharness.make_tree('Oscar Co')
+    founder = dbharness.make_user(t['root'], role='owner')
+    assert me_for(founder)['invited_by'] == '', me_for(founder)
+    # Neither was someone who is signed in but attached to nothing: they have
+    # no tenant, so there is nowhere for the question to be asked.
+    stranger, err = sync('clerk_nobody', 'nobody@example.com')
+    assert err is None and me_for(stranger)['invited_by'] == '', me_for(stranger)
+
+
+def test_the_user_list_is_not_made_n_plus_1_by_this():
+    """`invited_by` costs a query, so it must stay out of _user_json()."""
+    t = dbharness.make_tree('Papa Co')
+    row = dbharness.make_user(t['root'], role='owner')
+    conn = dbharness.owner_conn()
+    listed = server._user_json(conn, row)
+    conn.close()
+    assert 'invited_by' not in listed, \
+        '_user_json() also builds /api/users rows; one invite query per person is a list killer'
+
+
 def test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash():
     legacy = make_legacy('raced@example.com', 'raced.hand')
 
@@ -176,6 +226,9 @@ def main():
         test_an_attached_legacy_row_is_not_claimed_on_a_bare_email()
         test_an_invite_for_the_same_root_vouches_for_the_legacy_row()
         test_an_invite_for_another_root_does_not_vouch()
+        test_me_names_whoever_invited_you()
+        test_a_founder_was_invited_by_nobody()
+        test_the_user_list_is_not_made_n_plus_1_by_this()
         test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash()
         print('ok')
     finally:
