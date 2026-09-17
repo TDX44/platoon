@@ -83,44 +83,21 @@ PLATOONS = {
     'hq':  'HQ Platoon Accountability'
 }
 
-# Every dated absence lives in scheduled_events and is mirrored onto
 # The duty day belongs to the unit, not to the server or the viewer. prodsrv02
 # runs UTC, so date.today() rolled over at 1900 local and marked people away for
 # a course starting the next morning. Every "what day is it" question goes
 # through app_today(); nothing reads date.today() directly.
 #
-# The zone belongs to the ORGANISATION and there is exactly one of it: every
-# platoon shares a duty day, so this key is deliberately unsuffixed while
-# unit_name_<platoon> and the TDY lists are per-platoon. When a second
-# organisation arrives this becomes org_timezone_<org> and only
-# load_app_timezone()/set_app_timezone() need to learn about it.
-#
-# It falls back to PLATOON_TZ and then Central, and is cached in a module global
-# because app_now() is called from inside open transactions, where opening a
-# second connection to read it would block waiting on the first.
+# The zone belongs to one ROOT, not to the process: every unit in a tenant
+# shares a duty day, so it is stored once per root (unit_id IS NULL) and read
+# once per request into g.tz by whatever declares the tenant. Outside a request
+# there is no tenant to ask, so FALLBACK_TZ stands in.
 FALLBACK_TZ = os.environ.get('PLATOON_TZ', 'America/Chicago')
 TIMEZONE_KEY = 'org_timezone'
 
-_app_tz_name = FALLBACK_TZ
-_app_tz = ZoneInfo(FALLBACK_TZ)
-
-
-def app_timezone():
-    """The organisation's timezone name, e.g. 'America/Chicago'."""
-    return _app_tz_name
-
 
 def validate_timezone(name):
-    """The normalised zone name, or ValueError. Changes nothing.
-
-    Separate from set_app_timezone() because adopting a zone mutates a module
-    global that no rollback can undo: update_settings() has to know the value
-    is good *before* it commits to anything, and only adopt it once the whole
-    request has succeeded. Otherwise a later validation failure 4xxs, the
-    rollback-on-4xx discards the settings row, and the worker keeps serving
-    the new zone until restart — with -w 2, one worker on a different duty
-    day from the other.
-    """
+    """The normalised zone name, or ValueError. Changes nothing."""
     name = (name or '').strip()
     try:
         return name, ZoneInfo(name)
@@ -128,35 +105,38 @@ def validate_timezone(name):
         raise ValueError(f'{name!r} is not a known timezone')
 
 
-def set_app_timezone(name):
-    """Adopt a timezone. Raises ValueError if it is not a real IANA zone."""
-    global _app_tz_name, _app_tz
-    _app_tz_name, _app_tz = validate_timezone(name)
-    return _app_tz_name
+# A bad PLATOON_TZ is a boot failure, not a 500 on every request that asks the
+# time. The old module-level ZoneInfo(FALLBACK_TZ) caught it here; keep that.
+validate_timezone(FALLBACK_TZ)
 
 
-def load_app_timezone(conn=None):
-    """Read the stored zone at startup. A bad stored value must not stop the
-    app booting, so it falls back and logs instead of raising."""
-    owned = conn is None
-    conn = conn or get_db()
-    try:
-        row = conn.execute('SELECT value FROM settings WHERE key = %s', (TIMEZONE_KEY,)).fetchone()
-    finally:
-        if owned:
-            conn.close()
-    if not row or not row['value']:
-        return _app_tz_name
-    try:
-        return set_app_timezone(row['value'])
-    except ValueError:
-        app.logger.warning('Stored timezone %r is not valid; using %s',
-                           row['value'], _app_tz_name)
-        return _app_tz_name
+def _tenant_timezone(conn, root_id):
+    """The stored zone for a root, falling back rather than failing: a bad
+    stored value must never take the app down."""
+    row = conn.execute(
+        'SELECT value FROM settings WHERE root_id = %s AND unit_id IS NULL AND key = %s',
+        (root_id, TIMEZONE_KEY)).fetchone()
+    if row and row['value']:
+        try:
+            return validate_timezone(row['value'])[0]
+        except ValueError:
+            app.logger.warning('Stored timezone %r for root %s is not valid; using %s',
+                               row['value'], root_id, FALLBACK_TZ)
+    return FALLBACK_TZ
+
+
+def app_timezone():
+    """The signed-in organisation's timezone name inside a request; the
+    fallback outside one (init_db, tests' fixtures, the midnight worker)."""
+    if has_request_context() and getattr(g, 'tz', None):
+        return g.tz
+    return FALLBACK_TZ
 
 
 def app_now():
-    return datetime.now(_app_tz)
+    # ZoneInfo caches its instances, so ZoneInfo(name) per call is a dict
+    # lookup, not a file read -- no module-level handle needed.
+    return datetime.now(ZoneInfo(app_timezone()))
 
 
 def app_today():
@@ -214,8 +194,9 @@ def _clean_tdy_list(values):
     return out
 
 
-def _get_tdy_list(conn, kind, platoon):
-    row = conn.execute('SELECT value FROM settings WHERE key = %s', (f'tdy_{kind}_{platoon}',)).fetchone()
+def _get_tdy_list(conn, kind, unit_id):
+    row = conn.execute('SELECT value FROM settings WHERE unit_id = %s AND key = %s',
+                       (unit_id, f'tdy_{kind}')).fetchone()
     if not row:
         return []
     try:
@@ -596,8 +577,8 @@ def init_db():
             # The cutoff comes from Python, not from date('now','localtime') —
             # that is SQLite syntax Postgres has no function for, and the
             # database's own clock is the wrong clock anyway (the db container
-            # is UTC). init_db() runs before load_app_timezone(), so this is
-            # PLATOON_TZ rather than the stored org zone; for a one-shot
+            # is UTC). init_db() runs outside any request, so this is
+            # PLATOON_TZ rather than a tenant's stored zone; for a one-shot
             # backfill of windows that already ended, a few hours either side
             # of midnight is immaterial, and it beats UTC.
             cur.execute(
@@ -666,9 +647,6 @@ def init_db():
 
 
 init_db()
-# Adopt the organisation's stored timezone before the first request; until this
-# runs the module falls back to PLATOON_TZ.
-load_app_timezone()
 
 
 def _assert_rls_safe_role():
@@ -902,11 +880,19 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
+    # Pre-tenant, so this is FALLBACK_TZ: it is only the coarse filter that
+    # fetches the invite row. The expiry that counts is re-checked below on the
+    # invite's OWN tenant clock, which is the clock create_invite wrote it on.
+    # ponytail: when FALLBACK_TZ runs ahead of the tenant's zone this filter is
+    # the stricter of the two and can drop an invite a few hours early. That
+    # fails safe (it never admits an expired one) and the alternative is
+    # changing auth_invite(), which belongs to Task 1's sql/auth_functions.sql.
     now = app_stamp()
     try:
         existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         if existing:
             set_tenant(conn, existing.get('root_id'))
+            g.tz = _tenant_timezone(conn, existing['root_id']) if existing.get('root_id') else FALLBACK_TZ
             if existing['root_id'] is not None:
                 conn.execute('UPDATE users SET username = %s, email = %s, full_name = %s WHERE id = %s',
                              (username, email, full_name, existing['id']))
@@ -916,6 +902,16 @@ def sync_clerk_user(payload):
 
         token = (payload.get('invite_token') or '').strip()
         invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, now)).fetchone() if token else None
+        if invite:
+            # Declare the invite's tenant now, so both the expiry it is judged
+            # against and the accepted_at it is stamped with are read on the
+            # clock that minted it. An invite that has run out on that clock is
+            # simply absent — the caller lands unattached, as if they had none.
+            set_tenant(conn, invite['root_id'])
+            g.tz = _tenant_timezone(conn, invite['root_id']) if invite['root_id'] else FALLBACK_TZ
+            now = app_stamp()
+            if invite['expires_at'] <= now:
+                invite = None
         legacy = conn.execute('SELECT * FROM auth_user_by_identity(%s, %s)', (email, username)).fetchone()
         # The email and username arrive in the request body, so a matching row
         # is not proof of who is signing in — the invite is. An attached row may
@@ -938,6 +934,7 @@ def sync_clerk_user(payload):
             conn.execute('SELECT * FROM auth_create_user(%s, %s, %s, %s, %s, %s, %s)',
                          (clerk_user_id, username, email, full_name, unit_id, role, root_id))
         set_tenant(conn, root_id)
+        g.tz = _tenant_timezone(conn, root_id) if root_id else FALLBACK_TZ
         if invite:
             conn.execute('UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
                          (now, clerk_user_id, invite['token']))
@@ -982,6 +979,9 @@ def _resolved_user():
     # statement. An unattached user has no root_id and so declares no tenant
     # at all: RLS default-deny is exactly the right answer for them.
     set_tenant(get_db(), user.get('root_id'))
+    # The duty day is the tenant's, so it is read once here and cached on g for
+    # the rest of the request; app_timezone() has nothing else to ask.
+    g.tz = _tenant_timezone(get_db(), user['root_id']) if user.get('root_id') else FALLBACK_TZ
     return user
 
 
@@ -1155,7 +1155,6 @@ def auth_config():
         'enabled': CLERK_ENABLED,
         'publishable_key': CLERK_PUBLISHABLE_KEY,
         'frontend_api_url': CLERK_FRONTEND_API_URL,
-        'timezone': app_timezone(),
         'app_env': APP_ENV,
     })
 
@@ -1166,6 +1165,7 @@ def _user_json(conn, u):
             'full_name': u.get('full_name', ''), 'unit_id': u.get('unit_id'),
             'unit_name': unit['name'] if unit else '', 'unit_slug': unit['slug'] if unit else '',
             'role': u.get('role'), 'root_id': u.get('root_id'),
+            'timezone': app_timezone(),
             'needs_unit': u.get('unit_id') is None}
 
 
@@ -1182,6 +1182,7 @@ def auth_sync():
     # dropped for everyone. A stranger's first sign-in still isn't audited:
     # they belong to no tenant yet, and UNIT_CREATE is their first row.
     set_tenant(get_db(), user['root_id'])
+    g.tz = _tenant_timezone(get_db(), user['root_id']) if user['root_id'] else FALLBACK_TZ
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
     return jsonify(_user_json(get_db(), user))
 
@@ -1327,6 +1328,7 @@ def preview_invite(token):
     if not row:
         return jsonify({'valid': False}), 404
     set_tenant(conn, row['root_id'])
+    g.tz = _tenant_timezone(conn, row['root_id']) if row['root_id'] else FALLBACK_TZ
     unit = _unit_row(conn, row['unit_id'])
     return jsonify({'valid': True, 'label': row['label'], 'unit_name': unit['name'] if unit else '',
                     'kind': unit['kind'] if unit else '', 'role': row['role']})
@@ -1394,6 +1396,7 @@ def create_unit():
         # From here on this request IS in the new tenant.
         set_tenant(conn, root_id)
         g.current_user = dict(user, unit_id=root_id, role='owner', root_id=root_id)
+        g.tz = FALLBACK_TZ
         g.pop('subtree', None)
         _seed_root_defaults(conn, root_id, root_id)
         log_action('UNIT_CREATE', f'Created {kind} "{name}" (new organisation)', root_id)
@@ -1913,58 +1916,50 @@ def delete_person(person_id):
 
 
 @app.route('/api/settings', methods=['GET'])
-@login_required
+@attached_required
 def get_settings():
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
-    key = f'unit_name_{platoon}'
+    unit_id, _ = scope
     conn = get_db()
-    row = conn.execute('SELECT value FROM settings WHERE key = %s', (key,)).fetchone()
-    payload = {
-        'unit_name': row['value'] if row else PLATOONS.get(platoon, f'{platoon} Platoon'),
-        'tdy_schools': _get_tdy_list(conn, 'schools', platoon),
-        'tdy_locations': _get_tdy_list(conn, 'locations', platoon),
-        # Organisation-wide, not platoon-scoped: one duty day for everyone.
+    unit = _unit_row(conn, unit_id)
+    return jsonify({
+        'unit_name': unit['name'],
+        'kind': unit['kind'],
+        'tdy_schools': _get_tdy_list(conn, 'schools', unit_id),
+        'tdy_locations': _get_tdy_list(conn, 'locations', unit_id),
+        # One clock for the whole tenant, whichever unit was asked about.
         'timezone': app_timezone(),
-    }
-    return jsonify(payload)
+    })
 
 
 @app.route('/api/settings', methods=['PUT'])
-@login_required
+@attached_required
 def update_settings():
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
-    data = request.get_json()
+    unit_id, _ = scope
+    data = request.get_json() or {}
     conn = get_db()
-
-    # The timezone is the organisation's, so it is not gated on platoon access
-    # like the rest of this route — it changes the duty day for every platoon,
-    # which makes it an admin decision.
-    new_tz = None
+    logs = []
     if 'timezone' in data:
-        if not (user and user.get('is_admin')):
-            return jsonify({'error': 'Only an administrator can change the organisation timezone.'}), 403
+        if not is_owner(g.current_user):
+            return jsonify({'error': 'Only an owner can change the organisation timezone.'}), 403
         try:
             new_tz, _ = validate_timezone(data['timezone'])
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
+        # The ON CONFLICT target is spelled exactly like the settings_scope_key
+        # index expression: Postgres matches an expression index by the text of
+        # the expression, not by what it evaluates to.
         conn.execute(
-            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
-            (TIMEZONE_KEY, new_tz, new_tz)
-        )
-
-    if 'unit_name' in data:
-        key = f'unit_name_{platoon}'
-        conn.execute(
-            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
-            (key, data['unit_name'], data['unit_name'])
-        )
-    logs = []
+            'INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, NULL, %s, %s) '
+            'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
+            (_root(), TIMEZONE_KEY, new_tz))
+        g.tz = new_tz   # this request's own stamps use the new day from here on
+        logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
     for field, kind in (('tdy_schools', 'schools'), ('tdy_locations', 'locations')):
         if field not in data:
             continue
@@ -1972,40 +1967,43 @@ def update_settings():
             cleaned = _clean_tdy_list(data[field])
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
-        value = json.dumps(cleaned)
         conn.execute(
-            'INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT(key) DO UPDATE SET value = %s',
-            (f'tdy_{kind}_{platoon}', value, value)
-        )
+            'INSERT INTO settings (root_id, unit_id, key, value) VALUES (%s, %s, %s, %s) '
+            'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
+            (_root(), unit_id, f'tdy_{kind}', json.dumps(cleaned)))
         logs.append((f'Updated TDY {kind} list', f'{len(cleaned)} entries'))
-    # Adopt the zone only now: every 4xx above it would have rolled the row
-    # back while leaving this worker — and only this worker — on the new duty
-    # day until the next restart.
-    if new_tz:
-        set_app_timezone(new_tz)
-        logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
+    if 'unit_name' in data:
+        return jsonify({'error': 'Rename the unit from the Units page.'}), 400
     for action, details in logs:
-        log_action(action, details, platoon)
+        log_action(action, details, unit_id)
     return get_settings()
 
 
 # ── Audit log ──
 
 @app.route('/api/audit', methods=['GET'])
-@owner_required
+@attached_required
 def get_audit():
-    platoon = request.args.get('platoon', '')
+    raw = request.args.get('unit', '')
+    if raw:
+        scope = _unit_scope(raw)
+        if scope is None:
+            return jsonify({'error': 'Forbidden'}), 403
+        ids = scope[1]
+    else:
+        ids = current_subtree()
     try:
         limit = min(int(request.args.get('limit', 200)), 5000)
     except ValueError:
         limit = 200
     conn = get_db()
-    if platoon:
-        rows = conn.execute(
-            'SELECT * FROM audit_log WHERE platoon = %s ORDER BY id DESC LIMIT %s', (platoon, limit)
-        ).fetchall()
-    else:
-        rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT %s', (limit,)).fetchall()
+    # Org-level rows (LOGIN, INVITE_*, BACKUP_*) belong to the tenant rather
+    # than to any one unit; RLS already confines them to this root, so everyone
+    # inside it sees them.
+    rows = conn.execute(
+        'SELECT * FROM audit_log WHERE (unit_id = ANY(%s) OR unit_id IS NULL) ORDER BY id DESC LIMIT %s',
+        (list(ids), limit)
+    ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -2066,23 +2064,23 @@ def _duty_conflict(conn, person_id, date_str):
 
 
 @app.route('/api/duty', methods=['GET'])
-@login_required
+@attached_required
 def get_duty():
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    _, ids = scope
     date_filter = request.args.get('date', '')
     conn = get_db()
     if date_filter:
         rows = conn.execute(
-            'SELECT * FROM duty_roster WHERE platoon = %s AND date = %s ORDER BY duty_type, id',
-            (platoon, date_filter)
+            'SELECT * FROM duty_roster WHERE unit_id = ANY(%s) AND date = %s ORDER BY duty_type, id',
+            (list(ids), date_filter)
         ).fetchall()
     else:
         rows = conn.execute(
-            'SELECT * FROM duty_roster WHERE platoon = %s ORDER BY date DESC, duty_type, id LIMIT 90',
-            (platoon,)
+            'SELECT * FROM duty_roster WHERE unit_id = ANY(%s) ORDER BY date DESC, duty_type, id LIMIT 90',
+            (list(ids),)
         ).fetchall()
     out = []
     for r in rows:
@@ -2093,23 +2091,23 @@ def get_duty():
 
 
 @app.route('/api/duty/conflicts', methods=['GET'])
-@login_required
+@attached_required
 def get_duty_conflicts():
-    """Who in this platoon is away on a given date, keyed by person id.
+    """Who in this unit's subtree is away on a given date, keyed by person id.
 
     Feeds the duty picker so a soldier reads as unavailable *before* you assign
     them, not after.
     """
-    platoon = request.args.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    _, ids = scope
     date_str = request.args.get('date', '') or app_today()
     conn = get_db()
     rows = conn.execute(
         'SELECT s.* FROM scheduled_events s JOIN personnel p ON p.id = s.person_id '
-        "WHERE p.platoon = %s AND s.state != 'completed' ORDER BY s.from_date, s.id",
-        (platoon,)
+        "WHERE p.unit_id = ANY(%s) AND s.state != 'completed' ORDER BY s.from_date, s.id",
+        (list(ids),)
     ).fetchall()
     # Same ordering as _duty_conflict, so a later overlapping window wins here too.
     away = {str(r['person_id']): _conflict_from(r)
@@ -2118,30 +2116,36 @@ def get_duty_conflicts():
 
 
 @app.route('/api/duty', methods=['POST'])
-@login_required
+@attached_required
 def add_duty():
-    data = request.get_json()
-    platoon = data.get('platoon', '2nd')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    data = request.get_json() or {}
+    if not can_access(data.get('unit_id')):
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id = int(data['unit_id'])
     conn = get_db()
     try:
         person_id = int(data.get('person_id'))
     except (TypeError, ValueError):
         person_id = 0
-    person = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
-    if person is None or person['platoon'] != platoon:
-        return jsonify({'error': 'Pick a soldier from this platoon.'}), 400
+    person = _person_or_none(conn, person_id)
+    if person is None or not can_access(person['unit_id']):
+        return jsonify({'error': 'Pick a soldier from this unit.'}), 400
+    # Reachable is not the same as belonging: an owner can see every soldier in
+    # the tree, but booking one onto a unit they are not in is the pre-A1
+    # "another platoon" mistake wearing a new name.
+    if person['unit_id'] not in subtree_ids(conn, unit_id):
+        return jsonify({'error': 'That soldier is not in this unit.'}), 400
 
     date_str = data.get('date', '')
     duty_type = data.get('duty_type', 'CQ')
+    # The entry is filed where the soldier actually is, not where the caller
+    # was looking: that is what keeps it on their unit's roster after a move.
     # rank/last/first come from the database, never the client: they are a
     # snapshot so the entry still reads correctly once the soldier is gone.
     cur = conn.execute(
-        'INSERT INTO duty_roster (date, platoon, duty_type, person_id, rank, last, first, notes) '
-        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
-        (date_str, platoon, duty_type, person['id'],
+        'INSERT INTO duty_roster (date, unit_id, root_id, duty_type, person_id, rank, last, first, notes) '
+        'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
+        (date_str, person['unit_id'], _root(), duty_type, person['id'],
          person['rank'], person['last'], person['first'], data.get('notes', ''))
     )
     new_id = cur.fetchone()['id']
@@ -2152,22 +2156,20 @@ def add_duty():
     detail = f'{duty_type} on {date_str} — {person["rank"]} {person["last"]}'
     if row['conflict']:
         detail += f' (CONFLICT: {row["conflict"]["label"]})'
-    log_action('ADD_DUTY', detail, platoon)
+    log_action('ADD_DUTY', detail, person['unit_id'])
     return jsonify(row), 201
 
 
 @app.route('/api/duty/<int:entry_id>', methods=['DELETE'])
-@login_required
+@attached_required
 def delete_duty(entry_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM duty_roster WHERE id = %s', (entry_id,)).fetchone()
-    user = get_current_user()
     if not row:
         return jsonify({'error': 'Not found'}), 404
-    if not has_platoon_access(user, row['platoon']):
+    if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
-    if row:
-        log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['platoon'])
+    log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['unit_id'])
     conn.execute('DELETE FROM duty_roster WHERE id = %s', (entry_id,))
     return jsonify({'success': True})
 
@@ -2190,40 +2192,40 @@ def _import_timestamp(value):
     return stamp if stamp <= datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') else None
 
 
-def _prune_report_history(conn, platoon):
-    """Keep only the most recent REPORT_HISTORY_MAX rows for a platoon."""
+def _prune_report_history(conn, unit_id):
+    """Keep only the most recent REPORT_HISTORY_MAX rows for a unit."""
     conn.execute(
-        'DELETE FROM report_history WHERE platoon = %s AND id NOT IN ('
-        '  SELECT id FROM report_history WHERE platoon = %s ORDER BY id DESC LIMIT %s'
+        'DELETE FROM report_history WHERE unit_id = %s AND id NOT IN ('
+        '  SELECT id FROM report_history WHERE unit_id = %s ORDER BY id DESC LIMIT %s'
         ')',
-        (platoon, platoon, REPORT_HISTORY_MAX)
+        (unit_id, unit_id, REPORT_HISTORY_MAX)
     )
 
 
 @app.route('/api/reports', methods=['GET'])
-@login_required
+@attached_required
 def get_reports():
-    platoon = request.args.get('platoon', '')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    scope = _unit_scope(request.args.get('unit'))
+    if scope is None:
         return jsonify({'error': 'Forbidden'}), 403
+    _, ids = scope
     conn = get_db()
     rows = conn.execute(
         'SELECT id, unit_name, created_at, created_by FROM report_history '
-        'WHERE platoon = %s ORDER BY id DESC LIMIT %s',
-        (platoon, REPORT_HISTORY_MAX)
+        'WHERE unit_id = ANY(%s) ORDER BY id DESC LIMIT %s',
+        (list(ids), REPORT_HISTORY_MAX)
     ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
 @app.route('/api/reports', methods=['POST'])
-@login_required
+@attached_required
 def add_report():
     data = request.get_json() or {}
-    platoon = data.get('platoon', '')
-    user = get_current_user()
-    if not has_platoon_access(user, platoon):
+    if not can_access(data.get('unit_id')):
         return jsonify({'error': 'Forbidden'}), 403
+    unit_id = int(data['unit_id'])
+    user = g.current_user
     text = (data.get('text') or '').strip()
     if not text:
         return jsonify({'error': 'Report text is required.'}), 400
@@ -2238,14 +2240,14 @@ def add_report():
     created_at = _import_timestamp(data.get('created_at')) or app_stamp()
     conn = get_db()
     cur = conn.execute(
-        'INSERT INTO report_history (platoon, unit_name, text, created_by, created_at) '
-        'VALUES (%s, %s, %s, %s, %s) RETURNING id',
-        (platoon, unit_name, text, user['username'], created_at)
+        'INSERT INTO report_history (unit_id, root_id, unit_name, text, created_by, created_at) '
+        'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+        (unit_id, _root(), unit_name, text, user['username'], created_at)
     )
     new_id = cur.fetchone()['id']
-    _prune_report_history(conn, platoon)
+    _prune_report_history(conn, unit_id)
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (new_id,)).fetchone()
-    log_action('SAVE_REPORT', unit_name, platoon)
+    log_action('SAVE_REPORT', unit_name, unit_id)
     if not row:
         # Cannot happen with REPORT_HISTORY_MAX >= 1, but don't 500 if it ever does.
         return jsonify({'success': True}), 201
@@ -2253,27 +2255,31 @@ def add_report():
 
 
 @app.route('/api/reports/<int:report_id>', methods=['GET'])
-@login_required
+@attached_required
 def get_report(report_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
-    user = get_current_user()
-    if not has_platoon_access(user, row['platoon']):
+    if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     return jsonify(dict(row))
 
 
 @app.route('/api/reports/<int:report_id>', methods=['DELETE'])
-@owner_required
+@attached_required
 def delete_report(report_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM report_history WHERE id = %s', (report_id,)).fetchone()
     if not row:
         return jsonify({'error': 'Not found'}), 404
+    if not can_access(row['unit_id']):
+        return jsonify({'error': 'Forbidden'}), 403
+    # Your own report is yours to withdraw; everyone else's takes an owner.
+    if row['created_by'] != g.current_user['username'] and not is_owner(g.current_user):
+        return jsonify({'error': 'Forbidden'}), 403
     conn.execute('DELETE FROM report_history WHERE id = %s', (report_id,))
-    log_action('DELETE_REPORT', row['unit_name'], row['platoon'])
+    log_action('DELETE_REPORT', row['unit_name'], row['unit_id'])
     return jsonify({'success': True})
 
 
