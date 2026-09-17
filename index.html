@@ -2244,7 +2244,11 @@
   .soldier-hero-sub { color: var(--theme_text-muted); font-size: 0.85rem; margin-top: 4px; }
   /* margin-left:auto keeps Save changes hard right on desktop and, once the hero
      wraps on a phone, on its own row rather than under the avatar. */
-  .soldier-hero-actions { flex: none; margin-left: auto; }
+  .soldier-hero-actions { flex: none; margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+  .soldier-hero-edit { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  /* .dash-btn sets no stroke, and the shared pencil icon carries none of its
+     own — without this it draws nothing at all. */
+  .soldier-hero-edit svg { width: 15px; height: 15px; flex: none; stroke: currentColor; }
 
   .soldier-tabs {
     display: flex; gap: 4px; border-bottom: 1px solid var(--theme_border);
@@ -5600,6 +5604,7 @@ function renderSoldierPage() {
         <div class="soldier-hero-sub">${escapeHtml(unitLabel(unitById(p.unit_id) || currentUnit))}</div>
       </div>
       <div class="soldier-hero-actions">
+        <button class="dash-btn soldier-hero-edit" onclick="openEditModal(soldierIndexById(${p.id}))">${ICON_PENCIL}Edit name &amp; rank</button>
         <button class="dash-btn dash-btn-primary" onclick="saveProfile()">Save changes</button>
       </div>
     </div>
@@ -5611,20 +5616,6 @@ function renderSoldierPage() {
 
     <div class="soldier-panel" data-panel="overview">
       <div class="soldier-cards">
-        <section class="soldier-card">
-          <h3>Name &amp; rank</h3>
-          <label class="pf-label" for="pf_identity_rank">Rank</label>
-          <select id="pf_identity_rank">
-            ${RANK_ORDER.map(r =>
-              `<option value="${r}"${r === p.rank ? ' selected' : ''}>${r}</option>`).join('')}
-            ${RANK_ORDER.includes(p.rank) ? '' :
-              `<option value="${escapeHtml(p.rank)}" selected>${escapeHtml(p.rank)}</option>`}
-          </select>
-          <label class="pf-label" for="pf_identity_last">Last name</label>
-          <input type="text" id="pf_identity_last" value="${escapeHtml(p.last)}" autocomplete="off">
-          <label class="pf-label" for="pf_identity_first">First name</label>
-          <input type="text" id="pf_identity_first" value="${escapeHtml(p.first)}" autocomplete="off">
-        </section>
         <section class="soldier-card">
           <h3>Contact</h3>
           ${profileField('Phone', 'phone', 'tel')}
@@ -5679,49 +5670,38 @@ function renderSoldierPage() {
   renderProfileAbsences();
 }
 
-// Rank and name live on `personnel`, not `personnel_profile`, so they are a
-// second request. Only sent when they actually changed, and only the three
-// fields — PUT /api/personnel builds its UPDATE from the keys present, so
-// posting the whole person here would let a stale page overwrite a status
-// someone changed on the roster in the meantime.
-async function saveIdentity(person) {
-  const rank = (document.getElementById('pf_identity_rank') || {}).value;
-  const last = ((document.getElementById('pf_identity_last') || {}).value || '').trim();
-  const first = ((document.getElementById('pf_identity_first') || {}).value || '').trim();
-  if (rank === undefined) return true;
-  if (!last) { alert('A last name is required.'); return false; }
-  if (rank === person.rank && last === person.last && first === person.first) return true;
-
-  const res = await api('PUT', `/personnel/${person.id}`, { rank, last, first });
-  if (!res || res.error) {
-    alert(res && res.error ? res.error : 'Could not save the name.');
-    return false;
-  }
-  person.rank = rank; person.last = last; person.first = first;
-  // Update the hero in place rather than re-rendering the page: a re-render
-  // rebuilds the profile inputs empty and would throw away whatever else the
-  // user had typed but not yet saved.
-  const hero = document.querySelector('#soldierView .soldier-hero-name');
-  if (hero) {
-    hero.innerHTML = `${escapeHtml(rank)} ${escapeHtml(last)}, ${escapeHtml(first)} ` +
-                     dashPill(person.status);
-  }
-  const avatar = document.querySelector('#soldierView .soldier-avatar');
-  if (avatar) avatar.textContent = soldierInitials(person);
-  render();                // every roster row carries the name too
-  return true;
+// Who this page is about, as an index into `personnel` — which is what the
+// edit modal takes. -1 when they are no longer on the loaded roster.
+function soldierIndexById(id) {
+  return id == null ? -1 : personnel.findIndex(p => p.id === Number(id));
 }
 
+// The edit modal can now be opened from this page, so a save in it has to
+// redraw the page it was opened over — or leave it, when the person it was
+// about has just been deleted or moved out of the loaded unit.
+function syncSoldierPageAfterEdit() {
+  if (!document.body.classList.contains('soldier-active')) return;
+  if (!currentSoldierPerson()) { closeSoldierPage(); return; }
+  // A re-render rebuilds every pf_ input empty, so carry what is in them
+  // across it — the modal said nothing about the profile the user was typing.
+  const kept = {};
+  document.querySelectorAll('#soldierView [id^="pf_"]').forEach(el => { kept[el.id] = el.value; });
+  renderSoldierPage();     // ends in setSoldierTab(soldierTab): same tab
+  Object.keys(kept).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = kept[id];
+  });
+}
+
+// Only the fields this page still shows. Name, rank and unit are the modal's.
 async function saveProfile() {
   if (!currentSoldierId) return;
-  const person = currentSoldierPerson();
-  if (person && !(await saveIdentity(person))) return;
   const body = {};
   PROFILE_FIELD_IDS.forEach(f => {
     const el = document.getElementById('pf_' + f);
     if (el) body[f] = el.value;
   });
-  const btn = document.querySelector('#soldierView .soldier-hero-actions button');
+  const btn = document.querySelector('#soldierView .soldier-hero-actions .dash-btn-primary');
   const res = await api('PUT', `/personnel/${currentSoldierId}/profile`, body);
   if (res && res.error) { alert(res.error); return; }
   if (btn) {
@@ -6156,6 +6136,7 @@ async function removePerson(i) {
   await api('DELETE', `/personnel/${p.id}`);
   personnel.splice(i, 1);
   render();
+  syncSoldierPageAfterEdit();
 }
 
 async function deleteFromEditModal() {
@@ -6708,8 +6689,9 @@ function openAddModal() {
 }
 
 function openEditModal(i) {
-  editIndex = i;
   const p = personnel[i];
+  if (!p) return;
+  editIndex = i;
   document.getElementById('modalTitle').textContent = 'Edit Person';
   document.getElementById('savePersonBtn').textContent = 'Update';
   document.getElementById('addRank').value = p.rank;
@@ -6769,6 +6751,7 @@ async function savePerson() {
   }
   closeAddModal();
   render();
+  syncSoldierPageAfterEdit();
 }
 
 // ─── Import Modal ───
