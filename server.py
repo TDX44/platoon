@@ -1,6 +1,5 @@
 import base64
 import binascii
-import hashlib
 import json
 import os
 import re
@@ -1336,6 +1335,8 @@ LOGO_MAX_BYTES = 400 * 1024
 # copy of it in memory. 4/3 with room for padding and a data: prefix.
 LOGO_MAX_B64 = (LOGO_MAX_BYTES + 2) // 3 * 4 + 64
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+PNG_IHDR_LENGTH = b'\x00\x00\x00\x0d'      # IHDR is 13 bytes, always, by spec
+PNG_IEND = b'\x00\x00\x00\x00IEND\xaeB\x60\x82'   # the whole terminating chunk
 PNG_DATA_URI = 'data:image/png;base64,'
 
 
@@ -1346,6 +1347,21 @@ def _validate_logo_png(value):
     of a backup file, which is user input wearing a hat. Stdlib only: a PNG's
     size lives at a fixed offset, so there is nothing here worth an image
     library.
+
+    What it checks: the base64 is canonical and within the byte cap; the file
+    opens with the PNG signature; the FIRST chunk is an IHDR of the 13 bytes
+    the spec fixes it at; the width and height in that IHDR are each 1..512;
+    and the file ENDS with the IEND chunk, so nothing is stapled on behind the
+    image (a PNG with a script tag after IEND is still a valid PNG to a
+    browser, and would be a valid anything-else to whatever reads it next).
+
+    What it does not check: pixel data, chunk CRCs, or any chunk between IHDR
+    and IEND. This decides whether to store a blob and hand it back with
+    Content-Type: image/png and nosniff, not whether it renders prettily.
+
+    Whitespace inside the base64 is refused rather than stripped: a hand-edited
+    or line-wrapped backup should lose its logo into skipped_rows loudly, not
+    have this guess at what the editor meant.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError('Send the logo as base64-encoded PNG bytes.')
@@ -1365,7 +1381,9 @@ def _validate_logo_png(value):
     # A PNG opens with the 8-byte signature, then an 8-byte chunk header, then
     # IHDR's width and height. Anything shorter than 24 bytes is lying about
     # being one, and slicing it without this check is a 500, not a refusal.
-    if len(raw) < 24 or not raw.startswith(PNG_SIGNATURE) or raw[12:16] != b'IHDR':
+    if (len(raw) < 24 or not raw.startswith(PNG_SIGNATURE)
+            or raw[8:12] != PNG_IHDR_LENGTH or raw[12:16] != b'IHDR'
+            or not raw.endswith(PNG_IEND)):
         raise ValueError('That file is not a PNG. Upload a PNG image.')
     width, height = struct.unpack('>II', raw[16:24])
     if not (1 <= width <= LOGO_MAX_PX and 1 <= height <= LOGO_MAX_PX):
@@ -1374,27 +1392,23 @@ def _validate_logo_png(value):
     return raw, width, height
 
 
-def _logo_version(value):
-    """The cache-buster the client appends as ?v=.
-
-    It must agree with the md5() the resolution query computes in SQL, or a
-    PUT and the next /api/units would disagree about the same stored bytes.
-    Not a security hash — it only has to change when the logo does.
-    """
-    return hashlib.md5(value.encode('ascii'), usedforsecurity=False).hexdigest()[:12]
-
-
 def _resolved_logos(conn):
-    """{unit_id: {'unit_id': owner, 'v': hash} or None} for every unit in this tenant.
+    """{unit_id: {'unit_id': owner, 'v': hash, 'name': owner's name} or None}.
 
-    Two queries for the whole tree; the walk upward happens in Python, because
-    one query per unit is how a units page becomes forty round trips.
+    Two queries for the whole tenant; the walk upward happens in Python,
+    because one query per unit is how a units page becomes forty round trips.
     Resolution has to see units ABOVE the caller's own subtree — a team
     leader's sidebar shows the company's logo — which is exactly what RLS
     already scopes these two SELECTs to: the tenant, no more and no less.
+
+    `name` travels with the logo because the owning unit is, whenever the logo
+    is inherited, an ANCESTOR — and /api/units returns only the caller's own
+    subtree. A client looking the owner up in what it was given would miss
+    every single time and conclude there was no logo.
     """
-    parent = {r['id']: r['parent_id'] for r in
-              conn.execute('SELECT id, parent_id FROM units').fetchall()}
+    rows = conn.execute('SELECT id, parent_id, name FROM units').fetchall()
+    parent = {r['id']: r['parent_id'] for r in rows}
+    names = {r['id']: r['name'] for r in rows}
     owned = {r['unit_id']: r['v'] for r in conn.execute(
         'SELECT unit_id, substr(md5(value), 1, 12) AS v FROM settings '
         'WHERE key = %s AND unit_id IS NOT NULL', (LOGO_KEY,)).fetchall()}
@@ -1410,7 +1424,7 @@ def _resolved_logos(conn):
         elif cur in resolved:
             found = resolved[cur]
         else:
-            found = {'unit_id': cur, 'v': owned[cur]}
+            found = {'unit_id': cur, 'v': owned[cur], 'name': names.get(cur, '')}
         for unit_id in chain:
             resolved[unit_id] = found
         resolved.setdefault(start, found)
@@ -1597,7 +1611,11 @@ def set_unit_logo(unit_id):
         'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
         (_root(), unit_id, LOGO_KEY, value))
     log_action('UNIT_LOGO', f'Logo set ({width}x{height}, {len(raw)} bytes)', unit_id)
-    return jsonify({'logo': {'unit_id': unit_id, 'v': _logo_version(value)}})
+    # No logo object here on purpose. The client re-reads /api/units for the
+    # new version anyway, and a second implementation of the version hash —
+    # in Python, next to the one in SQL — is two things to keep in step and
+    # one of them unread.
+    return jsonify({'success': True})
 
 
 @app.route('/api/units/<int:unit_id>/logo', methods=['DELETE'])

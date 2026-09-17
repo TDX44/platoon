@@ -54,11 +54,18 @@ DEEP = [
     {'id': 5, 'parent_id': 4, 'kind': 'team', 'name': 'L4', 'count': 1},
 ]
 
+# unitById() coerces with Number(), so a hostile id can never reach the chart
+# through it. The function takes its top unit and its two lookups as arguments
+# though, so it is called here the way a future caller might: directly, with a
+# unit whose id and headcount are attacker-shaped strings.
+NASTY = '1);alert(1);//'
+
 DRIVER = r'''
 function chart(tree) {
   units = tree;
   return orgChartHtml(unitById(tree[0].id), unitChildren, unitHeadcount);
 }
+const NASTY = ''' + json.dumps(NASTY) + r''';
 console.log(JSON.stringify({
   three: chart(THREE_LEVEL),
   hostile: chart(HOSTILE),
@@ -66,6 +73,10 @@ console.log(JSON.stringify({
   noChild: chart(NO_CHILD),
   deep: chart(DEEP),
   noTop: orgChartHtml(null, unitChildren, unitHeadcount),
+  hostileId: orgChartHtml(
+    { id: NASTY, kind: 'company', name: 'Top' },
+    (id) => (id === NASTY ? [{ id: NASTY + 'x', kind: 'platoon', name: 'Kid' }] : []),
+    () => '0);alert(2);//'),
 }));
 '''
 
@@ -121,7 +132,7 @@ def test_a_three_level_tree_becomes_a_chart(out):
         f'three direct children means three columns: {html[:200]}'
 
     # The top unit is the one card above the columns.
-    top = re.search(r'<li class="org-node org-top">(.*?)<ul class="org-branches">', html, re.S)
+    top = re.search(r'<li class="org-node org-top">(.*?)<ul class="org-branches"', html, re.S)
     assert top, 'the top card is not sitting above a branch row'
     assert 'HHC' in top.group(1) and top.group(1).count('selectUnitById(') == 1, \
         f'exactly one card belongs above the branch row: {top.group(1)}'
@@ -147,7 +158,7 @@ def test_a_three_level_tree_becomes_a_chart(out):
     assert '14 personnel' in cols[0], f'1st Platoon should count 2+3+4+5: {cols[0]}'
 
     # Nested lists, not flat rows — the phone stylesheet needs the nesting.
-    assert html.count('<ul class="org-stack">') == 2, \
+    assert html.count('<ul class="org-stack"') == 2, \
         'level 2+ must be nested <ul>s, one per parent that has children'
 
 
@@ -163,6 +174,18 @@ def test_a_unit_name_is_never_code(out):
         f'the name is not escaped the way escapeHtml() escapes it: {html}'
 
 
+def test_the_lists_are_still_lists_to_a_screen_reader(out):
+    """Safari strips list semantics from a <ul> with list-style: none, which is
+    exactly what the chart's stylesheet does — so every <ul> says role="list"
+    and an assistive reader still hears a tree rather than four loose cards."""
+    for key in ('three', 'oneChild', 'noChild', 'deep'):
+        html = out[key]
+        opens = re.findall(r'<ul\b[^>]*>', html)
+        assert opens, f'{key}: the chart is not a list at all'
+        for tag in opens:
+            assert 'role="list"' in tag, f'{key}: {tag} has no list role'
+
+
 def test_onclick_carries_a_number_and_nothing_else(out):
     for key in ('three', 'hostile', 'oneChild', 'noChild', 'deep'):
         html = out[key]
@@ -172,16 +195,31 @@ def test_onclick_carries_a_number_and_nothing_else(out):
             assert re.fullmatch(r'selectUnitById\(\d+\)', call), \
                 f'{key}: onclick carries more than a number: {call!r}'
 
+    # The real test of "numbers only": hand it something that is not one. An id
+    # that is a string of JavaScript must come out as NaN, never as itself —
+    # asserting the shape of ids that were already numbers proves nothing.
+    html = out['hostileId']
+    assert html, 'the hostile-id chart rendered nothing, so it tested nothing'
+    calls = re.findall(r'onclick="([^"]*)"', html)
+    assert len(calls) == 2, f'expected the top card and its child: {calls}'
+    for call in calls:
+        assert re.fullmatch(r'selectUnitById\((?:\d+|NaN)\)', call), \
+            f'a string id reached the handler intact: {call!r}'
+    assert NASTY not in html, f'the payload is somewhere in the markup: {html}'
+    assert 'alert(' not in html, f'a lookup returned code and the chart printed it: {html}'
+    # The headcount goes through the same coercion.
+    assert re.search(r'<div class="platoon-card-count">(?:\d+|NaN) personnel</div>', html), html
+
 
 def test_one_child_and_no_child_draw_no_bar(out):
     one = out['oneChild']
     assert 'data-cols="1"' in one, f'a single child is one column: {one[:200]}'
-    assert one.count('<ul class="org-branches">') == 1, one
-    assert '<ul class="org-stack">' not in one, 'a childless column needs no stack'
+    assert one.count('<ul class="org-branches"') == 1, one
+    assert '<ul class="org-stack"' not in one, 'a childless column needs no stack'
 
     none = out['noChild']
     assert 'data-cols="0"' in none, f'no children is no columns: {none[:200]}'
-    assert '<ul class="org-branches">' not in none, \
+    assert '<ul class="org-branches"' not in none, \
         'an empty branch row still draws a connector — it must not be emitted at all'
     assert len(cards(none)) == 1 and cards(none)[0][1] == 'HHC', cards(none)
 
@@ -193,11 +231,11 @@ def test_five_deep_stays_five_deep(out):
     assert 'data-cols="1"' in html, html[:200]
     assert [n for _, n in cards(html)] == ['L0', 'L1', 'L2', 'L3', 'L4'], cards(html)
     # L0 is the top card, L1 the column head, L2..L4 each a further <ul>.
-    assert html.count('<ul class="org-stack">') == 3, \
+    assert html.count('<ul class="org-stack"') == 3, \
         f'the deeper levels are flattened instead of nested: {html}'
     # …and each one is inside the previous, not a sibling.
     depth, seen = 0, 0
-    for tok in re.findall(r'<ul class="org-stack">|</ul>', html):
+    for tok in re.findall(r'<ul class="org-stack"|</ul>', html):
         depth += 1 if tok.startswith('<ul') else -1
         seen = max(seen, depth)
     assert seen == 3, f'the stacks are siblings, not nested: depth {seen}'
@@ -231,6 +269,7 @@ def main():
     out = render(src, node)
     test_a_three_level_tree_becomes_a_chart(out)
     test_a_unit_name_is_never_code(out)
+    test_the_lists_are_still_lists_to_a_screen_reader(out)
     test_onclick_carries_a_number_and_nothing_else(out)
     test_one_child_and_no_child_draw_no_bar(out)
     test_five_deep_stays_five_deep(out)

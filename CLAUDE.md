@@ -146,6 +146,14 @@ and runs it under node.
 Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
 `sortRows()`; reuse those rather than writing per-table sort code.
 
+The **home screen** draws the tree as an order-of-battle chart, and all of that
+markup comes out of one pure function, `orgChartHtml(top, childrenOf,
+headcountOf)` — the top unit above a row of nested `<ul>`s, one column per
+direct child, everything deeper stacked inside its own column. Below 700px a
+media query folds the very same markup back into an indented tree, so there is
+no second rendering path to keep in step. Tests: `tests/test_org_chart_js.py`,
+which runs it under node.
+
 ### Data layer
 
 PostgreSQL at `DATABASE_URL`. The app connects as `platoon_app`, a non-owner
@@ -175,6 +183,26 @@ arrays, seeded once from `DEFAULT_TDY_*` by `init_db()`, then owned by the
 Schools and Locations pages). Both are read and written through `/api/settings`.
 **Array order is significant** — it is exactly the order the TDY modal's
 dropdowns render, so nothing on either side may re-sort these lists.
+
+**Key `logo`** is a per-unit `settings` row holding a base64 PNG, at most
+512 x 512 pixels and 400 KB decoded. `_validate_logo_png()` is the only way
+bytes get in, and it runs on **both** `PUT /api/units/<id>/logo` **and
+`/api/backup/restore`** — a backup file is user input, and a rotten value there
+drops its own row into `skipped_rows` rather than failing the restore or
+sitting in the database waiting to be served. **Any future settings key that
+carries user bytes must be validated on both paths the same way.** A unit with
+no logo of its own resolves to the nearest ancestor that has one
+(`_resolved_logos()`, two queries for the whole tenant, walked upward in
+Python — never one query per unit), and the resolved owner's `unit_id`, short
+`v` hash and `name` ride along on every unit in `GET /api/units`. The `name` is
+there because the owner of an inherited logo is an ancestor and `/api/units`
+returns only the caller's own subtree, so the client cannot look it up.
+`GET /api/units/<id>/logo` is **deliberately not `can_access`-gated** — any
+attached member of the tenant may read any unit's resolved logo, because a
+team leader's sidebar shows the company's mark and a logo is branding, not
+data; writes are gated, and another tenant's id is a 404 on all three verbs.
+The response is `immutable` for a year and the client cache-busts with `?v=`,
+so the bytes at a given URL genuinely never change.
 
 ### Absence lifecycle (single source of truth)
 

@@ -58,6 +58,28 @@ def b64(raw):
     return base64.b64encode(raw).decode('ascii')
 
 
+def _ihdr_not_first():
+    """A PNG whose first chunk is pHYs, with a genuine 32x32 IHDR behind it.
+
+    The obvious fixture — pHYs followed by zeroes — is refused by the
+    *dimension* check, not the IHDR check, so it stays green when the IHDR
+    check is deleted. Here every other gate passes: the chunk length is the
+    13 an IHDR must have, the bytes at 16:24 read as a plausible 32 x 32, and
+    the file still ends in IEND. Only the chunk-type check can catch it.
+    """
+    real = png(32, 32)
+    payload = struct.pack('>II', 32, 32) + b'\x00' * 5           # 13 bytes, like IHDR
+    phys = struct.pack('>I', 13) + b'pHYs' + payload + struct.pack('>I', 0)
+    return PNG_SIG + phys + real[8:]
+
+
+def _lying_chunk_length():
+    """A real PNG whose IHDR chunk header claims a length of 0xFFFFFFFF."""
+    real = bytearray(png(32, 32))
+    real[8:12] = b'\xff\xff\xff\xff'
+    return bytes(real)
+
+
 def deep_tree(name):
     """company -> 1st Platoon -> Alpha Team, plus a sibling 2nd Platoon.
 
@@ -121,9 +143,9 @@ def test_a_real_512_square_round_trips():
     raw = png(512, 512)
     r = c.put(f'/api/units/{t["root"]}/logo', json={'png_base64': b64(raw)})
     assert r.status_code == 200, (r.status_code, r.get_json())
-    body = r.get_json()
-    assert body['logo']['unit_id'] == t['root'], body
-    assert body['logo']['v'], 'no version to cache-bust with'
+    # The client re-reads /api/units for the new version rather than trusting a
+    # hash computed a second way here, so the response carries no logo object.
+    assert r.get_json() == {'success': True}, r.get_json()
 
     g = c.get(f'/api/units/{t["root"]}/logo')
     assert g.status_code == 200, (g.status_code, g.get_data()[:200])
@@ -162,11 +184,26 @@ def test_everything_the_validator_must_refuse():
         'base64 of nothing': '',
         'missing entirely': None,
         'not a string': 12345,
+        # A hand-wrapped backup file: valid base64, but in 76-column lines.
+        # validate=True refuses embedded whitespace, and that is deliberate —
+        # the logo drops into skipped_rows rather than being silently mangled.
+        'base64 wrapped at 76 columns': '\n'.join(
+            b64(png(16, 16))[i:i + 76] for i in range(0, len(b64(png(16, 16))), 76)),
         # The signature lies: it says PNG, then the header runs out mid-IHDR.
         # struct.unpack on eight bytes that are not there is a 500, not a 400.
         'a truncated IHDR': b64(PNG_SIG + b'\x00\x00\x00\x0dIHDR\x00\x00\x02'),
         'the signature and nothing else': b64(PNG_SIG),
-        'first chunk is not IHDR': b64(PNG_SIG + b'\x00\x00\x00\x0dpHYs' + b'\x00' * 16),
+        # A real 32x32 IHDR is in there — just not first. Without the IHDR
+        # check this sails through, because the dimensions it would then read
+        # out of the pHYs payload are only wrong by accident.
+        'first chunk is not IHDR': b64(_ihdr_not_first()),
+        # IHDR is 13 bytes by spec, always. A chunk header claiming 4 GB is a
+        # parser waiting to be handed to something less careful downstream.
+        'an IHDR claiming to be 4 GB long': b64(_lying_chunk_length()),
+        # The reviewer's polyglot: a perfectly good PNG with a script tag and
+        # padding stapled on after IEND. Every byte before IEND validates.
+        'a PNG with a payload stapled after IEND': b64(
+            png(32, 32) + b'<script>alert(1)</script>' + b'\x00' * 64),
         'over the byte cap': b64(png(512, 512, noisy=True)),
         # Refused on length before a single byte is decoded.
         'a megabyte of padding': 'A' * (4 << 20),
@@ -237,13 +274,42 @@ def test_the_units_list_resolves_without_a_query_per_unit():
     units = c.get('/api/units').get_json()
     assert len(units) == 4 and all(u['logo'] and u['logo']['unit_id'] == t['root'] for u in units), units
     assert len({u['logo']['v'] for u in units}) == 1, 'one stored logo, one version'
+    assert all(u['logo']['name'] == 'Counting Co' for u in units), \
+        f'the logo does not carry the name of the unit it belongs to: {units}'
 
     # A created and a renamed unit answer in the same shape as a listed one.
+    expected = {'unit_id': t['root'], 'v': units[0]['logo']['v'], 'name': 'Counting Co'}
     made = c.post('/api/units', json={'name': '3rd Platoon', 'kind': 'platoon',
                                       'parent_id': t['root']}).get_json()
-    assert made['logo'] == {'unit_id': t['root'], 'v': units[0]['logo']['v']}, made
+    assert made['logo'] == expected, made
     renamed = c.put(f'/api/units/{made["id"]}', json={'name': '4th Platoon'}).get_json()
-    assert renamed['logo'] == made['logo'], renamed
+    assert renamed['logo'] == expected, renamed
+
+
+def test_an_inherited_logo_names_an_owner_the_caller_cannot_see():
+    """The Settings row says "Inherited from X", and X is by definition an
+    ancestor — which /api/units never returns, because it lists the caller's
+    own subtree. So the name has to travel WITH the logo or the page has
+    nothing to print and falls back to claiming there is no logo at all."""
+    t = deep_tree('Ancestor Co')
+    boss = client_for(t['root'], 'owner')
+    boss.put(f'/api/units/{t["root"]}/logo', json={'png_base64': b64(png(8, 8))})
+
+    plt = client_for(t['plt'])
+    units = plt.get('/api/units').get_json()
+    ids = {u['id'] for u in units}
+    assert t['root'] not in ids, \
+        'the fixture is wrong: a platoon leader must not see the company unit row'
+    assert ids == {t['plt'], t['team']}, ids
+    for u in units:
+        assert u['logo'] == {'unit_id': t['root'], 'v': u['logo']['v'],
+                             'name': 'Ancestor Co'}, u
+    # A rename of the owner is reflected next time, because the name is read
+    # with the logo rather than cached anywhere.
+    boss = client_for(t['root'], 'owner')
+    boss.put(f'/api/units/{t["root"]}', json={'name': 'Renamed Co'})
+    plt = client_for(t['plt'])
+    assert plt.get('/api/units').get_json()[0]['logo']['name'] == 'Renamed Co'
 
 
 # ── Who may write, who may read ──
@@ -355,6 +421,7 @@ def main():
         test_an_oversize_png_is_refused_but_a_smaller_noisy_one_is_not()
         test_the_nearest_logo_up_the_tree_wins()
         test_the_units_list_resolves_without_a_query_per_unit()
+        test_an_inherited_logo_names_an_owner_the_caller_cannot_see()
         test_a_leader_below_may_read_the_company_logo_but_not_replace_it()
         test_a_sibling_leader_is_forbidden_not_confused()
         test_another_tenants_unit_is_a_404_on_every_verb()
