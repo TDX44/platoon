@@ -3,8 +3,6 @@ import os
 import re
 import secrets
 import string
-import threading
-import time
 import base64
 from datetime import datetime, date
 from functools import wraps
@@ -121,7 +119,7 @@ def _tenant_timezone(conn, root_id):
 
 def app_timezone():
     """The signed-in organisation's timezone name inside a request; the
-    fallback outside one (init_db, tests' fixtures, the midnight worker)."""
+    fallback outside one (init_db, tests' fixtures, the CLI scripts)."""
     if has_request_context() and getattr(g, 'tz', None):
         return g.tz
     return FALLBACK_TZ
@@ -192,7 +190,7 @@ def get_db():
     One connection per request, not per call. A1 sets a session variable on it
     for row-level security, which only works if every statement in a request
     runs on the same connection. Outside a request context — init_db() at
-    import, the midnight worker, the tests — this hands back a fresh plain
+    import, the CLI scripts, the tests — this hands back a fresh plain
     connection that the caller closes itself; it is not drawn from the pool
     because those callers own their connection's lifecycle and call .close()
     on it directly, which would leak a pooled connection instead of returning
@@ -2474,7 +2472,7 @@ def activate_scheduled():
     return jsonify(result)
 
 
-# ── Reset route (used by auto-reset and manual reset) ──
+# ── Reset route ──
 
 @app.route('/api/reset', methods=['POST'])
 @attached_required
@@ -2501,7 +2499,7 @@ def reset_day():
     return jsonify({'success': True})
 
 
-# ── Midnight auto-reset background thread ──
+# ── Absence reconciliation (runs from every roster read) ──
 
 def _absence_audit(conn, action, row, details):
     # The scope comes off the event row itself: this runs from reconciliation,
@@ -2644,28 +2642,6 @@ def _reconcile_absences(conn, today_str):
     return totals
 
 
-def _midnight_reset_worker():
-    last_reset_date = None
-    while True:
-        now = app_now()
-        today = now.date()
-        today_str = today.isoformat()
-        if now.hour == 0 and now.minute == 0 and today != last_reset_date:
-            try:
-                conn = get_db()
-                conn.execute("UPDATE personnel SET present_date = '' WHERE status = 'present'")
-                result = _reconcile_absences(conn, today_str)
-                conn.commit()
-                conn.close()
-                last_reset_date = today
-                print(f'[auto-reset] Day reset at {now}; absences reconciled: {result}', flush=True)
-            except Exception as e:
-                print(f'[auto-reset] Error: {e}', flush=True)
-        time.sleep(30)
-
-
 if __name__ == '__main__':
     init_db()
-    t = threading.Thread(target=_midnight_reset_worker, daemon=True)
-    t.start()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
