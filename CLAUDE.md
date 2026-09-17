@@ -204,6 +204,21 @@ data; writes are gated, and another tenant's id is a 404 on all three verbs.
 The response is `immutable` for a year and the client cache-busts with `?v=`,
 so the bytes at a given URL genuinely never change.
 
+The **built-in mark** a unit with no logo falls back to is
+`images/app-logo.png` — 512x512, the one constant `BUILTIN_LOGO`, shown on
+the login and create-unit screens (no tenant is known there), the home screen,
+the sidebar and the Settings preview. It doubles as the manifest's 512 `any`
+icon. Every icon in `images/` is **generated**, not hand-made:
+`scripts/make-icons.py` derives the favicon, the apple-touch tile and the
+maskable icon from `app-logo.png`, which is itself the committed master.
+Pillow is dev-only and deliberately absent from `requirements.txt`; run the
+script from a scratch venv. Re-running it is a fixed point, so a changed icon
+in a diff means somebody meant it. `tests/test_app_icons.py` opens every path
+the manifest, the `<link>` tags and `BUILTIN_LOGO` name and checks the PNG
+header says the size they claim. A PWA manifest icon cannot vary per tenant
+without a per-tenant manifest, so the installed app icon is always the
+built-in one however many units upload their own.
+
 ### Absence lifecycle (single source of truth)
 
 All TDY/leave/pass/other/FTR/late/excused absences live in `scheduled_events`
