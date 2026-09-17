@@ -7571,13 +7571,56 @@ async function authSecondFactor(code) {
   setAuthError(`Verification incomplete (${si.status}). Please try again.`);
 }
 
-async function authOAuth(strategy) {
+// mode picks which flow the redirect starts. The sign-up form's Google button
+// must start a sign-UP, or a stranger's first click is a sign-in that can only
+// fail; pendingOAuthTransfer()/completeOAuthTransfer() below cover the cross
+// cases (a stranger who used the sign-in form, a member who used the sign-up one).
+async function authOAuth(strategy, mode) {
   const redirectBase = window.location.origin + '/';
-  await clerk.client.signIn.authenticateWithRedirect({
+  const flow = mode === 'signup' ? clerk.client.signUp : clerk.client.signIn;
+  await flow.authenticateWithRedirect({
     strategy,
     redirectUrl: redirectBase,
     redirectUrlComplete: redirectBase,
   });
+}
+
+// Clerk lands the OAuth callback back here with NO __clerk* query param when the
+// attempt has to cross flows: an external account it has never seen that started
+// a sign-in is "transferable" to a sign-up, and a known one that started a
+// sign-up is transferable to a sign-in. Pure so tests/test_oauth_transfer_js.py
+// can run it against fake clients.
+function pendingOAuthTransfer(client) {
+  if (!client) return null;
+  const si = client.signIn && client.signIn.firstFactorVerification;
+  if (si && si.status === 'transferable') return 'signin';
+  const su = client.signUp && client.signUp.verifications && client.signUp.verifications.externalAccount;
+  if (su && su.status === 'transferable') return 'signup';
+  return null;
+}
+
+// Fallback for when handleRedirectCallback() did not finish the transfer itself.
+// Throws a readable message; initApp()'s catch puts it in #loginError.
+async function completeOAuthTransfer(kind) {
+  let res;
+  try {
+    res = kind === 'signin'
+      ? await clerk.client.signUp.create({ transfer: true })
+      : await clerk.client.signIn.create({ transfer: true });
+  } catch (err) {
+    console.warn('Clerk OAuth transfer failed:', err);
+    const api = err && err.errors && err.errors[0];
+    throw new Error((api && (api.longMessage || api.message)) || err.message ||
+      'Google sign-in could not be completed.');
+  }
+  if (res.status === 'complete') {
+    await clerk.setActive({ session: res.createdSessionId });
+    return;
+  }
+  console.warn('Clerk OAuth transfer ended at status', res.status);
+  throw new Error(res.status === 'missing_requirements'
+    ? 'Google could not finish creating your account here. Create one with an email and password instead.'
+    : `Google sign-in could not be completed (${res.status}).`);
 }
 
 async function authResetRequest(email) {
@@ -7662,7 +7705,7 @@ function renderAuthForm() {
     document.getElementById('forgotLink').addEventListener('click', () => setAuthView('reset-request'));
     document.getElementById('toSignup').addEventListener('click', () => setAuthView('signup'));
     document.getElementById('googleSignin').addEventListener('click',
-      withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google')));
+      withBusy(document.getElementById('googleSignin'), 'Redirecting…', () => authOAuth('oauth_google', 'signin')));
     return;
   }
 
@@ -7732,7 +7775,7 @@ function renderAuthForm() {
       );
     }));
     document.getElementById('googleSignup').addEventListener('click',
-      withBusy(document.getElementById('googleSignup'), 'Redirecting…', () => authOAuth('oauth_google')));
+      withBusy(document.getElementById('googleSignup'), 'Redirecting…', () => authOAuth('oauth_google', 'signup')));
     document.getElementById('toSignin').addEventListener('click', () => setAuthView('signin'));
     return;
   }
@@ -7923,13 +7966,19 @@ async function initApp() {
     if (!clerk.user) {
       const params = new URLSearchParams(window.location.search);
       const hasClerkRedirect = [...params.keys()].some(k => k.startsWith('__clerk'));
-      if (hasClerkRedirect && typeof clerk.handleRedirectCallback === 'function') {
+      // A transferable attempt comes back with no __clerk* param at all, so the
+      // param alone is not enough to decide the callback has to run.
+      const transfer = pendingOAuthTransfer(clerk.client);
+      if ((hasClerkRedirect || transfer) && typeof clerk.handleRedirectCallback === 'function') {
         try {
           await clerk.handleRedirectCallback({});
         } catch (cbErr) {
           console.warn('Clerk redirect callback failed:', cbErr);
         }
       }
+      // handleRedirectCallback() normally performs the transfer itself; do it by
+      // hand when it did not, rather than bouncing back to the sign-in form.
+      if (!clerk.user && transfer) await completeOAuthTransfer(transfer);
       if (!clerk.user) {
         showLoginScreen();
         return;
