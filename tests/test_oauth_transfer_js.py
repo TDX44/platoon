@@ -11,6 +11,16 @@ fake Clerk client objects, so this fails if the detection stops recognising
 either direction, and the source assertions fail if the sign-up button goes
 back to starting a sign-in or the transfer call disappears from initApp().
 
+Rehearsal 3 found the next hole: a Google profile with a one-word name lands
+the transferred sign-up at `missing_requirements` with
+`missingFields: ['last_name']`, and Clerk then NAVIGATES to `continueSignUpUrl`.
+The old code cleared the pending flag before that navigation, so the reload saw
+a plain signed-out visit and painted a bare sign-in form — no message, no
+account. `oauthGapKind()` is lifted the same way: it decides from
+`missingFields` (never `requiredFields`, which lists `password` for an OAuth
+sign-up that needs none) whether the gap is only names, which the app can close
+with an inline form instead of sending the user away.
+
 Run with: python tests/test_oauth_transfer_js.py
 """
 import json
@@ -50,6 +60,23 @@ out.failed = pendingOAuthTransfer({ signIn: { firstFactorVerification: { status:
 
 out.missingMsg = oauthIncompleteMessage('missing_requirements');
 out.otherMsg = oauthIncompleteMessage('needs_identifier');
+
+// The live rehearsal-3 payload: Google gave one word, so only last_name is
+// short. requiredFields also lists password, which an OAuth sign-up never has.
+out.gapLive = oauthGapKind({
+  status: 'missing_requirements',
+  missingFields: ['last_name'],
+  requiredFields: ['last_name', 'email_address', 'password', 'first_name'],
+});
+out.gapBothNames = oauthGapKind({ status: 'missing_requirements', missingFields: ['first_name', 'last_name'] });
+out.gapPassword = oauthGapKind({ status: 'missing_requirements', missingFields: ['password'] });
+out.gapMixed = oauthGapKind({ status: 'missing_requirements', missingFields: ['last_name', 'phone_number'] });
+out.gapEmpty = oauthGapKind({ status: 'missing_requirements', missingFields: [] });
+out.gapNoFields = oauthGapKind({ status: 'missing_requirements' });
+out.gapComplete = oauthGapKind({ status: 'complete', missingFields: ['last_name'] });
+out.gapNull = oauthGapKind(null);
+out.gapUndef = oauthGapKind(undefined);
+out.namedMsg = oauthIncompleteMessage('missing_requirements', ['phone_number']);
 
 (async () => {
   // Nothing is pending until a redirect is actually started.
@@ -116,7 +143,38 @@ def main():
     for key in ('signInUrl', 'signUpUrl', 'continueSignUpUrl'):
         assert key in init, f'handleRedirectCallback() does not pin {key} to this app'
 
-    # 3. The inline script still parses.
+    # 2b. The flow survives Clerk's OWN navigation to continueSignUpUrl.
+    # Clearing the flag before the callback is exactly the rehearsal-3 bug: the
+    # reload came back with nothing left saying an OAuth flow was in progress.
+    assert init.index('handleRedirectCallback(') < init.index('clearOAuthPending()'), \
+        'initApp() consumes the pending flag before Clerk can navigate away'
+    assert "'oauth=continue'" in init or '?oauth=continue' in init, \
+        "the onward URLs carry no marker, so Clerk's own reload lands on a bare sign-in form"
+    assert re.search(r"params\.get\('oauth'\)", init), \
+        'initApp() never reads the resume marker back'
+    # Consumed once, and the callback is not re-run on the resume leg: that is
+    # what stops a missing_requirements sign-up from bouncing forever.
+    assert 'replaceState' in init, 'the resume marker is never consumed'
+    assert 'oauthGapKind(' in init, 'initApp() does not classify a stalled sign-up'
+
+    # 2c. A names-only gap is filled in the app, not sent away.
+    assert re.search(r'signUp\.update\(\{\s*firstName', src), \
+        'nothing calls signUp.update({ firstName, lastName }) to close a name gap'
+    render = extract(src, r'function renderAuthForm\(\) \{.*?\n\}', 'renderAuthForm()')
+    names_view = extract(render, r"if \(authView === 'oauth-names'\).*?\n  \}",
+                         "the 'oauth-names' view")
+    assert 'Finish creating your account' in names_view, names_view[:200]
+    for field in ('oauthFirstName', 'oauthLastName'):
+        assert field in names_view, f'the name-completion form has no {field} input'
+
+    # 3b. Clerk's Smart CAPTCHA needs a mount point wherever a sign-up can be
+    # created — including the transfer that starts from the sign-IN form.
+    signin_view = extract(render, r"if \(authView === 'signin'\).*?\n  \}", "the 'signin' view")
+    for view, label in ((signin_view, 'signin'), (names_view, 'oauth-names')):
+        assert 'id="clerk-captcha"' in view, \
+            f'the {label} view has no #clerk-captcha element for Clerk to mount into'
+
+    # 4. The inline script still parses.
     body = script_text(src)
     path = os.path.join(tempfile.mkdtemp(), 'spa.js')
     with open(path, 'w', encoding='utf-8') as fh:
@@ -124,7 +182,7 @@ def main():
     proc = subprocess.run([node, '--check', path], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
 
-    # 4. The detection itself, run for real.
+    # 5. The detection itself, run for real.
     js = '\n'.join([
         STUB_CLERK,
         extract(src, r"const OAUTH_PENDING_KEY = '[^']+';", 'OAUTH_PENDING_KEY'),
@@ -133,6 +191,9 @@ def main():
         extract(src, r'function clearOAuthPending\(.*?\n\}', 'clearOAuthPending()'),
         extract(src, r'async function authOAuth\(.*?\n\}', 'authOAuth()'),
         extract(src, r'function pendingOAuthTransfer\(.*?\n\}', 'pendingOAuthTransfer()'),
+        extract(src, r'const OAUTH_NAME_FIELDS = \[[^\]]*\];', 'OAUTH_NAME_FIELDS'),
+        extract(src, r'function oauthGapKind\(.*?\n\}', 'oauthGapKind()'),
+        extract(src, r'const OAUTH_FIELD_LABELS = \{.*?\n\};', 'OAUTH_FIELD_LABELS'),
         extract(src, r'function oauthIncompleteMessage\(.*?\n\}', 'oauthIncompleteMessage()'),
         DRIVER,
     ])
@@ -161,6 +222,18 @@ def main():
     assert out['pendingAfterSignin'] == 'signin', out['pendingAfterSignin']
     assert 'email and password' in out['missingMsg'], out['missingMsg']
     assert 'needs_identifier' in out['otherMsg'], out['otherMsg']
+
+    assert out['gapLive'] == 'names', \
+        'the rehearsal-3 payload (only last_name short) must be fillable in-app'
+    assert out['gapBothNames'] == 'names', out['gapBothNames']
+    assert out['gapPassword'] == 'other', 'a missing password is not a name gap'
+    assert out['gapMixed'] == 'other', 'one non-name field makes the whole gap "other"'
+    assert out['gapEmpty'] == 'other', 'an unexplained stall must not claim to be names'
+    assert out['gapNoFields'] == 'other', out['gapNoFields']
+    assert out['gapComplete'] is None, 'a finished sign-up has no gap'
+    assert out['gapNull'] is None and out['gapUndef'] is None, 'no sign-up, no gap'
+    assert 'phone number' in out['namedMsg'], \
+        f"a gap we cannot fill must name the field: {out['namedMsg']}"
     print('ok')
 
 

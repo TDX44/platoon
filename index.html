@@ -7371,8 +7371,11 @@ async function createRootUnit() {
   loadHome();
 }
 
-function showLoginScreen() {
+// `view` is for the paths that land on the login card mid-flow rather than at
+// its start — an OAuth sign-up that still needs a name, today.
+function showLoginScreen(view) {
   currentUser = null;
+  if (view) authView = view;
   document.body.classList.remove('app-authenticated');
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('homeScreen').style.display = 'none';
@@ -7619,10 +7622,37 @@ function pendingOAuthTransfer(client) {
 // The one status the transfer legitimately stops at gets its own sentence, so a
 // Clerk instance with bot protection or required fields says what to do instead
 // of looping. Shared: the callback can leave the sign-up there by itself.
-function oauthIncompleteMessage(status) {
-  return status === 'missing_requirements'
-    ? 'Google could not finish creating your account here. Create one with an email and password instead.'
-    : `Google sign-in could not be completed (${status}).`;
+// Naming the fields matters — "could not finish", with no reason, is what the
+// stranger in rehearsal 3 was left staring at.
+const OAUTH_FIELD_LABELS = {
+  first_name: 'first name',
+  last_name: 'last name',
+  email_address: 'email address',
+  phone_number: 'phone number',
+  username: 'username',
+  password: 'password',
+};
+function oauthIncompleteMessage(status, fields) {
+  if (status !== 'missing_requirements') return `Google sign-in could not be completed (${status}).`;
+  const named = (fields || []).map(f => OAUTH_FIELD_LABELS[f] || String(f).replace(/_/g, ' '));
+  return named.length
+    ? `Google could not finish creating your account here — it still needs your ${named.join(', ')}. Create an account with an email and password instead.`
+    : 'Google could not finish creating your account here. Create one with an email and password instead.';
+}
+
+// What a transferred sign-up is still short of. ONLY missingFields decides:
+// requiredFields lists `password` on every instance, but an OAuth sign-up is
+// never asked for one, so reading it would send a fixable account away. Names
+// are the gap the app can close itself (a one-word Google profile leaves
+// last_name short); anything else, or an unexplained stall, is 'other' and gets
+// a message rather than a form — that is what stops the loop. Pure so
+// tests/test_oauth_transfer_js.py can run it against fake sign-ups.
+const OAUTH_NAME_FIELDS = ['first_name', 'last_name'];
+function oauthGapKind(signUp) {
+  if (!signUp || signUp.status !== 'missing_requirements') return null;
+  const missing = signUp.missingFields || [];
+  if (!missing.length) return 'other';
+  return missing.every(f => OAUTH_NAME_FIELDS.indexOf(f) !== -1) ? 'names' : 'other';
 }
 
 // Fallback for when handleRedirectCallback() did not finish the transfer itself.
@@ -7643,8 +7673,21 @@ async function completeOAuthTransfer(kind) {
     await clerk.setActive({ session: res.createdSessionId });
     return;
   }
-  console.warn('Clerk OAuth transfer ended at status', res.status);
-  throw new Error(oauthIncompleteMessage(res.status));
+  console.warn('Clerk OAuth transfer ended at status', res.status, res.missingFields);
+  throw new Error(oauthIncompleteMessage(res.status, res.missingFields));
+}
+
+// Closes the one gap the app can close on the user's behalf: Clerk requires
+// both names, Google hands over a single-word profile, and the sign-up parks at
+// missing_requirements. Anything short of `complete` afterwards re-renders this
+// same form with a reason — it never navigates, so there is no loop to get into.
+async function authCompleteOAuthNames(firstName, lastName) {
+  const su = await clerk.client.signUp.update({ firstName, lastName });
+  if (su.status === 'complete') {
+    await finalizeAuth(su.createdSessionId);
+    return;
+  }
+  setAuthError(oauthIncompleteMessage(su.status, su.missingFields));
 }
 
 async function authResetRequest(email) {
@@ -7715,6 +7758,9 @@ function renderAuthForm() {
         <label for="signinPassword">Password</label>
         <input id="signinPassword" type="password" autocomplete="current-password" required placeholder="Your password">
         <div class="auth-forgot"><button type="button" class="auth-link" id="forgotLink">Forgot password?</button></div>
+        <!-- Continue with Google can turn into a sign-UP behind our back (an
+             unknown account transfers), and that POST wants a CAPTCHA mount. -->
+        <div id="clerk-captcha"></div>
         <button type="submit" class="btn-login" id="signinSubmit">Sign in</button>
         <div class="auth-switch">New here? <button type="button" class="auth-link" id="toSignup">Create an account</button></div>
       </form>`;
@@ -7801,6 +7847,35 @@ function renderAuthForm() {
     document.getElementById('googleSignup').addEventListener('click',
       withBusy(document.getElementById('googleSignup'), 'Redirecting…', () => authOAuth('oauth_google', 'signup')));
     document.getElementById('toSignin').addEventListener('click', () => setAuthView('signin'));
+    return;
+  }
+
+  // Clerk wants both names; a single-word Google profile only fills one. Ask
+  // for the rest here rather than telling a stranger to start over with a
+  // password — the sign-up is already created and its email already verified.
+  if (authView === 'oauth-names') {
+    if (subtitle) subtitle.textContent = 'Finish creating your account';
+    const su = (clerk.client && clerk.client.signUp) || {};
+    mount.innerHTML = `
+      <form class="auth-form" id="oauthNamesForm">
+        <p class="auth-hint">Google didn't give us your full name. Add it to finish creating your account.</p>
+        <label for="oauthFirstName">First name</label>
+        <input id="oauthFirstName" type="text" autocomplete="given-name" required autofocus value="${escapeHtml(su.firstName || '')}" placeholder="First name">
+        <label for="oauthLastName">Last name</label>
+        <input id="oauthLastName" type="text" autocomplete="family-name" required value="${escapeHtml(su.lastName || '')}" placeholder="Last name">
+        <div id="clerk-captcha"></div>
+        <button type="submit" class="btn-login" id="oauthNamesSubmit">Finish &amp; continue</button>
+        <div class="auth-back"><button type="button" class="auth-link" id="oauthNamesBack">Back to sign in</button></div>
+      </form>`;
+    const form = document.getElementById('oauthNamesForm');
+    const submit = document.getElementById('oauthNamesSubmit');
+    form.addEventListener('submit', withBusy(submit, 'Finishing…', async () => {
+      await authCompleteOAuthNames(
+        document.getElementById('oauthFirstName').value.trim(),
+        document.getElementById('oauthLastName').value.trim()
+      );
+    }));
+    document.getElementById('oauthNamesBack').addEventListener('click', () => setAuthView('signin'));
     return;
   }
 
@@ -7992,15 +8067,22 @@ async function initApp() {
       const hasClerkRedirect = [...params.keys()].some(k => k.startsWith('__clerk'));
       // A transferable attempt comes back with no __clerk* param at all, so the
       // param alone cannot decide this; the flag authOAuth() set scopes it to
-      // this one navigation. Consumed either way, success or failure.
-      if (hasClerkRedirect || getOAuthPending()) {
-        clearOAuthPending();
-        const appRoot = window.location.origin + '/';
-        if (typeof clerk.handleRedirectCallback === 'function') {
+      // this one navigation.
+      // Clerk NAVIGATES to continueSignUpUrl when it parks a sign-up at
+      // missing_requirements, so that URL carries a marker and the flag is not
+      // consumed until the flow has actually resolved. Clearing it first is
+      // what made rehearsal 3's reload look like a plain signed-out visit.
+      // The marker is read once and stripped: the resume leg must not re-run
+      // the callback, or a still-incomplete sign-up bounces forever.
+      const resuming = params.get('oauth') === 'continue';
+      if (resuming) history.replaceState({}, '', window.location.pathname);
+      if (hasClerkRedirect || getOAuthPending() || resuming) {
+        const continueUrl = window.location.origin + '/?oauth=continue';
+        if (!resuming && typeof clerk.handleRedirectCallback === 'function') {
           try {
             // Pin every onward URL to this SPA, or Clerk bounces off-app.
             await clerk.handleRedirectCallback({
-              signInUrl: appRoot, signUpUrl: appRoot, continueSignUpUrl: appRoot,
+              signInUrl: continueUrl, signUpUrl: continueUrl, continueSignUpUrl: continueUrl,
             });
           } catch (cbErr) {
             console.warn('Clerk redirect callback failed:', cbErr);
@@ -8013,11 +8095,23 @@ async function initApp() {
         // useful message for a generic one.
         if (!clerk.user) {
           const after = pendingOAuthTransfer(clerk.client);
-          if (after) await completeOAuthTransfer(after);
-          else if (clerk.client.signUp && clerk.client.signUp.status === 'missing_requirements') {
-            throw new Error(oauthIncompleteMessage('missing_requirements'));
+          try {
+            if (after) await completeOAuthTransfer(after);
+          } catch (transferErr) {
+            clearOAuthPending();
+            throw transferErr;
           }
         }
+        // A sign-up Clerk left short of its required fields is only dead if we
+        // cannot fill them: names we ask for right here, anything else gets a
+        // sentence naming it. Either way the flow is over, so consume the flag.
+        const gap = !clerk.user && oauthGapKind(clerk.client.signUp);
+        if (gap) {
+          clearOAuthPending();
+          if (gap === 'names') { showLoginScreen('oauth-names'); return; }
+          throw new Error(oauthIncompleteMessage('missing_requirements', clerk.client.signUp.missingFields));
+        }
+        clearOAuthPending();
       }
       if (!clerk.user) {
         showLoginScreen();
