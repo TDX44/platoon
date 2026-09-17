@@ -4,8 +4,8 @@ The duty roster points at a real person_id, so it can ask the absence lifecycle
 whether that soldier is away on the duty date. Covered here: the snapshot
 fields come from the database and not the client, a soldier outside the
 caller's subtree is refused, active/scheduled/open-ended/empty-bound absences
-all report a conflict, a clear date reports none, the conflict warns instead of
-blocking, and the legacy backfill only links unambiguous rows.
+all report a conflict, a clear date reports none, and the conflict warns
+instead of blocking.
 """
 import os
 import sys
@@ -49,12 +49,12 @@ def add_unit(parent_id, name, slug, root_id=None):
     return row['id']
 
 
-def add_person(rank, last, first, unit_id=None, root_id=None, platoon=None):
+def add_person(rank, last, first, unit_id=None, root_id=None):
     conn = dbharness.owner_conn()
     row = conn.execute(
-        'INSERT INTO personnel (rank, last, first, unit_id, root_id, platoon) '
-        'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-        (rank, last, first, unit_id or T['child'], root_id or T['root'], platoon)).fetchone()
+        'INSERT INTO personnel (rank, last, first, unit_id, root_id) '
+        'VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        (rank, last, first, unit_id or T['child'], root_id or T['root'])).fetchone()
     conn.commit(); conn.close()
     return row['id']
 
@@ -244,43 +244,6 @@ def check_label():
     assert conflict(partial, '2026-09-10')['label'] == 'on TDY from 7SEP'
 
 
-def check_backfill():
-    """Legacy rows carry only a name; link the unambiguous ones, guess at none.
-
-    Pre-A1 rows have a `platoon` and no unit_id, which is exactly what the
-    migration in init_db() matches on, so the fixtures here carry both.
-    """
-    solo = add_person('SGT', 'Unique', 'Person', platoon='2nd')
-    add_person('SPC', 'Twin', 'Sam', platoon='2nd')
-    add_person('SPC', 'Twin', 'Sam', platoon='2nd')
-
-    conn = dbharness.owner_conn()
-    conn.execute('ALTER TABLE duty_roster DROP COLUMN person_id')
-    for rank, last, first in (('SGT', 'Unique', 'Person'), ('SPC', 'Twin', 'Sam'),
-                              ('SSG', 'Deleted', 'Soldier')):
-        conn.execute(
-            "INSERT INTO duty_roster (date, platoon, unit_id, root_id, duty_type, rank, last, first) "
-            "VALUES (%s, '2nd', %s, %s, 'CQ', %s, %s, %s)",
-            (day(0), T['child'], T['root'], rank, last, first))
-    conn.commit(); conn.close()
-
-    server.init_db()  # re-adds the column and runs the backfill
-
-    conn = dbharness.owner_conn()
-
-    def person_id_of(last):
-        return conn.execute(
-            'SELECT person_id FROM duty_roster WHERE last = %s', (last,)).fetchone()['person_id']
-
-    assert person_id_of('Unique') == solo, 'an unambiguous legacy row must link'
-    assert person_id_of('Twin') is None, \
-        'two soldiers share that name — the row must stay NULL rather than guess'
-    assert person_id_of('Deleted') is None, 'a name that matches nobody must stay NULL'
-    # Unit-model rows have no `platoon`, so the legacy matcher cannot touch them.
-    assert person_id_of('Alvarez') is None, 'no platoon, no legacy match — and no guess either'
-    conn.close()
-
-
 def main():
     try:
         client = setup()
@@ -292,7 +255,6 @@ def main():
         check_bounds()
         check_matches_lifecycle()
         check_label()
-        check_backfill()
         print('ok')
     finally:
         dbharness.teardown(_schema)

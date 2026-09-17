@@ -8469,8 +8469,18 @@ async function importBackup() {
     });
     const data = await res.json();
     if (!res.ok) { showRestoreMsg(data.error || 'Restore failed.', '#ff7675'); return; }
-    showRestoreMsg(`Restored ${data.personnel} personnel and ${data.users} users. Reloading…`, '#00b894');
-    setTimeout(() => { closeRestoreModal(); location.reload(); }, 2000);
+    // A version-3 restore reports what it put back and, separately, what it
+    // could not place — a row naming a unit the file never defined, or a user
+    // whose Clerk id already belongs to someone else. Silently dropping those
+    // is how a half-restored roster looks like a finished one.
+    const skipped = [];
+    if (data.skipped_rows) skipped.push(`${data.skipped_rows} rows`);
+    if ((data.skipped_users || []).length) skipped.push(`${data.skipped_users.length} users`);
+    const unknown = (data.skipped_units || []).length ? ` (unknown units: ${data.skipped_units.join(', ')})` : '';
+    const note = skipped.length ? ` ${skipped.join(' and ')} skipped${unknown}.` : '';
+    showRestoreMsg(`Restored ${data.personnel} personnel into ${data.units_created} units.${note} Reloading…`,
+                   skipped.length ? '#e17055' : '#00b894');
+    setTimeout(() => { closeRestoreModal(); location.reload(); }, skipped.length ? 6000 : 2000);
   } catch(e) {
     showRestoreMsg('Invalid file or parse error: ' + e.message, '#ff7675');
   }

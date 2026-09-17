@@ -63,8 +63,9 @@ def build_a0_fixture():
                  "(12, 3, '2nd', 'pass', '2026-08-01', '2026-08-02', 'completed')")
     conn.execute("INSERT INTO duty_roster (date, platoon, person_id, rank, last, first) VALUES ('2026-09-20', '2nd', 7, 'SPC', 'Seven', 'B')")
     conn.execute("INSERT INTO report_history (platoon, unit_name, text) VALUES ('2nd', '2nd Platoon', 'r1'), ('1st', '1st', 'r2')")
-    # The NULL is deliberate: init_db() drops audit_log's NOT NULL on `platoon`,
-    # so a company-wide row written in between carries NULL rather than ''.
+    # The NULL is deliberate: this fixture's `platoon` is nullable, so a
+    # company-wide row carries NULL rather than '' and the migration has to
+    # cope with both.
     conn.execute("INSERT INTO audit_log (username, action, platoon) VALUES ('boss', 'LOGIN', ''), ('boss', 'ADD_PERSON', '2nd'), "
                  "('system', 'ABSENCE_ACTIVATE', '1st'), ('system', 'BOOT', NULL)")
     # 'spacey' and 'dupe' are the shapes A0's own reader accepted: it stripped
