@@ -67,6 +67,14 @@ out.expJunk = inviteExpiryLabel('not-a-date', now);
 out.roleLeader = roleHelp('leader');
 out.roleOwner = roleHelp('owner');
 out.roleJunk = roleHelp('nonsense');
+
+// A fetch that has not landed, and one that failed, are two things — and
+// neither of them is "nobody leads this unit".
+out.statePending = accessLoadState(null);
+out.stateUndef = accessLoadState(undefined);
+out.stateFailed = accessLoadState(ACCESS_FAILED);
+out.stateLoaded = accessLoadState([]);
+out.stateFull = accessLoadState(USERS);
 console.log(JSON.stringify(out));
 '''
 
@@ -99,6 +107,8 @@ def test_helpers_under_node(src, node):
         extract(src, r'function inviteExpiryLabel\(.*?\n\}', 'inviteExpiryLabel()'),
         extract(src, r'const ROLE_HELP = \{.*?\n\};', 'ROLE_HELP'),
         extract(src, r'function roleHelp\(.*?\n\}', 'roleHelp()'),
+        extract(src, r"const ACCESS_FAILED = '[^']+';", 'ACCESS_FAILED'),
+        extract(src, r'function accessLoadState\(.*?\n\}', 'accessLoadState()'),
         DRIVER,
     ])
     path = os.path.join(tempfile.mkdtemp(), 'access.js')
@@ -147,6 +157,12 @@ def test_helpers_under_node(src, node):
         'Also manages the organisation: owners, time zone, removing people, backups.', out['roleOwner']
     assert out['roleJunk'] == '', 'an unknown role explains nothing rather than lying'
 
+    # ── accessLoadState ──
+    assert out['statePending'] == 'pending' and out['stateUndef'] == 'pending', out
+    assert out['stateFailed'] == 'failed', \
+        'a failed fetch must be distinguishable from an empty one'
+    assert out['stateLoaded'] == 'loaded' and out['stateFull'] == 'loaded', out
+
 
 def test_the_page_says_what_it_does(src):
     """The rename, and the one-step invite the Units page now carries."""
@@ -191,6 +207,71 @@ def test_the_page_says_what_it_does(src):
         'the edit-access modal never says what the grant would reach'
 
 
+def test_the_page_never_claims_what_it_could_not_load(src):
+    """api() returns null on failure. Drawn as [], that reads as "nobody"."""
+    page = extract(src, r'async function refreshUnitsPage\(\) \{.*?\n\}', 'refreshUnitsPage()')
+    assert 'ACCESS_FAILED' in page, \
+        'a failed /api/users or /api/invites is stored as an empty list, which is a lie'
+    assert not re.search(r'unit(?:Users|Invites) = \w+ \|\| \[\]', page), \
+        'the || [] fallback is back: a failed fetch would render as "No leader yet"'
+
+    leaders = extract(src, r'function unitLeaderChips\(.*?\n\}', 'unitLeaderChips()')
+    assert "Couldn't load access" in leaders or 'Couldn’t load access' in leaders, \
+        'a failed people load says nothing at all about what went wrong'
+    assert 'accessLoadState(' in leaders or re.search(r'state ===', leaders), \
+        'unitLeaderChips() does not branch on whether the load actually landed'
+    # "No leader yet" is a claim, so it may only be reachable once loaded.
+    tail = leaders[leaders.index('No leader yet'):]
+    head = leaders[:leaders.index('No leader yet')]
+    assert 'pending' in head and 'failed' in head, \
+        '"No leader yet" is reachable before the fetch lands or after it fails'
+    assert tail  # the string is there at all
+
+    invites = extract(src, r'function unitInviteChips\(.*?\n\}', 'unitInviteChips()')
+    assert 'failed' in invites and 'pending' in invites, \
+        'a failed invite load silently reads as "no pending invites"'
+
+    # A previous unit's chips must not flash on the next visit.
+    opener = extract(src, r'function openUnits\(push = true\) \{.*?\n\}', 'openUnits()')
+    assert 'unitUsers = null' in opener and 'unitInvites = null' in opener, \
+        'openUnits() leaves the last visit\'s people and invites on screen'
+
+
+def test_every_access_write_refreshes_the_page(src):
+    shared = extract(src, r'async function refreshAccessViews\(.*?\n\}', 'refreshAccessViews()')
+    assert "units-active" in shared and 'refreshUnitsPage()' in shared, \
+        'the shared refresh does not actually refresh the Units page'
+    for fn, pattern in (
+        ('saveUserEdit()', r'async function saveUserEdit\(\) \{.*?\n\}'),
+        ('deleteUser()', r'async function deleteUser\(.*?\n\}'),
+        ('revokeInvite()', r'async function revokeInvite\(.*?\n\}'),
+        ('createInvite()', r'async function createInvite\(\) \{.*?\n\}'),
+    ):
+        assert 'refreshAccessViews()' in extract(src, pattern, fn), \
+            f'{fn} changes access but leaves the Units page showing the old chips'
+
+    # A declined confirm is not a revoke, so it must not cost a reload.
+    revoke = extract(src, r'async function revokeInvite\(.*?\n\}', 'revokeInvite()')
+    body = revoke[revoke.index('confirmDialog'):]
+    assert body.index('return') < body.index('refreshAccessViews()'), \
+        'declining the confirm still refreshes the page'
+    # The chip handler must not refresh a second time on top of that.
+    wire = extract(src, r'function wireUnitRowActions\(.*?\n\}', 'wireUnitRowActions()')
+    assert 'refreshUnitsPage()' not in wire, \
+        'the chip handler refreshes even when the revoke was declined'
+
+
+def test_an_invite_says_what_it_grants(src):
+    invites = extract(src, r'function unitInviteChips\(.*?\n\}', 'unitInviteChips()')
+    assert re.search(r"role === 'owner'", invites), \
+        'a pending OWNER invite chip looks exactly like a leader invite'
+    form = extract(src, r'function unitInviteForm\(.*?\n\}', 'unitInviteForm()')
+    assert form.count('unitInviteRoleHelp') == 1 and 'canOwn ?' not in form.split('unitInviteRoleHelp')[0][-40:], \
+        'the role help only appears for an owner; a leader inviting a leader is the common case'
+    assert "roleHelp('leader')" in form, \
+        'with no select to follow, the help line has nothing to say'
+
+
 def test_user_text_never_becomes_code(src):
     """Names, labels and tokens are server strings; they go in as data."""
     units = extract(src, r'function renderUnits\(\) \{.*?\n\}', 'renderUnits()')
@@ -207,7 +288,20 @@ def test_user_text_never_becomes_code(src):
                     f'{name} interpolates {interp!r} into an onclick attribute'
     for block, what in ((invite, 'invite'), (leaders, 'leader')):
         assert 'data-' in block, f'the {what} chips carry no data- attributes to read from'
-        assert 'escapeHtml(' in block, f'the {what} chips put a server string in raw'
+
+    # Escaping by coverage, not by presence: every interpolation that carries a
+    # server string has to be wrapped, not just one of them somewhere nearby.
+    form = extract(src, r'function unitInviteForm\(.*?\n\}', 'unitInviteForm()')
+    server_strings = ('label', 'created_by', 'token', 'full_name', 'username',
+                      'url', 'unit_name', 'name', 'bits')
+    for name, block in (('unitLeaderChips', leaders), ('unitInviteChips', invite),
+                        ('unitInviteForm', form)):
+        # The innermost ${...} are the leaves that actually reach the markup.
+        for expr in re.findall(r'\$\{([^{}]*)\}', block):
+            if not any(re.search(rf'\b{w}\b', expr) for w in server_strings):
+                continue
+            assert 'escapeHtml(' in expr, \
+                f'{name} interpolates the server string {expr.strip()!r} unescaped'
 
     # Chips and the inline form are listeners bound after the fact.
     wire = extract(src, r'function wireUnitRowActions\(.*?\n\}', 'wireUnitRowActions()')
@@ -228,6 +322,9 @@ def main():
     assert node, 'node is required to run the frontend rules (it ships with the CI image)'
     test_helpers_under_node(src, node)
     test_the_page_says_what_it_does(src)
+    test_the_page_never_claims_what_it_could_not_load(src)
+    test_every_access_write_refreshes_the_page(src)
+    test_an_invite_says_what_it_grants(src)
     test_user_text_never_becomes_code(src)
     test_the_inline_script_still_parses(src, node)
     print('ok')

@@ -73,7 +73,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://platoon.carr7.com/
 ```
 
 Browser: sign in (owner) → home shows the company and three platoons →
-`/2ndplatoon/directory` bookmark resolves → Units page → Manage Access shows
+`/2ndplatoon/directory` bookmark resolves → Units page → People & invites shows
 units and roles → export a backup (version 3).
 
 Then: `./scripts/backup-db.sh` (first Postgres dump of the new shape)
@@ -261,7 +261,7 @@ did — do not paste it through `ssh … -c`.
    `SELECT * FROM audit_log WHERE action = 'LOGIN' ORDER BY id DESC LIMIT 1`
    shows that username, with `root_id` pointing at the migrated company.
 2. `/2ndplatoon/directory` bookmark resolves to the migrated 2nd platoon.
-3. Units page → Manage Access shows the migrated units and roles.
+3. Units page → People & invites shows the migrated units and roles.
 4. Export a backup (version 3), confirm the file names units by slug.
 5. **Sign up as a brand-new dev Clerk account** (an email never seen before
    in this database). It gets the `needs_unit` screen, not the migrated

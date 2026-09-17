@@ -3822,6 +3822,16 @@ function accessReach(unitId) {
   };
 }
 
+// A fetch that has not landed and one that failed are two different things,
+// and neither of them is "this unit has nobody". api() returns null on failure,
+// so drawing `people || []` turned every outage into "No leader yet".
+const ACCESS_FAILED = 'failed';
+
+function accessLoadState(value) {
+  if (value === ACCESS_FAILED) return 'failed';
+  return Array.isArray(value) ? 'loaded' : 'pending';
+}
+
 // Dates, never times: an invite dying at one second past midnight tonight has
 // a day left on it in every way that matters to the person sending it.
 function inviteExpiryLabel(expiresAt, nowIso) {
@@ -4410,9 +4420,10 @@ let unitRenameFor = null;    // unit id whose inline rename form is open
 let unitInviteFor = null;    // unit id whose inline "invite leader" form is open
 let unitInviteLink = null;   // { unitId, url } once that form has produced one
 // Loaded once per page render, never per row: the whole point of the chips is
-// that they cost one fetch, not one fetch per unit.
-let unitUsers = [];
-let unitInvites = [];
+// that they cost one fetch, not one fetch per unit. null until the first fetch
+// lands, ACCESS_FAILED when it did not — see accessLoadState().
+let unitUsers = null;
+let unitInvites = null;
 
 function openUnits(push = true) {
   closeSoldierPage(false);
@@ -4425,6 +4436,9 @@ function openUnits(push = true) {
   unitRenameFor = null;
   unitInviteFor = null;
   unitInviteLink = null;
+  // Back to "not loaded", so the last visit's chips cannot flash on this one.
+  unitUsers = null;
+  unitInvites = null;
   document.body.classList.add('units-active');
   if (push) pushAppRoute(currentUnit, 'units');
   renderUnits();          // draw from what is already loaded, then fill in
@@ -4459,7 +4473,9 @@ function renderUnits() {
   const view = document.getElementById('unitsView');
   if (!view || !currentUnit) return;
   const isOwner = !!(currentUser && currentUser.role === 'owner');
-  const byUnit = leadersByUnit(unitUsers);
+  const byUnit = leadersByUnit(Array.isArray(unitUsers) ? unitUsers : []);
+  const peopleState = accessLoadState(unitUsers);
+  const invitesState = accessLoadState(unitInvites);
   const today = getTodayStr();
   const rows = unitSubtree(currentUnit.id).map(id => {
     const u = unitById(id);
@@ -4485,7 +4501,7 @@ function renderUnits() {
       <div class="unit-row-main">
         <div class="unit-row-name">${escapeHtml(u.name)}</div>
         <div class="unit-row-meta">${escapeHtml(kindLabel(u.kind))} · ${unitHeadcount(u.id)} personnel</div>
-        <div class="unit-row-people">${unitLeaderChips(u.id, byUnit)}${unitInviteChips(u.id, today)}</div>
+        <div class="unit-row-people">${unitLeaderChips(u.id, byUnit, peopleState)}${unitInviteChips(u.id, today, invitesState)}</div>
       </div>
       <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; unitInviteFor = null; renderUnits()">Add child</button>
       <button class="btn-small btn-edit" onclick="unitInviteFor = ${u.id}; unitInviteLink = null; unitFormFor = null; unitRenameFor = null; renderUnits()">Invite leader</button>
@@ -4509,7 +4525,11 @@ function renderUnits() {
 }
 
 // A unit's leaders, as chips that open the access editor for that person.
-function unitLeaderChips(unitId, byUnit) {
+// "No leader yet" is a claim about the unit, so it is reachable only once the
+// fetch has actually come back and said so.
+function unitLeaderChips(unitId, byUnit, state) {
+  if (state === 'pending') return '';
+  if (state === 'failed') return `<span class="unit-chip unit-chip-none">Couldn't load access</span>`;
   const list = (byUnit || {})[unitId] || [];
   if (!list.length) return '<span class="unit-chip unit-chip-none">No leader yet</span>';
   return list.map(u => `<button type="button" class="unit-chip unit-chip-user${
@@ -4519,10 +4539,17 @@ function unitLeaderChips(unitId, byUnit) {
 
 // The invites still out for that unit, under its leaders. Tokens and labels are
 // server strings, so they travel as data- attributes, never as onclick text.
-function unitInviteChips(unitId, today) {
+// Silence here would read as "no pending invites", so a load that failed says
+// so rather than leaving the row looking clean.
+function unitInviteChips(unitId, today, state) {
+  if (state === 'pending') return '';
+  if (state === 'failed') return `<span class="unit-chip unit-chip-none">Couldn't load invites</span>`;
   return unitInvites.filter(i => Number(i.unit_id) === Number(unitId)).map(i => {
-    const bits = [i.label || 'Unnamed invite', inviteExpiryLabel(i.expires_at, today)];
-    if (i.created_by) bits.push(`by ${i.created_by}`);
+    const bits = [i.label || 'Unnamed invite'];
+    // An owner invite hands over the whole organisation; say so on the chip.
+    if (i.role === 'owner') bits.push('owner');
+    bits.push(inviteExpiryLabel(i.expires_at, today));
+    if (i.created_by) bits.push('by ' + i.created_by);   // escaped once, on the join below
     return `<span class="unit-chip unit-chip-invite">
       <span class="unit-chip-text">${escapeHtml(bits.filter(Boolean).join(' · '))}</span>
       <button type="button" class="unit-chip-act invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy link</button>
@@ -4549,12 +4576,12 @@ function unitInviteForm(u, isOwner) {
     ${canOwn ? `<select id="unitInviteRole" onchange="syncRoleHelp('unitInviteRole')">${accessRoleOptions('leader', u.id)}</select>` : ''}
     <button class="btn-small btn-add" onclick="createUnitInvite(${u.id})">Create link</button>
     <button class="btn-small btn-cancel" onclick="unitInviteFor = null; renderUnits()">Cancel</button>
-    ${canOwn ? '<div class="role-help" id="unitInviteRoleHelp"></div>' : ''}
+    <div class="role-help" id="unitInviteRoleHelp">${escapeHtml(roleHelp('leader'))}</div>
   </div>`;
 }
 
 function wireUnitRowActions(view) {
-  const known = new Set(unitUsers.map(u => String(u.id)));
+  const known = new Set((Array.isArray(unitUsers) ? unitUsers : []).map(u => String(u.id)));
   view.querySelectorAll('.unit-chip-user').forEach(btn => {
     btn.addEventListener('click', () => {
       if (known.has(btn.dataset.uid)) openUserEditModal(Number(btn.dataset.uid));
@@ -4564,10 +4591,9 @@ function wireUnitRowActions(view) {
     btn.addEventListener('click', () => copyWithFeedback(inviteUrl(btn.dataset.token), btn, 'Copy link'));
   });
   view.querySelectorAll('.invite-del-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await revokeInvite(btn.dataset.token);
-      await refreshUnitsPage();
-    });
+    // revokeInvite() refreshes this page itself, and only if it revoked
+    // anything — refreshing here too would reload on a declined confirm.
+    btn.addEventListener('click', () => revokeInvite(btn.dataset.token));
   });
   const copy = view.querySelector('.unit-invite-copy');
   if (copy && unitInviteLink) copy.addEventListener('click', () => copyWithFeedback(unitInviteLink.url, copy, 'Copy'));
@@ -4602,8 +4628,8 @@ async function refreshUnitsPage() {
   await loadUnits();
   currentUnit = unitById(currentUnit.id) || currentUnit;
   const [people, invites] = await Promise.all([api('GET', '/users'), api('GET', '/invites')]);
-  unitUsers = people || [];
-  unitInvites = (invites || []).filter(i => i.status === 'pending');
+  unitUsers = people || ACCESS_FAILED;
+  unitInvites = invites ? invites.filter(i => i.status === 'pending') : ACCESS_FAILED;
   renderUnits();
 }
 
@@ -8618,6 +8644,7 @@ async function createInvite() {
   }
   document.getElementById('inviteModal').classList.remove('active');
   await refreshInviteList();
+  await refreshAccessViews();
   document.getElementById('inviteLinkValue').value = result.url;
   document.getElementById('inviteLinkModal').classList.add('active');
 }
@@ -8635,7 +8662,9 @@ async function revokeInvite(token) {
   if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
   const result = await api('DELETE', `/invites/${token}`);
   if (result && result.error) { alert(result.error); return; }
-  await refreshInviteList();
+  // Only repaint the modal's list when the modal is actually on screen.
+  if (document.getElementById('userMgmtModal').classList.contains('active')) await refreshInviteList();
+  await refreshAccessViews();
 }
 
 async function openUserEditModal(userId) {
@@ -8694,7 +8723,12 @@ async function saveUserEdit() {
   }
   closeUserEdit();
   if (userEditCameFromMgmt) await refreshUserList();
-  // Changing who leads a unit changes the chips on the Units page under it.
+  await refreshAccessViews();
+}
+
+// Access is shown on the Units page as well as in this modal, so every write
+// to it has to redraw that page when it is the one the user is looking at.
+async function refreshAccessViews() {
   if (document.body.classList.contains('units-active')) await refreshUnitsPage();
 }
 
@@ -8703,6 +8737,7 @@ async function deleteUser(userId, username) {
   const result = await api('DELETE', `/users/${userId}`);
   if (result && result.error) { alert(result.error); return; }
   await refreshUserList();
+  await refreshAccessViews();
 }
 
 // ─── Init ───
