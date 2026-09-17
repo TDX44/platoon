@@ -2363,8 +2363,11 @@
   }
   .soldier-hero-sub { color: var(--theme_text-muted); font-size: 0.85rem; margin-top: 4px; }
   /* margin-left:auto keeps Save changes hard right on desktop and, once the hero
-     wraps on a phone, on its own row rather than under the avatar. */
-  .soldier-hero-actions { flex: none; margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+     wraps on a phone, on its own row rather than under the avatar. It must stay
+     shrinkable (`0 1 auto`, never `none`): at `none` the box is pinned to the
+     max-content width of both buttons side by side — 318px — so on a 320px
+     screen it hung off the edge and its own flex-wrap could never fire. */
+  .soldier-hero-actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
   .soldier-hero-edit { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
   /* .dash-btn sets no stroke, and the shared pencil icon carries none of its
      own — without this it draws nothing at all. */
