@@ -2954,15 +2954,13 @@
     gap: 8px; padding: 4px 4px 16px; text-align: center;
   }
   /* aspect-ratio, not height:auto: a unit may upload any shape up to 512px and
-     the box must not resize under the nav when it loads. The built-in art is a
-     440x573 portrait; an uploaded mark is squarer, and forcing it into that
-     box would letterbox it with dead space down both sides. So: two boxes,
-     both of fixed shape and the same width, applyUnitLogo() picks which. */
+     the box must not resize under the nav when it loads. One square box for
+     every case — the built-in mark is square and an upload is capped at a 512
+     square, so there is nothing left for a second box shape to fix. */
   .dash-brand img {
-    width: 100%; max-width: 180px; height: auto; aspect-ratio: 440 / 573;
+    width: 100%; max-width: 180px; height: auto; aspect-ratio: 1 / 1;
     object-fit: contain;
   }
-  .dash-brand img.brand-custom { aspect-ratio: 1 / 1; }
   .dash-brand-name {
     color: var(--cp-side-strong); font-weight: 700; font-size: 0.78em;
     letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.35;
@@ -3426,7 +3424,7 @@
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-brand">
-      <img src="/images/logo-duck.png" alt="Unit Logo" style="width:124px;height:124px;object-fit:contain;margin:0 auto 10px;display:block;">
+      <img src="/images/app-logo.png" alt="Unit Logo" style="width:124px;height:124px;object-fit:contain;margin:0 auto 10px;display:block;">
       <div class="login-title">Platoon Accountability</div>
       <div class="login-subtitle" id="loginSubtitle">Sign in to continue</div>
       <div id="loginError" class="login-error" style="display:none"></div>
@@ -3470,7 +3468,7 @@
   </div>
   <!-- The unit's own logo once the tree is loaded (applyUnitLogo); the box is
        fixed at 140x140 so any aspect ratio up to 512px drops in without shift. -->
-  <img id="homeLogo" src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
+  <img id="homeLogo" src="/images/app-logo.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
   <div class="home-title">Platoon Accountability</div>
   <p class="home-subtitle">Select a unit to begin</p>
   <p class="home-lead" id="homeLead"></p>
@@ -3493,7 +3491,7 @@
 <div id="createUnitScreen" style="display:none">
   <div class="login-card">
     <form class="login-brand" onsubmit="createRootUnit(); return false;">
-      <img src="/images/logo-duck.png" alt="" style="width:96px;height:96px;object-fit:contain;margin:0 auto 10px;display:block;">
+      <img src="/images/app-logo.png" alt="" style="width:96px;height:96px;object-fit:contain;margin:0 auto 10px;display:block;">
       <h1 class="login-title">Name your unit</h1>
       <p class="login-subtitle">You are the first person here. Create the unit you lead. You can add platoons, squads and teams beneath it afterwards and invite their leaders.</p>
       <label for="newUnitName">Unit name</label>
@@ -3517,8 +3515,8 @@
 
 <aside class="dash-sidebar">
   <div class="dash-brand">
-    <img id="sidebarLogo" src="/images/sidebar-ducks.png" alt="Unit insignia"
-         width="440" height="573" loading="lazy">
+    <img id="sidebarLogo" src="/images/app-logo.png" alt="Unit insignia"
+         width="512" height="512" loading="lazy">
     <span class="dash-brand-name">Platoon Accountability</span>
   </div>
   <nav class="dash-nav" aria-label="Main navigation">
@@ -4075,39 +4073,33 @@ async function reloadUnits() {
 // in the tree, which the server has already resolved into `unit.logo`. The
 // signed-out screens keep the built-in mark: there is no tenant to ask yet.
 
-const BUILTIN_LOGO = '/images/logo-duck.png';
-const BUILTIN_SIDEBAR_LOGO = '/images/sidebar-ducks.png';
+const BUILTIN_LOGO = '/images/app-logo.png';
 const LOGO_MAX_PX = 512;
 const LOGO_MAX_BYTES = 400 * 1024;
 
-function unitLogoUrl(unit, fallback = BUILTIN_LOGO) {
+function unitLogoUrl(unit) {
   const logo = unit && unit.logo;
-  if (!logo || !logo.unit_id) return fallback;
+  if (!logo || !logo.unit_id) return BUILTIN_LOGO;
   // Session auth is a same-origin cookie, so a plain <img src> is enough.
   return `/api/units/${encodeURIComponent(logo.unit_id)}/logo?v=${encodeURIComponent(logo.v || '')}`;
 }
 
 // The two in-app places a unit logo appears. One function so they cannot drift.
 function applyUnitLogo() {
-  const paint = (el, url, fallback) => {
+  const paint = (el, url) => {
     if (!el) return;
-    // The built-in sidebar art is a 440x573 portrait; an upload is any shape up
-    // to a 512 square. One box for both letterboxes whichever it was not cut
-    // for, so the class tells the stylesheet which box to use. Both are fixed,
-    // so neither shifts the layout when the image lands.
-    el.classList.toggle('brand-custom', url !== fallback);
+    // Both boxes are a fixed square, so nothing shifts when the image lands
+    // whatever shape the upload was — see the .dash-brand img rule.
     // A logo deleted in another tab would otherwise render as a broken image.
     el.onerror = () => {
       el.onerror = null;
-      el.classList.remove('brand-custom');
-      el.src = fallback;
+      el.src = BUILTIN_LOGO;
     };
     el.src = url;
   };
   const top = currentUser ? unitById(currentUser.unit_id) : null;
-  paint(document.getElementById('homeLogo'), unitLogoUrl(top), BUILTIN_LOGO);
-  paint(document.getElementById('sidebarLogo'),
-        unitLogoUrl(currentUnit, BUILTIN_SIDEBAR_LOGO), BUILTIN_SIDEBAR_LOGO);
+  paint(document.getElementById('homeLogo'), unitLogoUrl(top));
+  paint(document.getElementById('sidebarLogo'), unitLogoUrl(currentUnit));
 }
 
 // Shrink to fit a max x max box, never enlarge. Pure, so it has a test.

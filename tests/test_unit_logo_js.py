@@ -72,10 +72,8 @@ out.urlOwn       = unitLogoUrl(COMPANY);
 out.urlInherited = unitLogoUrl(PLATOON_INHERITS);
 out.urlNone      = unitLogoUrl(PLATOON_NONE);
 out.urlMissing   = unitLogoUrl(null);
-out.urlSidebar   = unitLogoUrl(PLATOON_NONE, BUILTIN_SIDEBAR_LOGO);
 out.urlNasty     = unitLogoUrl(PLATOON_NASTY_ID);
 out.builtin      = BUILTIN_LOGO;
-out.builtinSide  = BUILTIN_SIDEBAR_LOGO;
 
 // ── logoSettingsRow, rendered ──
 // `units` deliberately never contains the company: an inherited logo's owner
@@ -187,12 +185,12 @@ function fakeImg() {
       toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); },
       remove: (c) => cls.delete(c),
     },
-    custom: () => cls.has('brand-custom'),
+    classes: () => [...cls],
   };
 }
 function snap() {
-  return { homeSrc: home.src, homeCustom: home.custom(),
-           sideSrc: side.src, sideCustom: side.custom() };
+  return { homeSrc: home.src, homeClasses: home.classes(),
+           sideSrc: side.src, sideClasses: side.classes() };
 }
 function apply(user, unit, tree, missing) {
   units = tree; currentUser = user; currentUnit = unit;
@@ -212,12 +210,12 @@ const AT_PLT = { unit_id: 2 };
 
 // The top unit inherits the company logo; the open unit owns its own.
 out.custom = apply(AT_PLT, PLATOON_OWNS, TREE, false);
-// Nothing anywhere: both images fall back to their own built-in art.
+// Nothing anywhere: both images fall back to the one built-in mark.
 out.builtin = apply({ unit_id: 4 }, PLATOON_NONE, TREE, false);
 // The sidebar 404s (a logo removed in another tab).
 apply(AT_PLT, PLATOON_OWNS, TREE, false);
 side.onerror();
-out.afterError = { src: side.src, custom: side.custom(), handlerCleared: side.onerror === null };
+out.afterError = { src: side.src, classes: side.classes(), handlerCleared: side.onerror === null };
 // Neither element on the page yet (a signed-out or half-built screen).
 out.missing = apply(AT_PLT, PLATOON_OWNS, TREE, true);
 // No signed-in user at all.
@@ -261,7 +259,6 @@ def render(src, node):
         (r'function unitById\(id\) \{.*?\n\}', 'unitById()'),
         (r'function unitLabel\(u\) \{.*?\n\}', 'unitLabel()'),
         (r"const BUILTIN_LOGO = '[^']+';", 'BUILTIN_LOGO'),
-        (r"const BUILTIN_SIDEBAR_LOGO = '[^']+';", 'BUILTIN_SIDEBAR_LOGO'),
         (r'function unitLogoUrl\(.*?\n\}', 'unitLogoUrl()'),
         (r'function fitWithin\(.*?\n\}', 'fitWithin()'),
         (r'function logoSettingsRow\(.*?\n\}', 'logoSettingsRow()'),
@@ -280,7 +277,6 @@ def drive_apply(src, node):
     ] + lift(src, [
         (r'function unitById\(id\) \{.*?\n\}', 'unitById()'),
         (r"const BUILTIN_LOGO = '[^']+';", 'BUILTIN_LOGO'),
-        (r"const BUILTIN_SIDEBAR_LOGO = '[^']+';", 'BUILTIN_SIDEBAR_LOGO'),
         (r'function unitLogoUrl\(.*?\n\}', 'unitLogoUrl()'),
         (r'function applyUnitLogo\(\) \{.*?\n\}', 'applyUnitLogo()'),
     ]) + [APPLY_DRIVER])
@@ -331,10 +327,9 @@ def test_the_url(out):
     assert out['urlOwn'] == f'/api/units/1/logo?v={V}', out['urlOwn']
     assert out['urlInherited'] == f'/api/units/1/logo?v={V}', \
         f'a unit with no logo of its own must fetch the one it inherits: {out["urlInherited"]}'
-    assert out['urlNone'] == out['builtin'] == '/images/logo-duck.png', out
+    assert out['urlNone'] == out['builtin'] == '/images/app-logo.png', out
     assert out['urlMissing'] == out['builtin'], \
         'a missing unit must not build a /api/units/undefined URL'
-    assert out['urlSidebar'] == out['builtinSide'] == '/images/sidebar-ducks.png', out
     # The id and version go into a query string and then into an attribute, so
     # nothing that can close one may survive. encodeURIComponent leaves the
     # sub-delims !'()* alone, which are legal in a URL and inert in markup.
@@ -385,7 +380,7 @@ def test_a_unit_with_no_logo_anywhere(out):
     html = out['rowNone']
     assert 'No logo yet' in html, html
     assert 'Inherited from' not in html and '>Remove<' not in html, html
-    assert 'src="/images/logo-duck.png"' in html, 'the preview is not the built-in mark'
+    assert 'src="/images/app-logo.png"' in html, 'the preview is not the built-in mark'
 
 
 def test_the_top_unit_reads_as_its_own(out):
@@ -423,7 +418,7 @@ def test_no_id_is_ever_pasted_into_a_handler(out):
         'uploadUnitLogo(this)',
         "document.getElementById('unitLogoInput').click()",
         'removeUnitLogo()',
-        "this.onerror=null;this.src='/images/logo-duck.png'",
+        "this.onerror=null;this.src='/images/app-logo.png'",
     }
     for key in ('rowOwn', 'rowInherited', 'rowNone', 'rowHostile', 'rowNastyId', 'rowTopOwner'):
         found = HANDLER_ATTRS.findall(out[key])
@@ -503,32 +498,33 @@ def test_each_image_gets_the_logo_of_its_own_unit(ap):
         f'the sidebar is not showing the open unit’s own logo: {c["sideSrc"]}'
 
 
-def test_a_custom_logo_gets_a_box_the_duck_art_does_not(ap):
-    """The built-in sidebar art is a 440x573 portrait. Leaving a square upload
-    in that box letterboxes it with dead space down both sides, so the class
-    that switches the box has to go on and come off with the image."""
-    assert ap['custom']['sideCustom'] is True, \
-        'an uploaded logo is being shown in the built-in art’s portrait box'
-    assert ap['builtin']['sideCustom'] is False, \
-        'the built-in art is being squeezed into the square upload box'
-    assert ap['builtin']['sideSrc'] == '/images/sidebar-ducks.png', ap['builtin']
-    assert ap['builtin']['homeSrc'] == '/images/logo-duck.png', ap['builtin']
+def test_an_upload_and_the_built_in_mark_go_in_the_same_box(ap):
+    """Both marks are square now — the built-in one by construction, an upload
+    because the validator caps it at a 512 square — so the sidebar has one box
+    and applyUnitLogo() swaps nothing but the src. A class appearing on either
+    image means a second box shape has come back."""
+    assert ap['custom']['sideSrc'] == '/api/units/3/logo?v=ffffffffffff', ap['custom']
+    assert ap['builtin']['sideSrc'] == '/images/app-logo.png', ap['builtin']
+    assert ap['builtin']['homeSrc'] == '/images/app-logo.png', ap['builtin']
+    for key in ('custom', 'builtin'):
+        assert ap[key]['sideClasses'] == [] and ap[key]['homeClasses'] == [], \
+            f'{key}: applyUnitLogo() is putting a class on the image again: {ap[key]}'
 
 
-def test_a_logo_that_404s_falls_back_to_the_art_and_its_box(ap):
+def test_a_logo_that_404s_falls_back_to_the_built_in_mark(ap):
     err = ap['afterError']
-    assert err['src'] == '/images/sidebar-ducks.png', \
+    assert err['src'] == '/images/app-logo.png', \
         f'a 404 leaves a broken image in the sidebar: {err["src"]}'
-    assert err['custom'] is False, \
-        'the fallback art is left in the square box the upload wanted'
+    assert err['classes'] == [], \
+        f'the fallback left a class behind: {err["classes"]}'
     assert err['handlerCleared'] is True, \
         'the handler is not cleared, so a failing fallback loops forever'
 
 
 def test_it_survives_a_page_that_has_neither_image_yet(ap):
-    assert ap['missing'] == {'homeSrc': '', 'homeCustom': False,
-                             'sideSrc': '', 'sideCustom': False}, ap['missing']
-    assert ap['noUser']['homeSrc'] == '/images/logo-duck.png', \
+    assert ap['missing'] == {'homeSrc': '', 'homeClasses': [],
+                             'sideSrc': '', 'sideClasses': []}, ap['missing']
+    assert ap['noUser']['homeSrc'] == '/images/app-logo.png', \
         'with nobody signed in the home screen must still show the built-in mark'
 
 
@@ -556,23 +552,20 @@ def test_the_page_uses_one_helper_in_exactly_the_two_places(src):
 
     for screen in ('loginScreen', 'createUnitScreen'):
         block = extract(src, rf'<div id="{screen}".*?</div>\s*</div>', screen)
-        assert 'logo-duck.png' in block and 'api/units' not in block, \
+        assert 'app-logo.png' in block and 'api/units' not in block, \
             f'{screen} tries to show a tenant logo with no tenant known'
 
 
 def test_the_box_does_not_move_when_the_logo_does(src):
     """Any aspect ratio up to 512px goes in a box of fixed shape, or the nav
-    jumps as the image lands. Two fixed boxes, not one: the built-in art is a
-    440x573 portrait and a square upload would letterbox inside it."""
+    jumps as the image lands. One box now: both the built-in mark and every
+    upload the validator accepts fit a square."""
     brand = extract(src, r'\.dash-brand img \{[^}]*\}', '.dash-brand img rule')
     assert 'object-fit: contain' in brand, brand
-    assert 'aspect-ratio: 440 / 573' in brand, \
+    assert 'aspect-ratio: 1 / 1' in brand, \
         'with height:auto the sidebar box resizes to whatever image lands in it'
-    custom = extract(src, r'\.dash-brand img\.brand-custom \{[^}]*\}', '.brand-custom rule')
-    assert 'aspect-ratio' in custom and '440' not in custom, \
-        'a custom logo is still forced into the duck art\u2019s portrait box'
-    assert 'width' not in custom and 'max-width' not in custom, \
-        'the custom box changes width too, so the sidebar reflows'
+    assert 'brand-custom' not in src, \
+        'the second box shape is back; there is only one mark shape now'
 
     home_img = extract(src, r'<img[^>]*id="homeLogo"[^>]*>', '#homeLogo')
     assert 'object-fit:contain' in home_img.replace(' ', ''), home_img
@@ -638,8 +631,8 @@ def main():
     test_a_dismissed_picker_does_nothing_but_still_clears(up)
     ap = drive_apply(src, node)
     test_each_image_gets_the_logo_of_its_own_unit(ap)
-    test_a_custom_logo_gets_a_box_the_duck_art_does_not(ap)
-    test_a_logo_that_404s_falls_back_to_the_art_and_its_box(ap)
+    test_an_upload_and_the_built_in_mark_go_in_the_same_box(ap)
+    test_a_logo_that_404s_falls_back_to_the_built_in_mark(ap)
     test_it_survives_a_page_that_has_neither_image_yet(ap)
     test_the_page_uses_one_helper_in_exactly_the_two_places(src)
     test_the_box_does_not_move_when_the_logo_does(src)
