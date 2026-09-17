@@ -53,7 +53,26 @@ def setup():
 
 
 def teardown(schema):
+    """Drop the test schema, even when the test died mid-transaction.
+
+    A failing assertion between owner_conn() and close() leaves a connection
+    holding locks on these tables, and DROP SCHEMA then waits on it forever —
+    the suite hangs instead of reporting the real failure. So: bound the wait,
+    and if it expires, terminate the other backends of this database (only our
+    own two roles, never anything else that happens to share the server) and
+    try once more.
+    """
     with psycopg.connect(admin_url(), autocommit=True) as conn:
+        conn.execute("SET lock_timeout = '5s'")
+        try:
+            conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            return
+        except psycopg.errors.LockNotAvailable:
+            pass
+        conn.execute(
+            'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
+            'WHERE datname = current_database() AND pid <> pg_backend_pid() '
+            "AND usename IN ('platoon_owner', 'platoon_app')")
         conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
 

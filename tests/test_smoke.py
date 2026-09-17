@@ -3,9 +3,11 @@ reaches production, since there is no CI today. Run with:
     python tests/test_smoke.py
 """
 import os
+import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dbharness  # noqa: E402
 _schema = dbharness.setup()
@@ -26,6 +28,46 @@ EXPECTED_TABLES = [
 
 # '/' and the catch-all are checked directly below, not via the generic sweep.
 SKIP_RULES = {'/', '/<path:path>'}
+
+
+
+# Source-level gate: the fixed three platoons are gone, and `platoon` survives
+# only as one of the unit *kinds* plus a few legacy proper names (the env var,
+# the default secret, the backup filename, the two database roles). A column, a
+# scope argument, a per-platoon settings key or an `is_admin` flag coming back
+# means the tree is no longer the only scope -- and that is exactly the kind of
+# thing that reappears quietly in a merge.
+BANNED_IN_SERVER = (
+    'has_platoon_access', 'PLATOONS', 'is_admin', 'DEFAULT_TDY_SCHOOLS',
+    'DEFAULT_TDY_LOCATIONS', 'platoon = %s', 'platoons',
+    # Task 4 renamed this audit action; the spec allows no behaviour change
+    # outside its scope, so the audit log keeps saying DELETE_PERSON.
+    'REMOVE_PERSON',
+    # Settings keys are scoped by (root_id, unit_id) columns now, never by a
+    # suffix on the key.
+    'unit_name_', 'tdy_schools_', 'tdy_locations_',
+)
+
+# The only bare `platoon` tokens server.py is still allowed to contain.
+ALLOWED_PLATOON_TOKENS = (
+    "'platoon'",                            # a unit kind in UNIT_KINDS
+    'PLATOON_TZ',                           # the fallback-timezone env var
+    'platoon-tracker-change-in-production',  # the dev-only default secret
+    'platoon-backup-',                      # the backup download filename
+    'platoon_owner', 'platoon_app',          # the two database roles
+)
+
+
+def check_no_fixed_platoons_remain():
+    src = open(os.path.join(ROOT, 'server.py'), encoding='utf-8').read()
+    code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
+    for word in BANNED_IN_SERVER:
+        assert word not in code, f'{word!r} is still in server.py'
+    rest = code
+    for token in ALLOWED_PLATOON_TOKENS:
+        rest = rest.replace(token, '')
+    hits = sorted(set(re.findall(r'\w*platoon\w*', rest, re.I)))
+    assert not hits, f'`platoon` still appears in server.py code: {hits}'
 
 
 def check_tables():
@@ -84,7 +126,7 @@ def check_public_pages(client):
 def check_no_unit_identifier(client):
     """The app is a generic company-formation accountability tool. Nothing served
     to a browser may name the unit that happens to run this instance -- the unit
-    name belongs in the `unit_name_<platoon>` setting, not in shipped markup."""
+    name belongs in the unit tree's own rows, not in shipped markup."""
     banned = ('15th', 'MI BN', 'A Co')
     for path in ('/', '/welcome', '/privacy', '/terms', '/manifest.json'):
         body = client.get(path).get_data(as_text=True)
@@ -171,6 +213,7 @@ def check_units_is_open_to_the_unattached(client):
 
 
 def main():
+    check_no_fixed_platoons_remain()
     check_tables()
     client = server.app.test_client()
     check_index(client)

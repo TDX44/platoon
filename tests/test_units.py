@@ -62,6 +62,12 @@ def test_children_slugs_rename_delete():
     assert r2.get_json()['slug'] == '2nd-platoon-2', 'slugs are unique per root'
     assert c.post('/api/units', json={'name': 'X', 'kind': 'brigade', 'parent_id': t['root']}).status_code == 400
     assert c.post('/api/units', json={'name': '  ', 'kind': 'squad', 'parent_id': t['root']}).status_code == 400
+    # parent_id comes off the wire as JSON, so a numeric string is as likely as
+    # a number; junk must be a 400 here, not a 500 further down.
+    assert c.post('/api/units', json={'name': 'Numeric', 'kind': 'squad',
+                                      'parent_id': str(t['root'])}).status_code == 201
+    assert c.post('/api/units', json={'name': 'Junk', 'kind': 'squad',
+                                      'parent_id': 'x'}).status_code == 400
     plt = r.get_json()['id']
     squad = c.post('/api/units', json={'name': 'Alpha', 'kind': 'squad', 'parent_id': plt}).get_json()
     listing = c.get('/api/units').get_json()
@@ -69,7 +75,20 @@ def test_children_slugs_rename_delete():
     assert c.put(f"/api/units/{squad['id']}", json={'name': 'Alpha Squad'}).status_code == 200
     assert next(u for u in c.get('/api/units').get_json() if u['id'] == squad['id'])['slug'] == 'alpha', 'rename keeps the slug'
     assert c.delete(f'/api/units/{plt}').status_code == 409, 'has a child'
+    # An invite is a short-lived credential for one unit, so it goes with the
+    # unit -- the same treatment its settings rows get. Left behind it would
+    # name a unit_id that no longer exists.
+    conn = dbharness.owner_conn()
+    conn.execute("INSERT INTO invites (token, label, unit_id, role, root_id, expires_at) "
+                 "VALUES ('doomed-token', 'l', %s, 'leader', %s, '2099-01-01 00:00:00')",
+                 (squad['id'], t['root']))
+    conn.commit()
+    conn.close()
     assert c.delete(f"/api/units/{squad['id']}").status_code == 200
+    conn = dbharness.owner_conn()
+    still_there = conn.execute("SELECT 1 FROM invites WHERE token = 'doomed-token'").fetchone()
+    conn.close()
+    assert still_there is None, 'deleting a unit must take its pending invites with it'
     assert c.delete(f'/api/units/{plt}').status_code == 200
     assert {'UNIT_RENAME', 'UNIT_DELETE'} <= {r['action'] for r in _audit(t['root'])}
 
