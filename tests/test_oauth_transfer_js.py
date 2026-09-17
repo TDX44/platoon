@@ -42,10 +42,19 @@ const sessionStorage = {
   removeItem: k => { delete store[k]; },
 };
 const window = { location: { origin: 'https://platoondev.example' } };
+let updateResult = null;
 const clerk = { client: {
   signIn: { authenticateWithRedirect: a => calls.push(['signIn', a]) },
-  signUp: { authenticateWithRedirect: a => calls.push(['signUp', a]) },
+  signUp: {
+    authenticateWithRedirect: a => calls.push(['signUp', a]),
+    update: a => { calls.push(['update', a]); return updateResult; },
+  },
 } };
+// The two things the name form leans on, stubbed so the handler can be run.
+let authError = '';
+const finalized = [];
+function setAuthError(m) { authError = m; }
+async function finalizeAuth(sid) { finalized.push(sid); }
 '''
 
 DRIVER = r'''
@@ -87,9 +96,29 @@ out.namedMsg = oauthIncompleteMessage('missing_requirements', ['phone_number']);
   out.pendingCleared = getOAuthPending();
   await authOAuth('oauth_google', 'signin');
   out.pendingAfterSignin = getOAuthPending();
-  out.flows = calls.map(c => c[0]);
-  out.redirects = calls.map(c => [c[1].redirectUrl, c[1].redirectUrlComplete]);
+  out.flows = calls.filter(c => c[0] !== 'update').map(c => c[0]);
+  out.redirects = calls.filter(c => c[0] !== 'update').map(c => [c[1].redirectUrl, c[1].redirectUrlComplete]);
   out.strategy = calls[0][1].strategy;
+
+  // ── Closing a names-only gap ──
+  // `required` blocks an empty box but not one holding a space, and Clerk would
+  // take that and stall at the same status again.
+  updateResult = { status: 'complete', createdSessionId: 'sess_x' };
+  await authCompleteOAuthNames('   ', 'Carr');
+  out.blankUpdates = calls.filter(c => c[0] === 'update').length;
+  out.blankError = authError;
+  // Trimmed on the way out, and a complete sign-up continues like a sign-in.
+  authError = '';
+  await authCompleteOAuthNames('  Resyrv  ', ' Carr ');
+  out.sentNames = calls.filter(c => c[0] === 'update').map(c => c[1]);
+  out.finalized = finalized.slice();
+  out.okError = authError;
+  // Short of something else afterwards: name it and stay put — no navigation.
+  updateResult = { status: 'missing_requirements', missingFields: ['phone_number'] };
+  await authCompleteOAuthNames('A', 'B');
+  out.stalledError = authError;
+  out.finalizedAfterStall = finalized.length;
+
   console.log(JSON.stringify(out));
 })();
 '''
@@ -143,13 +172,22 @@ def main():
     for key in ('signInUrl', 'signUpUrl', 'continueSignUpUrl'):
         assert key in init, f'handleRedirectCallback() does not pin {key} to this app'
 
-    # 2b. The flow survives Clerk's OWN navigation to continueSignUpUrl.
-    # Clearing the flag before the callback is exactly the rehearsal-3 bug: the
-    # reload came back with nothing left saying an OAuth flow was in progress.
-    assert init.index('handleRedirectCallback(') < init.index('clearOAuthPending()'), \
-        'initApp() consumes the pending flag before Clerk can navigate away'
+    # 2b. The flow survives Clerk's OWN navigation to continueSignUpUrl. The
+    # marker in the URL is what rescues it — nothing here can stop Clerk
+    # navigating, and the script keeps running after it does. The flag is the
+    # separate promise: consumed only once the flow has resolved, so that no
+    # exit path leaves it set behind a form the user is still looking at.
+    # Ordering is about what runs, so prose naming these calls must not count.
+    init_code = re.sub(r'//[^\n]*', '', init)
+    assert init_code.index('handleRedirectCallback(') < init_code.index('clearOAuthPending()'), \
+        'initApp() consumes the pending flag before the flow has resolved'
     assert "'oauth=continue'" in init or '?oauth=continue' in init, \
         "the onward URLs carry no marker, so Clerk's own reload lands on a bare sign-in form"
+    # The transfer fallback must not fire at a sign-up Clerk already stalled:
+    # the client still reports the spent attempt as `transferable`, so a second
+    # create({transfer:true}) throws and buries the name form behind it.
+    assert init_code.index('oauthGapKind(') < init_code.index('pendingOAuthTransfer('), \
+        'initApp() asks for a transfer before classifying the stalled sign-up'
     assert re.search(r"params\.get\('oauth'\)", init), \
         'initApp() never reads the resume marker back'
     # Consumed once, and the callback is not re-run on the resume leg: that is
@@ -166,6 +204,15 @@ def main():
     assert 'Finish creating your account' in names_view, names_view[:200]
     for field in ('oauthFirstName', 'oauthLastName'):
         assert field in names_view, f'the name-completion form has no {field} input'
+    # The sign-up can be absent entirely (a bare visit that trips the marker);
+    # an unguarded read here is the one path that throws with the flag still set.
+    assert re.search(r'clerk\.client && clerk\.client\.signUp', init), \
+        'initApp() reads clerk.client.signUp without guarding it'
+    # 'oauth-names' must not outlive its sign-up: a later 401 or sign-out calls
+    # showLoginScreen() with no argument and has to get the sign-in form back.
+    login = extract(src, r'function showLoginScreen\(.*?\n\}', 'showLoginScreen()')
+    assert re.search(r"authView = view \|\| 'signin';", login), \
+        'showLoginScreen() lets a mid-flow view stick for the rest of the session'
 
     # 3b. Clerk's Smart CAPTCHA needs a mount point wherever a sign-up can be
     # created — including the transfer that starts from the sign-IN form.
@@ -193,6 +240,7 @@ def main():
         extract(src, r'function pendingOAuthTransfer\(.*?\n\}', 'pendingOAuthTransfer()'),
         extract(src, r'const OAUTH_NAME_FIELDS = \[[^\]]*\];', 'OAUTH_NAME_FIELDS'),
         extract(src, r'function oauthGapKind\(.*?\n\}', 'oauthGapKind()'),
+        extract(src, r'async function authCompleteOAuthNames\(.*?\n\}', 'authCompleteOAuthNames()'),
         extract(src, r'const OAUTH_FIELD_LABELS = \{.*?\n\};', 'OAUTH_FIELD_LABELS'),
         extract(src, r'function oauthIncompleteMessage\(.*?\n\}', 'oauthIncompleteMessage()'),
         DRIVER,
@@ -234,6 +282,17 @@ def main():
     assert out['gapNull'] is None and out['gapUndef'] is None, 'no sign-up, no gap'
     assert 'phone number' in out['namedMsg'], \
         f"a gap we cannot fill must name the field: {out['namedMsg']}"
+
+    assert out['blankUpdates'] == 0, 'a whitespace-only name must never reach Clerk'
+    assert 'first and a last name' in out['blankError'], out['blankError']
+    assert out['sentNames'] == [{'firstName': 'Resyrv', 'lastName': 'Carr'}], \
+        f"the names are not trimmed on the way to Clerk: {out['sentNames']}"
+    assert out['okError'] == '', 'a successful completion must not leave an error up'
+    assert out['finalized'] == ['sess_x'], \
+        'a completed sign-up must go through finalizeAuth() like any sign-in'
+    assert 'phone number' in out['stalledError'], \
+        f"a sign-up still short of something must say what: {out['stalledError']}"
+    assert out['finalizedAfterStall'] == 1, 'a stalled update must not sign anyone in'
     print('ok')
 
 
