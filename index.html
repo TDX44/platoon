@@ -2056,6 +2056,11 @@
   }
   .soldier-card .settings-row:first-of-type { border-top: none; }
   .settings-row-text { flex: 1 1 160px; min-width: 0; }
+  .settings-logo-preview {
+    flex: 0 0 auto; width: 46px; height: 46px; object-fit: contain;
+    padding: 3px; box-sizing: border-box;
+    border: 1px solid var(--cp-hairline); border-radius: 6px;
+  }
   .settings-row-nav .settings-row-text,
   .settings-row-nav .settings-row-label,
   .settings-row-nav .settings-row-hint { display: block; }
@@ -2884,7 +2889,12 @@
     display: flex; flex-direction: column; align-items: center;
     gap: 8px; padding: 4px 4px 16px; text-align: center;
   }
-  .dash-brand img { width: 100%; max-width: 180px; height: auto; object-fit: contain; }
+  /* aspect-ratio, not height:auto: a unit may upload any shape up to 512px and
+     the box must not resize under the nav when it loads. */
+  .dash-brand img {
+    width: 100%; max-width: 180px; height: auto; aspect-ratio: 440 / 573;
+    object-fit: contain;
+  }
   .dash-brand-name {
     color: var(--cp-side-strong); font-weight: 700; font-size: 0.78em;
     letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.35;
@@ -3387,7 +3397,9 @@
       <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
     </div>
   </div>
-  <img src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
+  <!-- The unit's own logo once the tree is loaded (applyUnitLogo); the box is
+       fixed at 140x140 so any aspect ratio up to 512px drops in without shift. -->
+  <img id="homeLogo" src="/images/logo-duck.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
   <div class="home-title">Platoon Accountability</div>
   <p class="home-subtitle">Select a unit to begin</p>
   <p class="home-lead" id="homeLead"></p>
@@ -3429,7 +3441,7 @@
 
 <aside class="dash-sidebar">
   <div class="dash-brand">
-    <img src="/images/sidebar-ducks.png" alt="Unit insignia"
+    <img id="sidebarLogo" src="/images/sidebar-ducks.png" alt="Unit insignia"
          width="440" height="573" loading="lazy">
     <span class="dash-brand-name">Platoon Accountability</span>
   </div>
@@ -3973,6 +3985,147 @@ async function loadUnits() {
   units = (await api('GET', '/units')) || [];
 }
 
+// ─── Unit logo ───
+// Each unit may carry its own PNG; one with none shows the nearest one above it
+// in the tree, which the server has already resolved into `unit.logo`. The
+// signed-out screens keep the built-in mark: there is no tenant to ask yet.
+
+const BUILTIN_LOGO = '/images/logo-duck.png';
+const BUILTIN_SIDEBAR_LOGO = '/images/sidebar-ducks.png';
+const LOGO_MAX_PX = 512;
+const LOGO_MAX_BYTES = 400 * 1024;
+
+function unitLogoUrl(unit, fallback = BUILTIN_LOGO) {
+  const logo = unit && unit.logo;
+  if (!logo || !logo.unit_id) return fallback;
+  // Session auth is a same-origin cookie, so a plain <img src> is enough.
+  return `/api/units/${encodeURIComponent(logo.unit_id)}/logo?v=${encodeURIComponent(logo.v || '')}`;
+}
+
+// The two in-app places a unit logo appears. One function so they cannot drift.
+function applyUnitLogo() {
+  const paint = (el, url, fallback) => {
+    if (!el) return;
+    // A logo deleted in another tab would otherwise render as a broken image.
+    el.onerror = () => { el.onerror = null; el.src = fallback; };
+    el.src = url;
+  };
+  const top = currentUser ? unitById(currentUser.unit_id) : null;
+  paint(document.getElementById('homeLogo'), unitLogoUrl(top), BUILTIN_LOGO);
+  paint(document.getElementById('sidebarLogo'),
+        unitLogoUrl(currentUnit, BUILTIN_SIDEBAR_LOGO), BUILTIN_SIDEBAR_LOGO);
+}
+
+// Shrink to fit a max x max box, never enlarge. Pure, so it has a test.
+function fitWithin(w, h, max) {
+  w = Math.floor(Number(w)) || 0;
+  h = Math.floor(Number(h)) || 0;
+  if (w <= 0 || h <= 0) return { w: 0, h: 0 };
+  if (w <= max && h <= max) return { w, h };
+  const scale = max / Math.max(w, h);
+  return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+function logoSettingsRow() {
+  const unit = currentUnit;
+  const logo = unit && unit.logo;
+  const own = !!(logo && unit && logo.unit_id === unit.id);
+  const from = logo && !own ? unitById(logo.unit_id) : null;
+  const limits = 'PNG or JPG, shrunk to fit 512 &times; 512.';
+  const hint = own
+    ? `Shown for ${escapeHtml(unit.name)} and every unit beneath it that has none of its own. ${limits}`
+    : from
+      ? `Inherited from ${escapeHtml(unitLabel(from))}. Upload one to give ${escapeHtml(unit.name)} its own. ${limits}`
+      : `No logo yet. It is shown for this unit and every unit beneath it. ${limits}`;
+  return `<div class="settings-row">
+    <img class="settings-logo-preview" src="${unitLogoUrl(unit)}" alt=""
+         onerror="this.onerror=null;this.src='${BUILTIN_LOGO}'">
+    <div class="settings-row-text">
+      <div class="settings-row-label">Logo</div>
+      <div class="settings-row-hint">${hint}</div>
+    </div>
+    <input type="file" id="unitLogoInput" accept="image/png,image/jpeg,image/webp" hidden
+           onchange="uploadUnitLogo(this)">
+    <button class="dash-btn dash-btn-secondary dash-btn-sm"
+            onclick="document.getElementById('unitLogoInput').click()">Upload</button>
+    ${own ? '<button class="dash-btn dash-btn-ghost dash-btn-sm" onclick="removeUnitLogo()">Remove</button>' : ''}
+  </div>`;
+}
+
+// Re-encode through a canvas at a size the server will accept. The original
+// file is never sent: it may be any size, and an SVG would be a script vector.
+function logoCanvasPng(bitmap, max) {
+  const box = fitWithin(bitmap.width, bitmap.height, max);
+  if (!box.w || !box.h) return Promise.resolve(null);
+  const canvas = document.createElement('canvas');
+  canvas.width = box.w;
+  canvas.height = box.h;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, box.w, box.h);
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+function bytesToBase64(bytes) {
+  // btoa wants a binary string; 400 KB one character at a time is slow enough
+  // to be felt on a phone, so build it in chunks.
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+async function uploadUnitLogo(input) {
+  const file = input.files && input.files[0];
+  input.value = '';                       // so the same file can be picked again
+  if (!file || !currentUnit) return;
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    alert('Choose a PNG, JPG or WebP image.');
+    return;
+  }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (e) {
+    alert('That file could not be read as an image.');
+    return;
+  }
+  // A photo can stay over 400 KB even at 512px, so step down once or twice
+  // before giving up rather than refusing a picture we could have used.
+  let blob = null;
+  for (const max of [LOGO_MAX_PX, 384, 256]) {
+    const candidate = await logoCanvasPng(bitmap, max);
+    if (candidate && candidate.size <= LOGO_MAX_BYTES) { blob = candidate; break; }
+  }
+  if (typeof bitmap.close === 'function') bitmap.close();
+  if (!blob) {
+    alert('That image is too detailed to fit under 400 KB. Try a simpler one.');
+    return;
+  }
+  const png = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+  const res = await api('PUT', `/units/${currentUnit.id}/logo`, { png_base64: png });
+  if (!res) return;                       // api() already said what went wrong
+  await refreshUnitLogos();
+}
+
+async function removeUnitLogo() {
+  if (!currentUnit) return;
+  if (!await confirmDialog('Remove logo?',
+        `${unitLabel(currentUnit)} will show the logo of the unit above it, if there is one.`,
+        'Remove')) return;
+  const res = await api('DELETE', `/units/${currentUnit.id}/logo`);
+  if (!res) return;
+  await refreshUnitLogos();
+}
+
+async function refreshUnitLogos() {
+  await loadUnits();
+  // `units` was replaced wholesale, so the old currentUnit object is a stale
+  // copy carrying the logo that was just changed.
+  currentUnit = unitById(currentUnit.id) || currentUnit;
+  applyUnitLogo();
+  renderSettings();
+}
+
 // ─── API helpers ───
 const API = '/api';
 
@@ -4407,6 +4560,10 @@ function renderSettings() {
         <h3>Appearance</h3>
         ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar.',
                          isDark, 'toggleTheme();renderSettings()')}
+      </section>
+      <section class="soldier-card">
+        <h3>Unit</h3>
+        ${logoSettingsRow()}
       </section>
       <section class="soldier-card">
         <h3>Organisation</h3>
@@ -8485,6 +8642,7 @@ async function loadHome() {
   document.getElementById('backupGroupHeader').style.display = 'flex';
   syncInstallButton();
   await loadUnits();
+  applyUnitLogo();
   renderHome();
 }
 
@@ -8549,6 +8707,7 @@ function selectUnit(unit, push = true, pendingSoldier = null) {
     .forEach(c => document.body.classList.remove(c));
   if (push) pushAppRoute(unit, 'accountability');
   showAppScreen('platoon');
+  applyUnitLogo();
   const sideUser = document.getElementById('dashSideUser');
   if (sideUser && currentUser) {
     sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(unitLabel(unit))}`;
