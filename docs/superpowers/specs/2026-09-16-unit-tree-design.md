@@ -251,7 +251,8 @@ personnel_profile … root_id                          (scoped via personnel)
 
 - **Export** = the caller's subtree: `units`, `personnel`,
   `personnel_profile`, `scheduled_events`, `duty_roster`, `report_history`,
-  `settings` for those units; `users` and `invites` only for an owner.
+  `settings` for those units; `users` only for an owner. Invites are not
+  exported — they are short-lived credentials, not data.
   `version: 3`; rows reference units by `slug`, not id.
 - **Restore** is owner-only and replaces the caller's whole tree (units
   matched by slug, created if absent). Sequences are resynced after, as

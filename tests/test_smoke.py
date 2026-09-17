@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dbharness  # noqa: E402
 _schema = dbharness.setup()
 # Production always runs with Clerk configured. Enable it here too (with a
-# fake key/domain) so login_required/admin_required hit their real 401 path
+# fake key/domain) so login_required/attached_required hit their real 401 path
 # instead of the "Clerk is not configured" 500 — every check below is
 # unauthenticated and never sends a token, so the JWKS client is never
 # actually contacted.
@@ -175,10 +175,10 @@ def check_unauthenticated_routes(client):
 
 
 # Routes that are public on purpose. Anything else under /api/ must sit behind
-# clerk_auth_required / login_required / admin_required, all of which use
-# functools.wraps and so leave a __wrapped__ on the view function. Forgetting a
-# decorator on a new route is silent and serious, and the GET sweep above cannot
-# see it on a POST/PUT/DELETE route.
+# clerk_auth_required / login_required / attached_required / owner_required, all
+# of which use functools.wraps and so leave a __wrapped__ on the view function.
+# Forgetting a decorator on a new route is silent and serious, and the GET sweep
+# above cannot see it on a POST/PUT/DELETE route.
 PUBLIC_API = {
     '/api/auth/config',
     '/api/logout',

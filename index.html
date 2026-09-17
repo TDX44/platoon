@@ -3691,8 +3691,10 @@ const MONTHS_UPPER = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT
 // The duty day is the unit's, not the device's. A phone in Germany was six
 // hours into tomorrow while the roster back home was still on today, so every
 // date read goes through the unit's timezone rather than the browser's. The
-// server sends the authoritative value in /api/auth/config; this default only
-// covers the moment before that lands, and must match APP_TZ in server.py.
+// clock is per unit, so the authoritative value arrives with the signed-in
+// user (/api/me, /api/auth/sync) and with GET /api/settings — not from
+// /api/auth/config. This default only covers the moment before that lands,
+// and must match FALLBACK_TZ in server.py.
 let APP_TZ = 'America/Chicago';
 let personnel = [];
 let tdyLeaveIndex = -1;

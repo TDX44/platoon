@@ -313,9 +313,13 @@ deliberately not used: it would also bind `platoon_owner`, which runs
 RLS stops cross-tenant access; it says nothing about *subtree* visibility
 inside one tenant. `current_subtree()` computes the set of unit ids at or
 below the signed-in user's `unit_id` with one recursive CTE, cached on `g`
-for the request; `can_access(unit_id)` tests membership. A row outside the
-caller's subtree, or in another tenant entirely, answers **404**, never
-403 — the row does not exist from the caller's side.
+for the request; `can_access(unit_id)` tests membership. The two failures are
+deliberately different codes: a row in the caller's **own** tenant but outside
+their subtree answers **403** — it exists, they may not have it — while a row
+in **another** tenant answers **404**, because RLS never handed the row over
+and the route genuinely cannot tell it from one that was never there. The two
+`/api/users/<id>` routes are the exception and answer 404 either way: a user
+row is an account, and 403 would confirm which ids are real accounts.
 
 **Roles** are `owner` and `leader`. Both see and edit their whole subtree
 (roster, absences, duty, reports, availability, audit log, backup export,
@@ -375,21 +379,28 @@ frontend stashes the token in `sessionStorage` so it survives Clerk's
 email-verification and OAuth redirects. Invites are deliberately left out of
 backup/restore — they are short-lived credentials, not data.
 
-### Background reset (important gotcha)
+### Day reset — there is no background worker
 
-`_midnight_reset_worker` clears daily `present` status and reconciles absences.
-**The thread is started only inside `if __name__ == '__main__'`**, so it runs
-under `python server.py` but **NOT under gunicorn in production**. That's fine:
-absence reconciliation happens on every roster read (see Absence lifecycle);
-only the midnight clearing of `present_date` depends on a trigger, and the
-frontend's day handling plus `/api/reset` cover it.
+There used to be a `_midnight_reset_worker` thread, started only inside
+`if __name__ == '__main__'`, so it never ran under gunicorn in production. A1
+deleted it: it opened a connection with **no tenant set**, so RLS matched
+nothing, and it printed `Day reset … absences reconciled: {...}` having changed
+zero rows — a log line that said it worked.
+
+Nothing replaced it, because nothing needed to. Absence activation and
+auto-return-to-duty happen on **every `GET /api/personnel`**
+(`_reconcile_absences`, see Absence lifecycle), so a roster that is being
+looked at is always current. Clearing yesterday's `present` marks is
+`/api/reset` — per unit, or owner-wide across the root — plus the frontend's
+own day handling.
 
 ### Backup
 
 `/api/backup` exports a `version: 3` JSON snapshot scoped to the caller's
 **subtree**: `units`, `personnel`, `personnel_profile`, `scheduled_events`,
-`duty_roster`, `report_history`, `settings` for those units, plus `users` and
-`invites` for an owner only. Rows reference units by `slug`, not id. Restore
+`duty_roster`, `report_history`, `settings` for those units, plus `users` for
+an owner only. Invites are deliberately **not** exported — they are
+short-lived credentials, not data. Rows reference units by `slug`, not id. Restore
 (`/api/backup/restore`) is **owner-only** and replaces the caller's whole
 tree (units matched by slug, created if absent); sequences are resynced
 after. `version: 1` and `version: 2` files are refused with a clear message —
@@ -418,6 +429,11 @@ user `tdx44`, at `/opt/homelab/platoon`:
 ```bash
 ssh tdx44@10.10.50.200 'cd /opt/homelab/platoon && git pull && docker compose up -d --build'
 ```
+
+**The A1 (unit-tree) release is the one exception: deploy it ONLY via
+`docs/superpowers/plans/2026-09-16-unit-tree-cutover-runbook.md`.** The
+ordinary one-liner above runs the new image before the data is migrated,
+which is not recoverable by redeploying.
 
 `docker-compose.yml` runs two services: `app` (gunicorn `-w 2` on :5000) and
 `cloudflared` (the public ingress tunnel; `TUNNEL_TOKEN` from `.env`).
