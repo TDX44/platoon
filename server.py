@@ -2366,6 +2366,16 @@ def import_backup():
 
     resync = set()
     skipped_units = set()
+    skipped_rows = 0
+    # The explicit personnel ids this restore actually honoured. A dependent
+    # row's person_id is just a number out of the file, and personnel(id) is a
+    # *global* primary key: a profile or event whose person was skipped either
+    # aborts the whole restore on the foreign key, or — when that id happens to
+    # belong to another organisation — lands on their soldier carrying our
+    # root_id, because referential integrity is checked outside the RLS
+    # policies. An id-less personnel row gets an id nobody in the file can name,
+    # so its dependents have nothing to attach to either.
+    restored_people = set()
 
     def unit_id_for(row):
         uid = existing.get(row.get('unit'))
@@ -2373,12 +2383,14 @@ def import_backup():
             skipped_units.add(row.get('unit'))
         return uid
 
-    def insert_rows(table, rows, drop=('unit',)):
+    def insert_rows(table, rows, drop=('unit',), keep_ids=None):
+        nonlocal skipped_rows
         allowed = columns_of(table)
         n = 0
         for r in rows:
             uid = unit_id_for(r)
             if uid is None:
+                skipped_rows += 1
                 continue
             d = {k: v for k, v in r.items() if k not in drop and k in allowed}
             d['unit_id'] = uid
@@ -2386,21 +2398,39 @@ def import_backup():
             cols = ', '.join(f'"{c}"' for c in d)
             conn.execute(f'INSERT INTO {table} ({cols}) VALUES ({", ".join(["%s"] * len(d))})',
                          tuple(d.values()))
+            if keep_ids is not None and 'id' in d:
+                keep_ids.add(d['id'])
             n += 1
         if any('id' in r for r in rows):
             resync.add(table)
         return n
 
-    n_people = insert_rows('personnel', payload.get('personnel', []))
+    def attached(rows, required):
+        """Only the rows naming a soldier this restore actually put back.
+
+        `required` is False for duty_roster, whose person_id is deliberately
+        nullable — an old duty turn keeps its name snapshot with no soldier.
+        """
+        nonlocal skipped_rows
+        keep = []
+        for r in rows:
+            person_id = r.get('person_id')
+            if person_id in restored_people or (person_id is None and not required):
+                keep.append(r)
+            else:
+                skipped_rows += 1
+        return keep
+
+    n_people = insert_rows('personnel', payload.get('personnel', []), keep_ids=restored_people)
     profile_cols = columns_of('personnel_profile')
-    for r in payload.get('personnel_profile', []):
+    for r in attached(payload.get('personnel_profile', []), True):
         d = {k: v for k, v in r.items() if k in profile_cols}
         d['root_id'] = root_id
         cols = ', '.join(f'"{c}"' for c in d)
         conn.execute(f'INSERT INTO personnel_profile ({cols}) VALUES ({", ".join(["%s"] * len(d))}) '
                      'ON CONFLICT (person_id) DO NOTHING', tuple(d.values()))
-    insert_rows('scheduled_events', payload.get('scheduled_events', []))
-    insert_rows('duty_roster', payload.get('duty_roster', []))
+    insert_rows('scheduled_events', attached(payload.get('scheduled_events', []), True))
+    insert_rows('duty_roster', attached(payload.get('duty_roster', []), False))
     insert_rows('report_history', payload.get('report_history', []))
     for s in payload.get('settings', []):
         uid = existing.get(s['unit']) if s.get('unit') else None
@@ -2453,10 +2483,10 @@ def import_backup():
         conn.execute(f'SELECT setval({seq}, GREATEST(nextval({seq}), '
                      f'COALESCE((SELECT MAX(id) FROM {table}), 1)), true)')
     log_action('BACKUP_RESTORE', f'{n_people} personnel, {created_units} units created, '
-                                 f'{len(skipped_users)} users skipped')
+                                 f'{skipped_rows} rows skipped, {len(skipped_users)} users skipped')
     return jsonify({'success': True, 'personnel': n_people, 'units_created': created_units,
                     'skipped_units': sorted(u for u in skipped_units if u),
-                    'skipped_users': skipped_users})
+                    'skipped_rows': skipped_rows, 'skipped_users': skipped_users})
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])

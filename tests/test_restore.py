@@ -159,6 +159,7 @@ def test_owner_round_trip_restores_its_own_export():
     assert body['personnel'] == 2, body
     assert body['units_created'] == 1, body
     assert body['skipped_units'] == [], body
+    assert body['skipped_rows'] == 0, body
     assert body['skipped_users'] == [], body
 
     after = count_rows(t['root'])
@@ -224,6 +225,7 @@ def test_unknown_slugs_are_skipped_and_reported():
     body = r.get_json()
     assert body['personnel'] == 1, body
     assert body['skipped_units'] == ['no-such-unit'], body
+    assert body['skipped_rows'] == 1, body
     assert body['skipped_users'] == ['orphan'], body
 
     conn = dbharness.owner_conn()
@@ -235,6 +237,84 @@ def test_unknown_slugs_are_skipped_and_reported():
         conn.close()
     assert row == {'unit_id': t['child'], 'role': 'leader', 'root_id': t['root']}, row
     assert gone is None, 'a row whose unit slug is unknown is not restored anywhere'
+
+
+def test_dependents_of_a_skipped_person_are_skipped_too():
+    """personnel(id) is a global primary key and the foreign key that guards it
+    is checked outside the RLS policies. So a profile or event naming a person
+    the restore did not put back is not merely useless: it aborts the whole
+    restore on the FK, or — when that id belongs to another organisation —
+    lands on their soldier carrying our root_id."""
+    mine = dbharness.make_tree('Orphan Co')
+    theirs = dbharness.make_tree('Neighbour Co')
+    conn = dbharness.owner_conn()
+    try:
+        # A soldier in the other tree with no profile of their own, so an
+        # unfiltered insert would actually land rather than hit DO NOTHING.
+        stranger = conn.execute(
+            'INSERT INTO personnel (rank, last, first, unit_id, root_id) '
+            "VALUES ('SPC', 'Stranger', 'C', %s, %s) RETURNING id",
+            (theirs['child'], theirs['root'])).fetchone()['id']
+        conn.commit()
+    finally:
+        conn.close()
+
+    dbharness.as_user(dbharness.make_user(mine['root'], 'owner'))
+    c = server.app.test_client()
+    kept_id, lost_id = 90001, 90002
+    r = c.post('/api/backup/restore', json={
+        'version': 3,
+        'units': [],
+        'personnel': [
+            {'id': kept_id, 'rank': 'SGT', 'last': 'Kept', 'first': 'A', 'unit': mine['child_slug']},
+            {'id': lost_id, 'rank': 'SGT', 'last': 'Lost', 'first': 'B', 'unit': 'no-such-unit'},
+        ],
+        'personnel_profile': [
+            {'person_id': kept_id, 'phone': 'kept'},
+            {'person_id': lost_id, 'phone': 'lost'},
+            {'person_id': stranger, 'phone': 'trespass'},
+        ],
+        'scheduled_events': [
+            {'person_id': kept_id, 'status': 'leave', 'from_date': '2026-02-01',
+             'to_date': '2026-02-02', 'state': 'scheduled', 'unit': mine['child_slug']},
+            {'person_id': lost_id, 'status': 'leave', 'from_date': '2026-02-01',
+             'to_date': '2026-02-02', 'state': 'scheduled', 'unit': mine['child_slug']},
+        ],
+        'duty_roster': [
+            {'date': '2026-02-03', 'duty_type': 'CQ', 'person_id': lost_id, 'last': 'Lost',
+             'unit': mine['child_slug']},
+            # person_id is deliberately nullable: an old duty turn keeps only
+            # its name snapshot, and must survive a restore.
+            {'date': '2026-02-03', 'duty_type': 'CQ', 'person_id': None, 'last': 'Snapshot',
+             'unit': mine['child_slug']},
+        ],
+    })
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body['personnel'] == 1, body
+    assert body['skipped_units'] == ['no-such-unit'], body
+    # Lost, Lost's profile, the trespassing profile, Lost's event, Lost's duty turn.
+    assert body['skipped_rows'] == 5, body
+
+    conn = dbharness.owner_conn()
+    try:
+        people = conn.execute('SELECT id, last FROM personnel WHERE root_id = %s ORDER BY id',
+                              (mine['root'],)).fetchall()
+        profiles = conn.execute('SELECT person_id, phone FROM personnel_profile WHERE root_id = %s',
+                                (mine['root'],)).fetchall()
+        events = conn.execute('SELECT person_id FROM scheduled_events WHERE root_id = %s',
+                              (mine['root'],)).fetchall()
+        duty = conn.execute('SELECT person_id, last FROM duty_roster WHERE root_id = %s',
+                            (mine['root'],)).fetchall()
+        trespass = conn.execute('SELECT 1 FROM personnel_profile WHERE person_id = %s',
+                                (stranger,)).fetchone()
+    finally:
+        conn.close()
+    assert people == [{'id': kept_id, 'last': 'Kept'}], people
+    assert profiles == [{'person_id': kept_id, 'phone': 'kept'}], profiles
+    assert events == [{'person_id': kept_id}], events
+    assert duty == [{'person_id': None, 'last': 'Snapshot'}], duty
+    assert trespass is None, "a profile must never land on another organisation's soldier"
 
 
 def test_a_username_owned_by_another_tree_is_skipped_not_fatal():
@@ -281,6 +361,7 @@ def main():
         test_a_leader_cannot_restore()
         test_owner_round_trip_restores_its_own_export()
         test_unknown_slugs_are_skipped_and_reported()
+        test_dependents_of_a_skipped_person_are_skipped_too()
         test_a_username_owned_by_another_tree_is_skipped_not_fatal()
         print('ok')
     finally:
