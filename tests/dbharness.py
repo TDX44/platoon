@@ -57,10 +57,16 @@ def teardown(schema):
 
     A failing assertion between owner_conn() and close() leaves a connection
     holding locks on these tables, and DROP SCHEMA then waits on it forever —
-    the suite hangs instead of reporting the real failure. So: bound the wait,
-    and if it expires, terminate the other backends of this database (only our
-    own two roles, never anything else that happens to share the server) and
-    try once more.
+    the suite hangs instead of reporting the real failure. So: bound the wait
+    to 5s, and if it expires, terminate exactly the backends still holding
+    locks on THIS schema's relations, then try once more.
+
+    Scoped through pg_locks, not pg_stat_activity: every test schema lives in
+    the same database (setup() only varies search_path), so terminating by
+    database and role would kill a suite running concurrently in another
+    schema — and a developer's `python server.py` against the same database
+    with it. After the 5s timeout the leaked connection is by definition still
+    holding those locks, so this finds it and nothing else.
     """
     with psycopg.connect(admin_url(), autocommit=True) as conn:
         conn.execute("SET lock_timeout = '5s'")
@@ -70,10 +76,19 @@ def teardown(schema):
         except psycopg.errors.LockNotAvailable:
             pass
         conn.execute(
-            'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
-            'WHERE datname = current_database() AND pid <> pg_backend_pid() '
-            "AND usename IN ('platoon_owner', 'platoon_app')")
-        conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            'SELECT pg_terminate_backend(l.pid) FROM pg_locks l '
+            'JOIN pg_class c ON c.oid = l.relation '
+            'JOIN pg_namespace n ON n.oid = c.relnamespace '
+            'WHERE n.nspname = %s AND l.pid <> pg_backend_pid()', (schema,))
+        try:
+            conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        except psycopg.errors.LockNotAvailable:
+            # Something outside this schema's own locks is holding it. Say so
+            # plainly; a second traceback here would bury the test failure
+            # that caused the leak in the first place.
+            raise AssertionError(
+                f'could not drop test schema "{schema}": still locked after '
+                'terminating every backend holding locks on it')
 
 
 def owner_conn():
