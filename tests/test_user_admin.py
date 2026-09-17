@@ -83,6 +83,42 @@ def test_moving_and_promoting_a_user():
     assert r.status_code == 404, f'a user in a second tree does not exist from here: {r.get_json()}'
 
 
+def test_an_owners_row_is_owner_only_and_the_root_keeps_one():
+    """Two halves of the same brick. Granting owner is owner-only, so anything
+    that strips the last owner is a one-way door out of ever administering the
+    organisation again: a leader must not be able to demote or rename an owner,
+    and an owner must not be able to demote or move away the only one left.
+
+    Its own tree, deliberately — the test above promotes a second owner into
+    T['root'], and "the last owner" has to mean exactly one.
+    """
+    tree = dbharness.make_tree('Keepalive Co')
+    boss = dbharness.make_user(tree['root'], 'owner', 'keep.boss')
+    topkick = dbharness.make_user(tree['root'], 'leader', 'keep.topkick')
+    c = server.app.test_client()
+
+    # Rename first: it is the assertion only the role gate can carry, since a
+    # rename leaves the owner count untouched and the last-owner rule never
+    # fires. Demotion follows, which both rules would refuse.
+    dbharness.as_user(topkick)
+    r = c.put(f"/api/users/{boss['id']}", json={'username': 'keep.pwned'})
+    assert r.status_code == 403, f'a leader may not rename an owner: {r.get_json()}'
+    r = c.put(f"/api/users/{boss['id']}", json={'role': 'leader'})
+    assert r.status_code == 403, f"a leader may not change an owner's role: {r.get_json()}"
+
+    dbharness.as_user(boss)
+    r = c.put(f"/api/users/{boss['id']}", json={'role': 'leader'})
+    assert r.status_code == 400, f'the last owner may not demote themselves: {r.get_json()}'
+    r = c.put(f"/api/users/{boss['id']}", json={'unit_id': tree['child']})
+    assert r.status_code == 400, f'the last owner may not be moved off the root: {r.get_json()}'
+
+    r = c.put(f"/api/users/{topkick['id']}", json={'role': 'owner'})
+    assert r.status_code == 200, f'an owner may grant owner at the root: {r.get_json()}'
+    r = c.put(f"/api/users/{boss['id']}", json={'role': 'leader'})
+    assert r.status_code == 200 and r.get_json()['role'] == 'leader', \
+        f'with a second owner in place, an owner may be demoted: {r.get_json()}'
+
+
 def test_deleting_a_user_is_owner_only():
     victim = dbharness.make_user(T['child'], 'leader', 'victim')
     c = server.app.test_client()
@@ -101,6 +137,7 @@ def main():
         test_listing_is_the_callers_subtree()
         test_a_local_only_account_is_never_listed()
         test_moving_and_promoting_a_user()
+        test_an_owners_row_is_owner_only_and_the_root_keeps_one()
         test_deleting_a_user_is_owner_only()
         print('ok')
     finally:

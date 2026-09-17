@@ -1163,6 +1163,13 @@ def update_user(user_id):
     target = conn.execute("SELECT * FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,)).fetchone()
     if target is None or not can_access(target['unit_id']):
         return jsonify({'error': 'Not found'}), 404
+    # An owner's row may only be changed by an owner. Granting owner was
+    # already owner-only, but *taking it away* was not: a root-attached leader
+    # could demote every owner (or rename one past recognition) and brick the
+    # tenant, because nobody left could ever grant owner back.
+    if target['role'] == 'owner' and {'role', 'unit_id', 'username'} & set(data) \
+            and not is_owner(g.current_user):
+        return jsonify({'error': 'Only an owner can change an owner.'}), 403
     fields, values = [], []
     new_unit = target['unit_id']
     if 'unit_id' in data:
@@ -1183,6 +1190,16 @@ def update_user(user_id):
         fields.append('username = %s'); values.append((data['username'] or '').strip())
     if not fields:
         return jsonify({'error': 'Nothing to update'}), 400
+    # The other half of the same brick: the last owner may not demote himself
+    # or walk off the root. Owner is granted only by an owner, so a root with
+    # none is a root nobody can ever administer again.
+    if target['role'] == 'owner' and target['unit_id'] == _root() \
+            and (data.get('role', 'owner') != 'owner' or new_unit != _root()):
+        owners = conn.execute(
+            "SELECT count(*) AS n FROM users WHERE role = 'owner' AND unit_id = %s AND clerk_user_id != ''",
+            (_root(),)).fetchone()['n']
+        if owners <= 1:
+            return jsonify({'error': 'The organisation must keep at least one owner.'}), 400
     values.append(user_id)
     try:
         conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s', values)
