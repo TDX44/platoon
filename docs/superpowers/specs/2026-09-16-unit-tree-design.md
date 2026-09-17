@@ -41,29 +41,74 @@ not green.
   ```sql
   ALTER TABLE t ENABLE ROW LEVEL SECURITY;
   CREATE POLICY tenant ON t
-    USING      (root_id = current_setting('app.root_id', true)::int)
-    WITH CHECK (root_id = current_setting('app.root_id', true)::int);
+    USING      (root_id = NULLIF(current_setting('app.root_id', true), '')::int)
+    WITH CHECK (root_id = NULLIF(current_setting('app.root_id', true), '')::int);
   ```
   `current_setting(..., true)` returns NULL when the variable is unset, and
   `root_id = NULL` is never true, so a connection that has not declared a
-  tenant sees **zero rows and can write none**. Default deny.
+  tenant sees **zero rows and can write none**. Default deny. The `NULLIF`
+  is load-bearing, not defensive polish: once a session has set
+  `app.root_id` at all, rolling back the transaction that set it reverts the
+  GUC to `''`, not back to unset — a bare `::int` cast on `''` raises, which
+  would turn "no tenant declared" into a 500 on the connection's next pooled
+  request instead of the intended zero rows. `NULLIF(..., '')` folds both
+  "never set" and "set then rolled back to empty" onto the same NULL.
 - The request lifecycle from A0 (one transaction per request, commit only
   on status < 400) runs `SELECT set_config('app.root_id', %s, true)` immediately after
   the user is resolved and before any other statement. The `true` makes it
   transaction-local (the same as `SET LOCAL`, which cannot take a bound
   parameter), so it dies with the transaction, so a pooled connection cannot carry one tenant's id into
-  the next request. An unattached user (no unit yet) sets `0`, which
-  matches nothing.
+  the next request. An unattached user (no unit yet) declares **no** tenant
+  at all — the GUC is set to `''`, which `NULLIF` folds to NULL — rather than
+  `0`: `0` is an ordinary value a row transiently holds during root creation
+  (see below), and parking every unattached user on it would hand them one
+  shared, writable tenant across organisations. Because no tenant is
+  declared, `log_action()` writes nothing for a stranger's first sign-in;
+  `UNIT_CREATE` is the first audit row a new tenant ever gets.
+  `/api/auth/sync` declares the tenant only *after* a successful sync, so an
+  already-attached user's `LOGIN` is still audited normally.
 - The app connects as `platoon_app`, which A0 made a non-owner with no
   `BYPASSRLS`. Table owners bypass policies silently, so **`server.py`
   refuses to boot** if `current_user` owns any protected table or has
   `rolbypassrls` — a `SELECT` against `pg_tables`/`pg_roles` at import,
-  next to `init_db()`. `FORCE ROW LEVEL SECURITY` is deliberately not used:
+  next to `init_db()`. The check also refuses `rolsuper` (superuser bypasses
+  RLS without ever setting `rolbypassrls`) and ownership held only through a
+  granted role, tested with `pg_has_role(current_user, tableowner, 'USAGE')`
+  rather than a name comparison — three ways in, not one.
+  `FORCE ROW LEVEL SECURITY` is deliberately not used:
   it would also bind `platoon_owner`, which runs `init_db()` and the
   migration across every root by design.
 - `init_db()` (owner) creates the policies idempotently
   (`DROP POLICY IF EXISTS … ; CREATE POLICY …`) so a fresh database and an
   upgraded one end identical. `scripts/pg-roles.sql` is unchanged.
+
+**Front-door functions.** RLS has nothing to say about the handful of reads
+and writes that must happen *before* a tenant is known: looking a user up by
+Clerk id, matching a legacy row by email, redeeming an invite, creating a
+user, claiming a legacy row, and creating a root unit. These six are the
+entire surface of pre-tenant, cross-tenant-capable code, and they live in
+one file, `sql/auth_functions.sql`, as `SECURITY DEFINER` SQL/PL functions
+owned by `platoon_owner`: `auth_user_by_clerk_id`, `auth_user_by_identity`,
+`auth_invite`, `auth_create_user`, `auth_claim_legacy_user`,
+`auth_create_root_unit`. Each sets `SET search_path FROM CURRENT` (the
+standard guard against search-path hijacking of a definer function), and
+`EXECUTE` is revoked from `PUBLIC` and granted only to `platoon_app`.
+`server.py` calls these instead of ever running raw SQL against `users` or
+`invites` while no tenant is set. Nothing else in the application runs as
+the owner or bypasses RLS; if a cross-tenant operation is not one of these
+six functions, it does not happen. `auth_create_root_unit` is where the
+transient `root_id = 0` above comes from: it inserts the new unit row with
+`root_id = 0` (not yet known — the row doesn't have its own id until the
+insert returns), then updates it to `root_id = id` in the same function
+call, so the value never reaches a policy check from outside.
+
+One known, non-exploitable weakening: production's `MIGRATION_DATABASE_URL`
+carries no `options=` clause, so `SET search_path FROM CURRENT` captures the
+ordinary session default (`"$user", public`) rather than a locked single
+schema. This still defeats the classic hijack — `platoon_app` cannot create
+a `platoon_owner`-named schema to shadow `public` ahead of it — because
+`platoon_app` has no `CREATE` privilege on the database, only on the objects
+`platoon_owner` already granted it.
 
 **What it does and does not do**
 
@@ -94,11 +139,14 @@ Mutation check: drop the policy on `personnel` and (1) and (3) must fail.
 units            id, parent_id NULL→units, root_id, kind, name, slug, created_at
                  UNIQUE(root_id, slug); root rows have root_id = id
 users            id, username, email, full_name, clerk_user_id,
-                 unit_id NULL→units, role ('owner'|'leader'), root_id
+                 unit_id NULL→units, role ('owner'|'leader'), root_id NULL
+                 (nullable: a signed-in, unattached user has no tenant yet —
+                 RLS must see NULL here too, not a placeholder root)
 invites          token, label, unit_id→units, role, root_id, created_by,
                  created_at, expires_at, accepted_at, accepted_by
 settings         root_id, unit_id NULL→units, key, value
-                 UNIQUE INDEX ON (root_id, COALESCE(unit_id, 0), key)
+                 no PRIMARY KEY; its key is the unique expression index
+                 settings_scope_key ON (root_id, COALESCE(unit_id, 0), key)
 personnel        … unit_id→units, root_id            (platoon TEXT dropped)
 scheduled_events … unit_id, root_id                  (platoon dropped)
 duty_roster      … unit_id, root_id                  (platoon dropped)
@@ -142,6 +190,19 @@ personnel_profile … root_id                          (scoped via personnel)
   `unit=<id>` / body `unit_id`. Where it derives the platoon from the row
   being edited, it derives `unit_id` from the row. Same 30 routes, same
   shapes.
+- **The clock is per-tenant, read per request.** A0's module-global
+  `_app_tz`/`load_app_timezone()` cache assumed one organisation per process;
+  under A1 the next request in the same worker can belong to a different
+  root with a different `org_timezone`. There is no module-global zone.
+  `_resolved_user()` reads `org_timezone` from `(root_id, NULL)` in
+  `settings` the same place it declares the tenant GUC, and stores the
+  resolved zone on `g.tz` for the rest of that request; `app_now()` /
+  `app_today()` / `app_stamp()` read `g.tz`, falling back to `PLATOON_TZ`
+  when the row is missing or invalid, exactly as before. Because `/api/auth/config`
+  is fetched **before** sign-in — before any tenant is known — it can no
+  longer carry a `timezone` field; the frontend instead adopts `APP_TZ` from
+  `/api/me` and every `GET /api/settings`, both of which run after a tenant
+  is declared.
 
 ## Signup and invites
 
@@ -213,14 +274,24 @@ reversible by redeploying the old image, unlike A0).
    set `NOT NULL`; drop `platoon`.
 3. Users: `platoons='*'` or `is_admin=1` → root, `owner`. A single platoon
    → that child, `leader`. Several platoons → root, `leader`. Empty →
-   `unit_id NULL`. Invites map the same way; drop `is_admin`, `platoons`.
+   `unit_id NULL`. Invites map the same way; drop `is_admin`, `platoons`. Before
+   tightening `invites.unit_id` to `NOT NULL`, the script checks whether any
+   live invite maps to no unit (an empty `platoons` list on an unaccepted
+   invite has nothing to map to) and **aborts, naming the offending tokens**,
+   rather than guessing a destination for someone else's invite link. The
+   operator revokes those invites and re-runs during the rehearsal, the same
+   way an unmappable row would be handled by hand.
 4. Settings: `org_timezone` → `(root, NULL)`; `tdy_*_<p>` → `(root, child)`;
    `unit_name*` rows deleted.
 5. Enable RLS and create policies (same code path as `init_db()`).
 6. Verify before commit: per-table row counts unchanged; every scoped row
    has a `root_id` equal to the root; zero rows with `unit_id` NULL where
    NOT NULL applies; `personnel` id 1 and id 3 still Carr and Bennett; the
-   five users land where step 3 says. Any miss → rollback, exit 1.
+   five users land where step 3 says. Any miss → rollback, exit 1. Once
+   verification passes, resync every identity sequence the migration wrote
+   into (`setval` to `GREATEST(max(id), 1)` per table) — the inserted `units`
+   rows and any renumbering leave a sequence behind its table's true max, and
+   the next `INSERT` without an explicit id would collide.
 
 Rehearsed on dev against a fresh copy of production, twice clean, before
 the cutover, with the A0 runbook as the template. Production's `.env` and
