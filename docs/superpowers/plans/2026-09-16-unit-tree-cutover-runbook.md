@@ -131,7 +131,13 @@ cd /opt/homelab/platoon-dev
 docker compose down
 docker volume rm platoon-dev_pgdata
 docker compose up -d db
-for i in $(seq 60); do docker compose exec -T db psql -U platoon_owner -d platoon -Atc 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
+for i in $(seq 60); do
+  docker compose exec -T db sh -c \
+    'PGPASSWORD=$POSTGRES_PASSWORD psql -h 127.0.0.1 -U platoon_owner -d platoon -Atc "SELECT 1"' \
+    >/dev/null 2>&1 && break
+  [ "$i" = 60 ] && { echo "database never came up"; exit 1; }
+  sleep 1
+done
 DB_APP_PASSWORD="$(grep '^DB_APP_PASSWORD=' .env | cut -d= -f2-)"
 docker compose exec -T db psql -U platoon_owner -d platoon -q -v ON_ERROR_STOP=1 \
   -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
@@ -139,11 +145,16 @@ docker compose exec -T db pg_restore -U platoon_owner --no-owner -d platoon < pr
 docker compose up -d          # ALL services — cloudflared included, see the hard rule above
 ```
 
-Wait on a real `SELECT 1`, not on `pg_isready`: the fresh volume makes the
-container run initdb against a temporary local server that answers
-`pg_isready` before the `platoon` database exists, so in rehearsal 1 the roles
+Wait on a real `SELECT 1` **over TCP**, not on `pg_isready`: the fresh volume
+makes the container run initdb against a temporary local server, which answers
+`pg_isready` before the `platoon` database exists — in rehearsal 1 the roles
 step failed with *"database platoon does not exist"* and `set -e` left dev with
-only `db` up.
+only `db` up. A unix-socket `SELECT 1` still races, because that temp server
+creates `POSTGRES_DB` and serves the same socket before being stopped and
+restarted; it runs with `listen_addresses=''`, so `-h 127.0.0.1` is what makes
+the probe succeed only against the real server. The password comes from the
+container's own `POSTGRES_PASSWORD`, so it never reaches the host's shell
+history.
 
 ### Run Steps 2-4 on dev
 
