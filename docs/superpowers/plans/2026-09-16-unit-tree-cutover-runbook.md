@@ -108,7 +108,9 @@ ps` and notices `cloudflared` isn't there.
 cutover is put to the user.** Record each run in
 `.superpowers/sdd/2026-09-16-unit-tree/progress.md`, the way A0 did, quoting
 the `audit_log` rows that prove each browser step actually happened —
-narration ("looks fine") does not count as a clean run.
+narration ("looks fine") does not count as a clean run. Rehearsal 1
+(2026-09-16) found a self-serve sign-in defect and was not clean; rehearsals 2
+and 3 are the consecutive clean runs.
 
 ### Refresh dev's copy of production
 
@@ -142,7 +144,7 @@ DB_APP_PASSWORD="$(grep '^DB_APP_PASSWORD=' .env | cut -d= -f2-)"
 docker compose exec -T db psql -U platoon_owner -d platoon -q -v ON_ERROR_STOP=1 \
   -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
 docker compose exec -T db pg_restore -U platoon_owner --no-owner -d platoon < prod-copy.dump
-docker compose up -d          # ALL services — cloudflared included, see the hard rule above
+docker compose up -d --no-deps db cloudflared   # cloudflared back for the tunnel — NOT the app, see below
 ```
 
 Wait on a real `SELECT 1` **over TCP**, not on `pg_isready`: the fresh volume
@@ -155,6 +157,20 @@ restarted; it runs with `listen_addresses=''`, so `-h 127.0.0.1` is what makes
 the probe succeed only against the real server. The password comes from the
 container's own `POSTGRES_PASSWORD`, so it never reaches the host's shell
 history.
+
+The hard rule above is about `cloudflared` coming back, not about the app —
+`--no-deps` is what makes that true on a re-run. In `docker-compose.yml`
+`cloudflared` has `depends_on: app`, so a plain `docker compose up -d` here
+would start `app` too; `--no-deps` stops compose from following that edge. The
+app stays down on purpose, exactly as Step 2's "do not start the app before
+Step 4" warning says above, because on a re-run of this rehearsal the dev
+box's `platoon-dev-app` image tag is already the new A1 build from the
+previous run — starting it now would run `init_db()`'s RLS against the
+just-restored, un-migrated A0 data. (On the first run, and in production, the
+image is still the old build at this point, so a plain `docker compose up -d`
+is harmless there — this section is dev-only.) Between this point and Step 4
+the site answers a tunnel error rather than a 530; that gap is the expected
+stop-the-world window, not a fault.
 
 ### Run Steps 2-4 on dev
 
