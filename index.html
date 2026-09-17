@@ -314,14 +314,23 @@
       radial-gradient(circle at bottom, rgba(0,212,255,0.08), transparent 34%);
   }
   body.app-authenticated #loginScreen { display: none !important; }
-  /* Same furniture as the login screen: one card, centred, nothing behind it. */
+  /* Same furniture as the login screen: the logo, one panel, centred. The panel
+     is .login-brand — that is what carries the surface, border, padding and
+     shadow; .login-card is only the column that sizes it. */
+  /* body carries 24px of padding top and bottom, so a full 100vh here put a
+     scrollbar on a page with nothing to scroll to. */
   #createUnitScreen {
-    display: none; align-items: center; justify-content: center; min-height: 100vh;
-    padding: 32px 20px;
+    display: none; align-items: center; justify-content: center; min-height: calc(100vh - 48px);
+    padding: 8px 0;
   }
-  #createUnitScreen h1 { font-size: 1.4em; margin: 0; text-align: center; }
-  #createUnitScreen .login-card { align-items: stretch; }
-  #createUnitScreen .modal-buttons { display: block; }
+  #createUnitScreen .login-title { margin-bottom: 8px; }
+  #createUnitScreen .login-card, body.light-mode #createUnitScreen .login-card { background: none; }
+  #createUnitScreen .login-brand { align-items: stretch; padding: 28px; }
+  #createUnitScreen .login-subtitle { line-height: 1.5; margin-bottom: 22px; }
+  #createUnitScreen label { margin-bottom: 6px; }
+  #createUnitScreen input, #createUnitScreen select { margin-bottom: 18px; min-height: 44px; font-size: 1em; }
+  #createUnitScreen .btn-login { min-height: 46px; margin-top: 6px; }
+  #createUnitScreen .login-error { margin-top: 14px; }
   .login-card select {
     width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid var(--cp-border);
     border-radius: 5px; background: var(--cp-input); color: var(--cp-text); font-size: 0.95em;
@@ -3294,12 +3303,17 @@
 <!-- ─── First-run: the signed-in user belongs to no unit yet ─── -->
 <div id="createUnitScreen" style="display:none">
   <div class="login-card">
-    <h1>Name your unit</h1>
-    <p class="modal-sub">You are the first person here. Create the unit you lead; you can add platoons, squads and teams beneath it afterwards and invite their leaders.</p>
-    <label>Unit name<input id="newUnitName" maxlength="80" placeholder="e.g. HHC, 2-1 CAV" /></label>
-    <label>Kind<select id="newUnitKind"></select></label>
-    <div class="modal-buttons"><button class="btn-login" onclick="createRootUnit()">Create unit</button></div>
-    <p id="createUnitError" class="login-error" style="display:none"></p>
+    <form class="login-brand" onsubmit="createRootUnit(); return false;">
+      <img src="/images/logo-duck.png" alt="" style="width:96px;height:96px;object-fit:contain;margin:0 auto 10px;display:block;">
+      <h1 class="login-title">Name your unit</h1>
+      <p class="login-subtitle">You are the first person here. Create the unit you lead. You can add platoons, squads and teams beneath it afterwards and invite their leaders.</p>
+      <label for="newUnitName">Unit name</label>
+      <input id="newUnitName" maxlength="80" autocomplete="off" placeholder="e.g. HHC, 2-1 CAV">
+      <label for="newUnitKind">Kind</label>
+      <select id="newUnitKind"></select>
+      <button type="submit" class="btn-login">Create unit</button>
+      <p id="createUnitError" class="login-error" style="display:none"></p>
+    </form>
   </div>
 </div>
 
