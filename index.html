@@ -7578,11 +7578,28 @@ async function authSecondFactor(code) {
 async function authOAuth(strategy, mode) {
   const redirectBase = window.location.origin + '/';
   const flow = mode === 'signup' ? clerk.client.signUp : clerk.client.signIn;
+  setOAuthPending(mode);
   await flow.authenticateWithRedirect({
     strategy,
     redirectUrl: redirectBase,
     redirectUrlComplete: redirectBase,
   });
+}
+
+// Brackets the OAuth round-trip the way captureInviteToken()/clearInviteToken()
+// bracket the invite one. Clerk keeps its client across reloads, so without a
+// navigation-scoped flag an abandoned transferable attempt would re-enter the
+// transfer path on every later signed-out visit to / and paint an error over
+// the login form.
+const OAUTH_PENDING_KEY = 'platoon_oauth_pending';
+function setOAuthPending(mode) {
+  try { sessionStorage.setItem(OAUTH_PENDING_KEY, mode === 'signup' ? 'signup' : 'signin'); } catch (e) {}
+}
+function getOAuthPending() {
+  try { return sessionStorage.getItem(OAUTH_PENDING_KEY) || ''; } catch (e) { return ''; }
+}
+function clearOAuthPending() {
+  try { sessionStorage.removeItem(OAUTH_PENDING_KEY); } catch (e) {}
 }
 
 // Clerk lands the OAuth callback back here with NO __clerk* query param when the
@@ -7597,6 +7614,15 @@ function pendingOAuthTransfer(client) {
   const su = client.signUp && client.signUp.verifications && client.signUp.verifications.externalAccount;
   if (su && su.status === 'transferable') return 'signup';
   return null;
+}
+
+// The one status the transfer legitimately stops at gets its own sentence, so a
+// Clerk instance with bot protection or required fields says what to do instead
+// of looping. Shared: the callback can leave the sign-up there by itself.
+function oauthIncompleteMessage(status) {
+  return status === 'missing_requirements'
+    ? 'Google could not finish creating your account here. Create one with an email and password instead.'
+    : `Google sign-in could not be completed (${status}).`;
 }
 
 // Fallback for when handleRedirectCallback() did not finish the transfer itself.
@@ -7618,9 +7644,7 @@ async function completeOAuthTransfer(kind) {
     return;
   }
   console.warn('Clerk OAuth transfer ended at status', res.status);
-  throw new Error(res.status === 'missing_requirements'
-    ? 'Google could not finish creating your account here. Create one with an email and password instead.'
-    : `Google sign-in could not be completed (${res.status}).`);
+  throw new Error(oauthIncompleteMessage(res.status));
 }
 
 async function authResetRequest(email) {
@@ -7967,18 +7991,34 @@ async function initApp() {
       const params = new URLSearchParams(window.location.search);
       const hasClerkRedirect = [...params.keys()].some(k => k.startsWith('__clerk'));
       // A transferable attempt comes back with no __clerk* param at all, so the
-      // param alone is not enough to decide the callback has to run.
-      const transfer = pendingOAuthTransfer(clerk.client);
-      if ((hasClerkRedirect || transfer) && typeof clerk.handleRedirectCallback === 'function') {
-        try {
-          await clerk.handleRedirectCallback({});
-        } catch (cbErr) {
-          console.warn('Clerk redirect callback failed:', cbErr);
+      // param alone cannot decide this; the flag authOAuth() set scopes it to
+      // this one navigation. Consumed either way, success or failure.
+      if (hasClerkRedirect || getOAuthPending()) {
+        clearOAuthPending();
+        const appRoot = window.location.origin + '/';
+        if (typeof clerk.handleRedirectCallback === 'function') {
+          try {
+            // Pin every onward URL to this SPA, or Clerk bounces off-app.
+            await clerk.handleRedirectCallback({
+              signInUrl: appRoot, signUpUrl: appRoot, continueSignUpUrl: appRoot,
+            });
+          } catch (cbErr) {
+            console.warn('Clerk redirect callback failed:', cbErr);
+          }
+        }
+        // The callback normally performs the transfer itself. Re-read the client
+        // rather than trusting a value from before it ran: if it already did the
+        // transfer and stopped at missing_requirements, firing a second
+        // create({transfer:true}) against a consumed attempt only swaps the
+        // useful message for a generic one.
+        if (!clerk.user) {
+          const after = pendingOAuthTransfer(clerk.client);
+          if (after) await completeOAuthTransfer(after);
+          else if (clerk.client.signUp && clerk.client.signUp.status === 'missing_requirements') {
+            throw new Error(oauthIncompleteMessage('missing_requirements'));
+          }
         }
       }
-      // handleRedirectCallback() normally performs the transfer itself; do it by
-      // hand when it did not, rather than bouncing back to the sign-in form.
-      if (!clerk.user && transfer) await completeOAuthTransfer(transfer);
       if (!clerk.user) {
         showLoginScreen();
         return;

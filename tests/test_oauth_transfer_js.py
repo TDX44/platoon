@@ -25,6 +25,12 @@ INDEX = os.path.join(ROOT, 'index.html')
 
 STUB_CLERK = r'''
 const calls = [];
+const store = {};
+const sessionStorage = {
+  setItem: (k, v) => { store[k] = v; },
+  getItem: k => (k in store ? store[k] : null),
+  removeItem: k => { delete store[k]; },
+};
 const window = { location: { origin: 'https://platoondev.example' } };
 const clerk = { client: {
   signIn: { authenticateWithRedirect: a => calls.push(['signIn', a]) },
@@ -42,9 +48,18 @@ out.signup = pendingOAuthTransfer({ signUp: { verifications: { externalAccount: 
 out.idle = pendingOAuthTransfer({ signIn: { firstFactorVerification: null }, signUp: { verifications: {} } });
 out.failed = pendingOAuthTransfer({ signIn: { firstFactorVerification: { status: 'failed' } } });
 
+out.missingMsg = oauthIncompleteMessage('missing_requirements');
+out.otherMsg = oauthIncompleteMessage('needs_identifier');
+
 (async () => {
+  // Nothing is pending until a redirect is actually started.
+  out.pendingBefore = getOAuthPending();
   await authOAuth('oauth_google', 'signup');
+  out.pendingAfterSignup = getOAuthPending();
+  clearOAuthPending();
+  out.pendingCleared = getOAuthPending();
   await authOAuth('oauth_google', 'signin');
+  out.pendingAfterSignin = getOAuthPending();
   out.flows = calls.map(c => c[0]);
   out.redirects = calls.map(c => [c[1].redirectUrl, c[1].redirectUrlComplete]);
   out.strategy = calls[0][1].strategy;
@@ -80,12 +95,26 @@ def main():
     # 2. initApp() actually performs the transfer when the callback did not.
     init = extract(src, r'async function initApp\(\) \{.*?\n\}', 'initApp()')
     assert 'pendingOAuthTransfer(' in init, 'initApp() never checks for a pending OAuth transfer'
+    assert 'completeOAuthTransfer(' in init, 'initApp() never performs the transfer'
     transfer = extract(src, r'async function completeOAuthTransfer\(.*?\n\}', 'completeOAuthTransfer()')
     assert transfer.count('transfer: true') == 2, \
         'both directions must be transferred (signUp.create and signIn.create)'
     assert 'setActive(' in transfer, 'a completed transfer must be made the active session'
-    assert 'missing_requirements' in transfer, \
+    assert 'oauthIncompleteMessage(' in transfer, \
         'a sign-up that needs more fields must say so, not loop'
+
+    # The client outlives the redirect, so the callback/transfer path must be
+    # gated on this navigation — a __clerk* param or the flag authOAuth() set.
+    assert 'getOAuthPending()' in init, \
+        'initApp() re-enters the transfer path on every signed-out visit'
+    assert 'clearOAuthPending()' in init, 'the pending flag is never consumed'
+    assert 'setOAuthPending(' in extract(src, r'async function authOAuth\(.*?\n\}', 'authOAuth()'), \
+        'authOAuth() never marks the redirect as pending'
+    # The transfer decision must be re-read AFTER the callback, not before it.
+    assert re.search(r'handleRedirectCallback\(.*?pendingOAuthTransfer\(clerk\.client\)', init, re.S), \
+        'initApp() reuses a stale transfer value from before handleRedirectCallback()'
+    for key in ('signInUrl', 'signUpUrl', 'continueSignUpUrl'):
+        assert key in init, f'handleRedirectCallback() does not pin {key} to this app'
 
     # 3. The inline script still parses.
     body = script_text(src)
@@ -98,8 +127,13 @@ def main():
     # 4. The detection itself, run for real.
     js = '\n'.join([
         STUB_CLERK,
+        extract(src, r"const OAUTH_PENDING_KEY = '[^']+';", 'OAUTH_PENDING_KEY'),
+        extract(src, r'function setOAuthPending\(.*?\n\}', 'setOAuthPending()'),
+        extract(src, r'function getOAuthPending\(.*?\n\}', 'getOAuthPending()'),
+        extract(src, r'function clearOAuthPending\(.*?\n\}', 'clearOAuthPending()'),
         extract(src, r'async function authOAuth\(.*?\n\}', 'authOAuth()'),
         extract(src, r'function pendingOAuthTransfer\(.*?\n\}', 'pendingOAuthTransfer()'),
+        extract(src, r'function oauthIncompleteMessage\(.*?\n\}', 'oauthIncompleteMessage()'),
         DRIVER,
     ])
     path = os.path.join(tempfile.mkdtemp(), 'oauth.js')
@@ -121,6 +155,12 @@ def main():
     # initApp() runs at the origin root, so that is where the callback must land.
     for pair in out['redirects']:
         assert pair == ['https://platoondev.example/', 'https://platoondev.example/'], pair
+    assert out['pendingBefore'] == '', 'a visit with no redirect must not look pending'
+    assert out['pendingAfterSignup'] == 'signup', out['pendingAfterSignup']
+    assert out['pendingCleared'] == '', 'the pending flag must clear'
+    assert out['pendingAfterSignin'] == 'signin', out['pendingAfterSignin']
+    assert 'email and password' in out['missingMsg'], out['missingMsg']
+    assert 'needs_identifier' in out['otherMsg'], out['otherMsg']
     print('ok')
 
 
