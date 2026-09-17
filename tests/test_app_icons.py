@@ -96,8 +96,14 @@ def claims():
 def test_every_icon_anything_references_exists_at_the_size_it_claims():
     seen = set()
     for path, size, who in claims():
-        assert path.startswith('/images/'), \
-            f'{who}: an icon outside /images/ is not on the STATIC_DIRS allowlist'
+        # Ask the allowlist itself rather than restating it: spa_fallback()
+        # serves a real file only for these, and anything else silently
+        # becomes the SPA shell. A literal '/images/' here stayed green even
+        # when STATIC_DIRS no longer contained it.
+        rel = path.lstrip('/')
+        assert rel in server.STATIC_FILES or rel.startswith(server.STATIC_DIRS), \
+            f'{who}: {path} is not on the STATIC_DIRS/STATIC_FILES allowlist ' \
+            f'({server.STATIC_DIRS}, {server.STATIC_FILES}) — the browser gets the SPA shell'
         on_disk = os.path.join(ROOT, path.lstrip('/'))
         assert os.path.isfile(on_disk), \
             f'{who}: points at {path}, which is not on disk — the browser gets ' \

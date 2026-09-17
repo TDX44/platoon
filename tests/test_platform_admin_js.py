@@ -25,7 +25,9 @@ HOSTILE_NAME = '<img src=x onerror=alert(1)> "Ghost" Co'
 HOSTILE_EMAIL = '"><script>alert(2)</script>@example.com'
 
 PAYLOAD = {
-    'generated_at': '2026-09-17 06:30:00',
+    # The stamp is server-made today, but it lands on the page the same way
+    # every other server string does, so it is fixtured the same way too.
+    'generated_at': '2026-09-17 06:30:00 <img src=x onerror=alert(3)>',
     'totals': {'organisations': 2, 'unit_count': 1234, 'personnel_count': 9876,
                'user_count': 12, 'unattached_users': 3, 'pending_invites': 1,
                'database_bytes': 86423219},
@@ -62,7 +64,24 @@ console.log(JSON.stringify({
   byName: adminOverviewHtml(PAYLOAD, { key: 'org_name', dir: 1 }, userSort),
   bytes: [adminBytes(0), adminBytes(999), adminBytes(86423219), adminBytes(5 * 1024 ** 3)],
   nums: [adminNum(0), adminNum(1234), adminNum(9876543)],
+  cleared: (() => {
+    adminData = { organisations: [{ org_name: 'Alpha Co', owner_emails: 'boss@example.com' }] };
+    adminScreenEl.innerHTML = '<td>Alpha Co</td><td>boss@example.com</td>';
+    clearPlatformAdmin();
+    return { data: adminData, html: adminScreenEl.innerHTML, removed: removedClasses };
+  })(),
 }));
+'''
+
+# The three things clearPlatformAdmin() touches, stubbed so it can run headless.
+FAKE_DOM = r'''
+let adminData = null;
+const adminScreenEl = { innerHTML: '' };
+const removedClasses = [];
+const document = {
+  getElementById: (id) => (id === 'adminScreen' ? adminScreenEl : null),
+  body: { classList: { remove: (c) => removedClasses.push(c) } },
+};
 '''
 
 
@@ -74,6 +93,7 @@ def extract(source, pattern, what):
 
 def render(src, node):
     js = '\n'.join([
+        FAKE_DOM,
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
         extract(src, r'function sortHeaders\(.*?\n\}', 'sortHeaders()'),
         extract(src, r'function sortRows\(.*?\n\}', 'sortRows()'),
@@ -84,6 +104,7 @@ def render(src, node):
         extract(src, r'function adminCell\(.*?\n\}', 'adminCell()'),
         extract(src, r'function adminSortValue\(.*?\n\}', 'adminSortValue()'),
         extract(src, r'function adminOverviewHtml\(.*?\n\}', 'adminOverviewHtml()'),
+        extract(src, r'function clearPlatformAdmin\(\) \{.*?\n\}', 'clearPlatformAdmin()'),
         DRIVER,
     ])
     path = os.path.join(tempfile.mkdtemp(), 'admin.js')
@@ -112,7 +133,7 @@ def test_a_hostile_organisation_name_is_never_markup(out):
 def test_no_handler_carries_anything_but_a_literal(out):
     for key in ('page', 'empty', 'loading'):
         for call in re.findall(r'onclick="([^"]*)"', out[key]):
-            assert re.fullmatch(r"(goHome|refreshAdmin)\(\)|sortAdmin(Orgs|Users)\('\w+'\)", call), \
+            assert re.fullmatch(r"(closeAdmin|refreshAdmin)\(\)|sortAdmin(Orgs|Users)\('\w+'\)", call), \
                 f'{key}: an inline handler carries more than a literal: {call!r}'
 
 
@@ -172,14 +193,43 @@ def test_the_menu_entries_are_gated_on_the_flag(src):
     assert re.search(r'currentUser\.platform_admin\s*\n?\s*\?\s*settingsNavRow\(\'Admin\'', settings), \
         'the Settings Admin row is not gated on platform_admin'
 
-    route = extract(src, r'function routeAfterLogin\(\) \{.*?\n\}', 'routeAfterLogin()')
-    assert "route.section === 'admin' && currentUser && currentUser.platform_admin" in route, \
-        'routeAfterLogin() does not gate /admin'
+    for name, body in (
+            ('routeAfterLogin()', extract(src, r'function routeAfterLogin\(\) \{.*?\n\}',
+                                          'routeAfterLogin()')),
+            ('the popstate handler', extract(src, r"window\.addEventListener\('popstate'.*?\n\}\);",
+                                             'the popstate handler'))):
+        assert "route.section === 'admin'" in body, f'{name} does not handle /admin'
+        assert body.index('currentUser.platform_admin') < body.index('openAdmin('), \
+            f'{name} opens the dashboard before it checks the flag'
+        # A non-admin is sent home; the address bar has to agree, or the next
+        # reload tries /admin again and Back walks straight into it.
+        assert 'replaceState' in body, f'{name} leaves /admin in the address bar'
 
     parse = extract(src, r'function parseAppRoute\(\) \{.*?\n\}', 'parseAppRoute()')
     admin_at = parse.index("parts[0] === 'admin'")
     assert admin_at < parse.index('unitBySlug('), \
         '/admin is resolved after the slug lookup, so a unit slugged "admin" shadows it'
+
+
+def test_signing_out_takes_every_tenants_data_with_it(out, src):
+    """The payload names every organisation on the instance and its owners'
+    email addresses. Hiding the screen leaves all of it in the DOM and in a
+    global for whoever signs in next on a shared machine, so the sign-out path
+    has to empty both."""
+    cleared = out['cleared']
+    assert cleared['data'] is None, f'the payload survived sign-out in a global: {cleared["data"]}'
+    assert cleared['html'] == '', f'the rendered page survived sign-out: {cleared["html"]!r}'
+    assert 'admin-active' in cleared['removed'], cleared['removed']
+
+    # showLoginScreen() is the funnel: the menu item, the session timeout and
+    # api()'s 401 handler all end there.
+    login = extract(src, r'function showLoginScreen\(view\) \{.*?\n\}', 'showLoginScreen()')
+    assert 'clearPlatformAdmin()' in login, \
+        'showLoginScreen() does not clear the platform dashboard'
+    for caller in ('doLogout', 'api'):
+        body = extract(src, r'(?:async )?function ' + caller + r'\(.*?\n\}', caller)
+        assert 'showLoginScreen(' in body, \
+            f'{caller}() no longer goes through showLoginScreen() — find the new funnel'
 
 
 def test_the_page_never_reads_the_current_unit(src):
@@ -202,6 +252,7 @@ def main():
     test_both_tables_sort_through_the_shared_helpers(out)
     test_the_empty_and_loading_states_say_so(out)
     test_the_menu_entries_are_gated_on_the_flag(src)
+    test_signing_out_takes_every_tenants_data_with_it(out, src)
     test_the_page_never_reads_the_current_unit(src)
     print('ok')
 

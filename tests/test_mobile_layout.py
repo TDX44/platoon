@@ -239,6 +239,10 @@ SETTINGS_FIXTURE = {
 PROFILE_FIXTURE = {'dod_id': '1234567890', 'mos': '35F', 'section': 'S2', 'phone': ''}
 
 WIDTHS = [320, 390, 1280]
+# The admin dashboard's totals strip reflows continuously, and a tile only
+# clips at the width where its longest label stops fitting -- so that one
+# screen is swept rather than sampled.
+ADMIN_SWEEP_WIDTHS = [320, 360, 420, 560, 768, 900, 1024, 1100, 1280, 1400]
 # ponytail: honest current floor, not an aspirational one. Measured directly
 # against this app at 320/390px: the shortest real button today is the
 # "Set Status" / "Mark Present" pair (.dash-btn-sm) at 29px; everything else
@@ -305,6 +309,10 @@ async (fixture) => {
   };
   // initApp() is still racing us towards Clerk, which a test box cannot
   // reach. Whatever it concludes, it must not blank the screen we draw here.
+  // Keep the real one reachable: signing out is a behaviour this file
+  // checks, even though the stub is what stops initApp() blanking the
+  // screen mid-render.
+  window.__realShowLoginScreen = showLoginScreen;
   showLoginScreen = () => {};
   currentUser = fixture.user;
   await loadHome();
@@ -390,6 +398,30 @@ def check_fits_width(page, width, selector, view_label):
     }
     """, selector)
     assert not bad, f'{view_label} @ {width}px: panel does not fit the viewport: {bad}'
+
+
+def check_nothing_clips_inside(page, width, selector, view_label):
+    """Content that runs out past the box it is drawn in.
+
+    The totals tiles are the case that bit: "ORGANISATIONS" is one long word,
+    and in a narrow tile it ran out under the tile's own border instead of
+    wrapping. scrollWidth against clientWidth sees exactly that, whether the
+    box hides the overflow or lets it bleed."""
+    bad = page.evaluate("""
+    (sel) => {
+      const out = [];
+      document.querySelectorAll(sel).forEach(box => {
+        const r = box.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        if (box.scrollWidth > box.clientWidth + 1) {
+          out.push((box.className || box.tagName) + ' content ' + box.scrollWidth
+                   + ' > box ' + box.clientWidth + ' "' + box.innerText.trim().slice(0, 20) + '"');
+        }
+      });
+      return out;
+    }
+    """, selector)
+    assert not bad, f'{view_label} @ {width}px: content clipped by its own box: {bad}'
 
 
 def check_no_duplicate_meta(page, width):
@@ -589,8 +621,22 @@ def run_checks(page, base_url):
         assert page.evaluate("document.querySelectorAll('#adminScreen .admin-table tbody tr').length >= 4"), (
             f'admin @ {width}px: the dashboard tables did not render — fixture is stale')
         check_no_horizontal_overflow(page, width, 'admin')
+        check_nothing_clips_inside(page, width, '.admin-total', 'admin totals')
         if width < 900:
             check_tap_targets(page, width, '#adminScreen button', 'admin')
+
+        for w in ADMIN_SWEEP_WIDTHS:
+            page.set_viewport_size({'width': w, 'height': 900})
+            check_nothing_clips_inside(page, w, '.admin-total', 'admin totals')
+            check_no_horizontal_overflow(page, w, 'admin')
+        page.set_viewport_size({'width': width, 'height': 900})
+
+        # Signing out has to TAKE every other tenant's name and owner email,
+        # not merely hide them: this is a shared machine.
+        page.evaluate('window.__realShowLoginScreen()')
+        left = page.evaluate("[adminData, document.getElementById('adminScreen').innerHTML]")
+        assert left == [None, ''], f'admin data survived sign-out: {str(left)[:200]}'
+        page.evaluate(INIT_JS, fixture)
 
         # First run: the signed-in user belongs to no unit yet. Last, because
         # it swaps the platoon screen out from under everything above.

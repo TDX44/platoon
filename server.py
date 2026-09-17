@@ -94,9 +94,20 @@ PLATFORM_ADMIN_EMAILS = frozenset(
     os.environ.get('PLATFORM_ADMIN_EMAILS', 'jonathon.carr5@gmail.com').split(',') if e.strip())
 CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '').strip()
 CLERK_API_USERS = 'https://api.clerk.com/v1/users/'
+CLERK_API_TIMEOUT = 3
 PLATFORM_ADMIN_TTL_SECONDS = 300
-# {clerk_user_id: (expires_at_monotonic, verdict)}. Per worker process, so a
-# restart simply re-asks. Never keyed on anything the caller typed.
+# A failure gets its own, much shorter TTL. It has to be cached at all because
+# gunicorn runs two SYNC workers and this lookup blocks: with Clerk's API
+# unreachable but sessions still valid on the stale-key fallback, one browser
+# polling /api/me would park a worker per request, and two in flight is the
+# whole app down for every tenant — which anyone can aim on purpose by putting
+# the operator's address in their own users.email. But it is cached as
+# UNKNOWN, never as a refusal: a five-minute negative would outlive the outage
+# that caused it, and it must never be cached as a grant.
+PLATFORM_ADMIN_FAIL_TTL_SECONDS = 30
+# {clerk_user_id: (expires_at_monotonic, True | False | UNKNOWN)}. Per worker
+# process, so a restart simply re-asks. Never keyed on anything the caller typed.
+PLATFORM_ADMIN_UNKNOWN = None
 _PLATFORM_ADMIN_CACHE = {}
 
 # The duty day belongs to the unit, not to the server or the viewer. prodsrv02
@@ -1006,7 +1017,8 @@ def _clerk_verified_email(clerk_user_id):
 
     api.clerk.com sits behind Cloudflare, which answers urllib's default
     User-Agent with error 1010 — hence the explicit one. The timeout matters
-    too: gunicorn runs sync workers, and a hung request here parks one.
+    more: gunicorn runs sync workers, and a hung request here parks one, so it
+    is short and the caller caches the failure (see _platform_admin_verdict).
     """
     if not CLERK_SECRET_KEY:
         raise RuntimeError('CLERK_SECRET_KEY is not set; no platform admin can be verified')
@@ -1014,7 +1026,7 @@ def _clerk_verified_email(clerk_user_id):
                   headers={'Authorization': f'Bearer {CLERK_SECRET_KEY}',
                            'Accept': 'application/json',
                            'User-Agent': 'platoon-accountability/1.0'})
-    with urlopen(req, timeout=5) as resp:
+    with urlopen(req, timeout=CLERK_API_TIMEOUT) as resp:
         data = json.load(resp)
     primary = data.get('primary_email_address_id')
     for entry in data.get('email_addresses') or []:
@@ -1028,13 +1040,19 @@ def _clerk_verified_email(clerk_user_id):
 
 
 def _platform_admin_verdict(clerk_user_id):
-    """Is this Clerk account the operator of this instance?
+    """True, False, or PLATFORM_ADMIN_UNKNOWN when Clerk could not be asked.
 
-    Cached per Clerk id, positive AND negative, for a few minutes: the
-    dashboard is several requests plus a Refresh button and none of them
-    should cost a round trip to Clerk, and caching only the "yes" would let
-    any signed-in stranger make us call Clerk as often as they liked. A
-    failure is not cached either way — an outage must not pin a stale verdict.
+    Never raises, and never grants on failure — the caller decides what to do
+    with "don't know" (403/503 on the dashboard, "no menu" on /api/me), and
+    neither of them can mistake it for a yes.
+
+    Cached per Clerk id, all three answers: the dashboard is several requests
+    plus a Refresh button and none of them should cost a round trip to Clerk;
+    caching only the "yes" would let any signed-in stranger make us call Clerk
+    at will; and caching the failure is what stops a Clerk outage from parking
+    both sync workers (see PLATFORM_ADMIN_FAIL_TTL_SECONDS). The failure's TTL
+    is its own short one, so the outage is re-tested soon rather than pinned
+    for five minutes.
     """
     if not clerk_user_id or not PLATFORM_ADMIN_EMAILS:
         return False
@@ -1042,12 +1060,17 @@ def _platform_admin_verdict(clerk_user_id):
     hit = _PLATFORM_ADMIN_CACHE.get(clerk_user_id)
     if hit and hit[0] > now:
         return hit[1]
-    verdict = _clerk_verified_email(clerk_user_id) in PLATFORM_ADMIN_EMAILS
+    try:
+        verdict = _clerk_verified_email(clerk_user_id) in PLATFORM_ADMIN_EMAILS
+        ttl = PLATFORM_ADMIN_TTL_SECONDS
+    except Exception as exc:
+        app.logger.warning('platform admin check could not reach Clerk: %s', exc)
+        verdict, ttl = PLATFORM_ADMIN_UNKNOWN, PLATFORM_ADMIN_FAIL_TTL_SECONDS
     if len(_PLATFORM_ADMIN_CACHE) > 512:
         # ponytail: one operator and a handful of curious accounts — a flush is
         # cheaper than an LRU. Revisit if this ever holds real traffic.
         _PLATFORM_ADMIN_CACHE.clear()
-    _PLATFORM_ADMIN_CACHE[clerk_user_id] = (now + PLATFORM_ADMIN_TTL_SECONDS, verdict)
+    _PLATFORM_ADMIN_CACHE[clerk_user_id] = (now + ttl, verdict)
     return verdict
 
 
@@ -1063,6 +1086,11 @@ def platform_admin_required(f):
     A signed-in non-admin gets 404, not 403: there is no reason to tell them
     the surface exists. No session at all is 401, like every other API route.
     An unreachable Clerk is 503 and closed.
+
+    Every outcome is logged against the token's `sub` — the only cross-tenant
+    read in the app should leave a trace, and log_action() cannot help here
+    because it needs a tenant. The sub and nothing else: an email out of the
+    request would put an attacker's text in the log.
     """
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -1070,12 +1098,13 @@ def platform_admin_required(f):
         if error:
             return jsonify({'error': error}), _auth_status_for(error)
         g.auth_claims = claims
-        try:
-            allowed = _platform_admin_verdict(claims.get('sub'))
-        except Exception as exc:
-            app.logger.warning('platform admin check failed: %s', exc)
+        sub = claims.get('sub')
+        allowed = _platform_admin_verdict(sub)
+        if allowed is PLATFORM_ADMIN_UNKNOWN:
+            app.logger.warning('platform admin request could not be checked with Clerk: %s', sub)
             return jsonify({'error': CLERK_UNREACHABLE}), 503
         if not allowed:
+            app.logger.warning('platform admin request refused for %s', sub)
             return jsonify({'error': 'Not found'}), 404
         return f(*args, **kwargs)
     return decorated
@@ -1088,14 +1117,14 @@ def _platform_admin_flag(u):
     Clerk is worth it at all. Every ordinary sign-in stops on the first line
     and costs nothing; the operator's costs one lookup per TTL, and it is
     Clerk's verified answer — not the stored row — that returns True.
+
+    `is True` rather than a truth test: an unreachable Clerk answers UNKNOWN,
+    and a menu item is not worth blocking a sign-in over. The verdict is
+    cached, so an outage costs one lookup per failure TTL, not one per request.
     """
     if (u.get('email') or '').strip().lower() not in PLATFORM_ADMIN_EMAILS:
         return False
-    try:
-        return _platform_admin_verdict(u.get('clerk_user_id') or '')
-    except Exception as exc:
-        app.logger.warning('platform admin check failed: %s', exc)
-        return False
+    return _platform_admin_verdict(u.get('clerk_user_id') or '') is True
 
 
 # ── Error handling ──
@@ -1315,6 +1344,11 @@ def admin_overview():
     totals = conn.execute('SELECT * FROM admin_totals(%s)', (now,)).fetchone()
     orgs = conn.execute('SELECT * FROM admin_organisations(%s)', (now,)).fetchall()
     recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (25,)).fetchall()
+    # log_action() writes to audit_log, which is a tenant table and needs a
+    # tenant; this read belongs to no tenant. The process log is the only place
+    # it can be recorded, and the token's sub is the only identifier worth
+    # recording — never an address out of the request.
+    app.logger.info('platform admin overview read by %s', g.auth_claims.get('sub'))
     return jsonify({
         'totals': dict(totals),
         'organisations': [dict(r) for r in orgs],
@@ -2707,13 +2741,27 @@ def import_backup():
     existing = {u['slug']: u['id'] for u in conn.execute(
         'SELECT id, slug FROM units WHERE id = ANY(%s)', (ids,)).fetchall()}
     created_units = 0
+    #    The file's slug is user input and it becomes a URL, so it goes through
+    #    the same normaliser creation uses: `admin` is the platform
+    #    dashboard's own route and a unit holding it could never be opened
+    #    again, and `../x` or `<script>` are not slugs at all. `existing` stays
+    #    keyed on the FILE's slug, because every other row in the file — every
+    #    soldier, setting, user and duty turn — names its unit by that string;
+    #    only what gets STORED changes.
     for u in payload.get('units', []):
         if u['slug'] in existing:
+            continue
+        stored = slugify(u['slug'])
+        if stored in existing:
+            # An earlier restore of this same file already renamed it. Re-use
+            # that unit instead of making another copy on every restore.
+            existing[u['slug']] = existing[stored]
             continue
         parent_id = existing.get(u.get('parent_slug')) or g.current_user['unit_id']
         row = conn.execute(
             'INSERT INTO units (parent_id, root_id, kind, name, slug) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-            (parent_id, root_id, u.get('kind', 'platoon'), u['name'], u['slug'])).fetchone()
+            (parent_id, root_id, u.get('kind', 'platoon'), u['name'],
+             unique_slug(conn, root_id, u['slug']))).fetchone()
         existing[u['slug']] = row['id']
         created_units += 1
     g.pop('subtree', None)

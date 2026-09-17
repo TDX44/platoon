@@ -17,6 +17,7 @@ Two A0 guarantees survive the rewrite and are still asserted here:
    them — inside the caller's tenant.
 """
 import os
+import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -203,6 +204,85 @@ def test_owner_round_trip_restores_its_own_export():
     assert r.get_json()['id'] not in {p['id'] for p in exported['personnel']}, r.get_json()
 
 
+def units_of(root_id):
+    conn = dbharness.owner_conn()
+    try:
+        return {r['name']: r for r in conn.execute(
+            'SELECT id, parent_id, slug, name FROM units WHERE root_id = %s', (root_id,)).fetchall()}
+    finally:
+        conn.close()
+
+
+def test_a_slug_out_of_the_file_never_becomes_a_url_of_its_own_choosing():
+    """The file is user input and its slug becomes a URL. `admin` is the
+    platform dashboard's own route, so a unit that took it could never be
+    opened again; `../x` and `<script>` are not slugs at all. What gets STORED
+    is normalised — and everything else in the file still finds its unit,
+    because the file's own slug stays the key of the mapping."""
+    t = dbharness.make_tree('Hostile Co')
+    dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
+    c = server.app.test_client()
+    body = {
+        'version': 3,
+        'units': [
+            {'slug': 'admin', 'parent_slug': None, 'kind': 'squad', 'name': 'Admin Section'},
+            {'slug': '../../etc/passwd', 'parent_slug': 'admin', 'kind': 'team', 'name': 'Dots'},
+            {'slug': '<script>alert(1)</script>', 'parent_slug': None, 'kind': 'team', 'name': 'Script'},
+        ],
+        # 90777, not 90001: personnel(id) is a GLOBAL primary key, and
+        # test_dependents_of_a_skipped_person_are_skipped_too() below claims
+        # that one for a different tenant.
+        'personnel': [{'id': 90777, 'rank': 'SGT', 'last': 'Adminson', 'first': 'A',
+                       'status': 'present', 'unit': 'admin'}],
+    }
+    r = c.post('/api/backup/restore', json=body)
+    assert r.status_code == 200, r.get_json()
+    result = r.get_json()
+    assert result['units_created'] == 3, result
+    assert result['skipped_units'] == [] and result['skipped_rows'] == 0, result
+    assert result['personnel'] == 1, result
+
+    units = units_of(t['root'])
+    slugs = {u['slug'] for u in units.values()}
+    assert 'admin' not in slugs, f'a restored unit took the /admin route: {slugs}'
+    for s in slugs:
+        assert re.fullmatch(r'[a-z0-9-]+', s), f'{s!r} is not a slug'
+
+    conn = dbharness.owner_conn()
+    person = conn.execute("SELECT unit_id FROM personnel WHERE last = 'Adminson'").fetchone()
+    conn.close()
+    assert person['unit_id'] == units['Admin Section']['id'], \
+        'the soldier lost the unit the file called "admin"'
+    assert units['Dots']['parent_id'] == units['Admin Section']['id'], \
+        'a child naming its parent by the file’s slug no longer lands under it'
+
+    # Restoring the same file again must re-use those units, not clone them.
+    again = c.post('/api/backup/restore', json=body)
+    assert again.status_code == 200, again.get_json()
+    assert again.get_json()['units_created'] == 0, (
+        'a second restore of the same file made a second copy of every renamed unit')
+    assert len(units_of(t['root'])) == len(units), units_of(t['root'])
+
+
+def test_an_ordinary_backup_keeps_its_slugs_exactly():
+    """Production URLs are /<slug>/<section> and people bookmark them. A
+    restore that quietly renamed a unit would break every one of those."""
+    real = ['a-co-sitting-ducks', '1stplatoon', '2ndplatoon', 'hq']
+    t = dbharness.make_tree('Bookmark Co')
+    dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
+    c = server.app.test_client()
+    r = c.post('/api/backup/restore', json={
+        'version': 3,
+        'units': [{'slug': s, 'parent_slug': None, 'kind': 'platoon', 'name': s.upper()}
+                  for s in real],
+        'personnel': [],
+    })
+    assert r.status_code == 200, r.get_json()
+    stored = {u['slug'] for u in units_of(t['root']).values()}
+    for s in real:
+        assert s in stored, f'{s!r} came back as something else: {stored}'
+
+
 def test_unknown_slugs_are_skipped_and_reported():
     t = dbharness.make_tree('Skip Co')
     dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
@@ -360,6 +440,8 @@ def main():
         test_a_version_2_file_is_refused()
         test_a_leader_cannot_restore()
         test_owner_round_trip_restores_its_own_export()
+        test_a_slug_out_of_the_file_never_becomes_a_url_of_its_own_choosing()
+        test_an_ordinary_backup_keeps_its_slugs_exactly()
         test_unknown_slugs_are_skipped_and_reported()
         test_dependents_of_a_skipped_person_are_skipped_too()
         test_a_username_owned_by_another_tree_is_skipped_not_fatal()

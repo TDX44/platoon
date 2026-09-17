@@ -2316,11 +2316,28 @@
      unit, and the operator reaches it from the home screen with no unit
      selected. Everything below reuses the --cp-* tokens, so dark mode is
      inherited rather than restated. */
+  /* Wider than the app's other pages on purpose: the organisations table is
+     nine columns, and on a laptop they should fit without scrolling. */
   #adminScreen {
     display: none; flex-direction: column; gap: 18px;
-    padding: 24px 16px 48px; max-width: 1100px; margin: 0 auto; width: 100%;
+    padding: 24px 16px 48px; max-width: 1360px; margin: 0 auto; width: 100%;
     box-sizing: border-box;
   }
+  /* The dashboard is its own screen, outside .dash-layout — so it cannot use
+     the --dash-* aliases, which are defined there. Its two buttons are built
+     from the --cp-* tokens directly. */
+  .admin-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 16px; border-radius: var(--cp-radius); cursor: pointer;
+    font-size: 0.88em; font-weight: 600; font-family: inherit; white-space: nowrap;
+    background: var(--cp-accent); color: var(--cp-accent-text);
+    border: 1px solid var(--cp-accent);
+  }
+  .admin-btn:hover { background: var(--cp-accent-hover); border-color: var(--cp-accent-hover); }
+  .admin-btn-ghost {
+    background: var(--cp-surface); color: var(--cp-text); border-color: var(--cp-border);
+  }
+  .admin-btn-ghost:hover { background: var(--cp-hover); color: var(--cp-text-strong); }
   .admin-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
   .admin-head h1 {
     margin: 0; font-size: 1.5em; color: var(--cp-text-strong); letter-spacing: -0.01em;
@@ -2329,7 +2346,7 @@
   .admin-head .admin-actions { margin-left: auto; display: flex; gap: 8px; }
   .admin-totals {
     display: grid; gap: 10px;
-    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(146px, 1fr));
   }
   .admin-total {
     background: var(--cp-surface); border: 1px solid var(--cp-border);
@@ -2342,6 +2359,9 @@
   .admin-total-label {
     margin-top: 2px; font-size: 0.72em; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.04em; color: var(--cp-muted);
+    /* "ORGANISATIONS" is one long word and does not fit a narrow tile: let it
+       break rather than run out past the tile's edge. */
+    overflow-wrap: anywhere;
   }
   .admin-section h2 {
     margin: 0 0 8px; font-size: 0.78em; font-weight: 700; text-transform: uppercase;
@@ -7988,8 +8008,8 @@ function adminOverviewHtml(data, orgSort, userSort) {
       <h1>Platform admin</h1>
       <span class="admin-generated">Generated ${adminCell(data.generated_at)}</span>
       <span class="admin-actions">
-        <button type="button" class="dash-btn dash-btn-ghost" onclick="goHome()">&larr; Home</button>
-        <button type="button" class="dash-btn dash-btn-primary" onclick="refreshAdmin()">Refresh</button>
+        <button type="button" class="admin-btn admin-btn-ghost" onclick="closeAdmin()">&larr; Home</button>
+        <button type="button" class="admin-btn" onclick="refreshAdmin()">Refresh</button>
       </span>
     </div>
     <div class="admin-totals">${totals}</div>
@@ -8018,6 +8038,18 @@ function renderAdmin() {
   if (view) view.innerHTML = adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
 }
 
+// Every other organisation's name, size and owner email, sitting in a global
+// and in the DOM. On a shared machine the next person must not find them, so
+// this runs on the way out of the page AND from showLoginScreen(), which is
+// the one funnel every sign-out reaches: the menu item, the session timeout,
+// and api()'s 401 all end there.
+function clearPlatformAdmin() {
+  adminData = null;
+  const view = document.getElementById('adminScreen');
+  if (view) view.innerHTML = '';
+  document.body.classList.remove('admin-active');
+}
+
 function sortAdminOrgs(key) { toggleSort(adminOrgSort, key); renderAdmin(); }
 function sortAdminUsers(key) { toggleSort(adminUserSort, key); renderAdmin(); }
 
@@ -8040,7 +8072,7 @@ function openAdmin(push = true) {
 }
 
 function closeAdmin() {
-  adminData = null;
+  clearPlatformAdmin();
   goHome();
 }
 
@@ -8118,7 +8150,9 @@ function showLoginScreen(view) {
   document.getElementById('createUnitScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
   document.getElementById('adminScreen').style.display = 'none';
-  document.body.classList.remove('admin-active');
+  // Not just hidden: emptied. Hiding leaves every tenant's name and every
+  // owner's email in the DOM for whoever signs in next on this machine.
+  clearPlatformAdmin();
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
   showInviteNote();
@@ -8784,8 +8818,9 @@ function parseAppRoute() {
   const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
   const parts = path ? path.split('/') : [];
   // Before any slug lookup, so a unit can never take this URL away from the
-  // platform dashboard. The server reserves the slug as well, so no unit ends
-  // up unreachable either — see RESERVED_SLUGS in server.py.
+  // platform dashboard. The server reserves the slug as well — on unit
+  // creation AND on backup restore, which is user input that becomes a URL —
+  // so no unit ends up unreachable either. See RESERVED_SLUGS in server.py.
   if (parts[0] === 'admin') return { unit: null, section: 'admin' };
   const unit = parts.length ? unitBySlug(parts[0]) : null;
   if (unit) {
@@ -8806,9 +8841,11 @@ function routeAfterLogin() {
   // belongs to no unit must still land on it rather than on the "name your
   // unit" screen. Anyone else asking for it is sent home — and the API would
   // 404 them anyway.
-  if (route.section === 'admin' && currentUser && currentUser.platform_admin) {
-    openAdmin(false);
-    return;
+  if (route.section === 'admin') {
+    if (currentUser && currentUser.platform_admin) { openAdmin(false); return; }
+    // Sent home — and the address bar has to agree, or the next reload tries
+    // /admin again and Back walks straight back into it.
+    history.replaceState({ section: 'home' }, '', '/');
   }
   if (currentUser && currentUser.needs_unit) { showCreateUnitScreen(); return; }
   if (!route.unit) { loadHome(); return; }
@@ -9340,8 +9377,9 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('popstate', () => {
   const route = parseAppRoute();
   if (route.section === 'admin') {
-    if (currentUser && currentUser.platform_admin) openAdmin(false);
-    else loadHome();
+    if (currentUser && currentUser.platform_admin) { openAdmin(false); return; }
+    history.replaceState({ section: 'home' }, '', '/');
+    loadHome();
     return;
   }
   if (route.unit) {

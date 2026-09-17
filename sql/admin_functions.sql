@@ -26,6 +26,19 @@
 -- tenant's own timezone, and the database container's clock is not that. It is
 -- not a tenant argument — none of these take one, and none reads app.root_id.
 
+-- CREATE OR REPLACE cannot change a RETURNS TABLE column list ("cannot change
+-- return type of existing function"), and adding a column to the dashboard is
+-- the likeliest next edit to this file. A failing statement here aborts
+-- init_db()'s transaction, which means the app does not boot at all — so drop
+-- first. This runs inside init_db()'s single transaction, under the same
+-- advisory lock the rest of the boot takes, and Postgres's DDL is
+-- transactional: a concurrent request in the older worker keeps seeing the old
+-- function until this commits, and then sees the new one. There is no window
+-- in which the function is missing.
+DROP FUNCTION IF EXISTS admin_totals(text);
+DROP FUNCTION IF EXISTS admin_organisations(text);
+DROP FUNCTION IF EXISTS admin_recent_users(int);
+
 CREATE OR REPLACE FUNCTION admin_totals(p_now text)
 RETURNS TABLE (organisations bigint, unit_count bigint, personnel_count bigint,
                user_count bigint, unattached_users bigint, pending_invites bigint,

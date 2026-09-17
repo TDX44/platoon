@@ -452,9 +452,17 @@ https://api.clerk.com/v1/users/<sub>` with `CLERK_SECRET_KEY` — for the
 'verified'`. api.clerk.com is behind Cloudflare, which rejects urllib's
 default User-Agent with error 1010, so one is sent explicitly. The verdict is
 cached per Clerk id for five minutes, **positive and negative** (caching only
-the yes would let any signed-in stranger make us call Clerk at will); a
-failure is cached neither way. **An unreachable Clerk fails closed** (503),
-never open. `platform_admin_required` declares **no tenant**, works whether or
+the yes would let any signed-in stranger make us call Clerk at will).
+
+**A failure is cached too**, as `PLATFORM_ADMIN_UNKNOWN` under its own short
+TTL (`PLATFORM_ADMIN_FAIL_TTL_SECONDS`, 30 s). It has to be: the lookup blocks
+and gunicorn runs two **sync** workers, so with Clerk's API unreachable but
+sessions still valid on the stale-key fallback, one browser polling `/api/me`
+would park a worker per request — and anyone can aim that by putting the
+operator's address in their own `users.email`. It is never stored as a real
+refusal (that would outlive the outage) and never as a grant. **An
+unreachable Clerk fails closed** (503 on the dashboard, no menu on
+`/api/me`), never open. `platform_admin_required` declares **no tenant**, works whether or
 not the admin is attached to a unit, and answers a signed-in non-admin with
 **404** — the surface is not advertised. `/api/me` and `/api/auth/sync` carry
 `platform_admin`, and that flag costs a Clerk call only when the stored email
@@ -468,13 +476,27 @@ nothing else. No soldier names, no profile rows, no audit `details`, no invite
 tokens, no logo bytes, no Clerk ids. **The database cannot tell an admin
 request from any other** — `platoon_app` holds EXECUTE on all three — so every
 Python caller must sit behind `platform_admin_required`, and
-`tests/test_platform_admin.py` greps `server.py` to prove it.
+`tests/test_platform_admin.py` greps `server.py` to prove it. The file drops
+all three functions before recreating them: `CREATE OR REPLACE` cannot change
+a `RETURNS TABLE` column list, and a statement that raises in there aborts
+`init_db()`'s transaction, which is the app failing to boot. Postgres's DDL is
+transactional, so there is no window where a concurrent request finds the
+function missing.
+
+Because `log_action()` needs a tenant and this read belongs to none, the
+dashboard logs to `app.logger` instead: one info line per read, a warning per
+refusal and per unverifiable request, identified by the token's `sub` and
+never by anything out of the request.
 
 **The slug `admin` is reserved** (`RESERVED_SLUGS` in `server.py`, applied in
-`slugify()`, which both the root and child creation paths go through): a unit
-named "Admin" gets `admin-unit`, because the client resolves `/admin` before
-it looks a slug up and a unit holding that slug would otherwise be
-unreachable. The page is its own screen (`#adminScreen`,
+`slugify()`, which the root path, the child path **and `/api/backup/restore`**
+all go through): a unit named "Admin" gets `admin-unit`, because the client
+resolves `/admin` before it looks a slug up and a unit holding that slug would
+otherwise be unreachable. A restore takes the slug from an uploaded file, so
+it normalises what it **stores** while still keying its unit map on the
+**file's** slug — every other row in the file names its unit by that string,
+and an ordinary backup's slugs must round-trip unchanged or every bookmarked
+`/<slug>/<section>` breaks. The page is its own screen (`#adminScreen`,
 `showAppScreen('admin')`), not a page inside the dashboard shell, because it
 is not scoped to a unit — the operator opens it from the home screen with no
 `currentUnit`. Tests: `tests/test_platform_admin.py`,
