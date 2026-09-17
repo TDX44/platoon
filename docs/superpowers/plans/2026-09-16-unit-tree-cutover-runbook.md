@@ -131,13 +131,19 @@ cd /opt/homelab/platoon-dev
 docker compose down
 docker volume rm platoon-dev_pgdata
 docker compose up -d db
-until docker compose exec -T db pg_isready -U platoon_owner -d platoon -q; do sleep 1; done
+for i in $(seq 60); do docker compose exec -T db psql -U platoon_owner -d platoon -Atc 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
 DB_APP_PASSWORD="$(grep '^DB_APP_PASSWORD=' .env | cut -d= -f2-)"
 docker compose exec -T db psql -U platoon_owner -d platoon -q -v ON_ERROR_STOP=1 \
   -v app_password="$DB_APP_PASSWORD" -f - < scripts/pg-roles.sql
 docker compose exec -T db pg_restore -U platoon_owner --no-owner -d platoon < prod-copy.dump
 docker compose up -d          # ALL services — cloudflared included, see the hard rule above
 ```
+
+Wait on a real `SELECT 1`, not on `pg_isready`: the fresh volume makes the
+container run initdb against a temporary local server that answers
+`pg_isready` before the `platoon` database exists, so in rehearsal 1 the roles
+step failed with *"database platoon does not exist"* and `set -e` left dev with
+only `db` up.
 
 ### Run Steps 2-4 on dev
 
@@ -159,6 +165,11 @@ Dev runs its own Clerk instance (`fluent-kite-43.clerk.accounts.dev`), whose
 account ids do not match production's — restoring prod's data into dev
 otherwise locks every migrated user out, as
 `[[clerk-instance-switch-locks-users-out]]` describes for A0.
+
+In rehearsal 1 the dev instance turned out to carry the *same* Clerk id as
+production for the owner account, which signed straight into its migrated row
+and needed no reclaim at all. Try signing in first; this section is for the
+accounts whose ids do differ.
 
 Blanking `clerk_user_id` no longer works. Under R18 an **attached** legacy row
 (`clerk_user_id = ''` with a `root_id`) can only be claimed by a sign-in that
