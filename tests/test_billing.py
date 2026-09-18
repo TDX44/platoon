@@ -13,6 +13,7 @@ import logging
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import timedelta
@@ -132,6 +133,16 @@ def test_stripe_config_is_read_from_the_active_mode():
     import stripe
     assert stripe.api_key == server.STRIPE_SECRET_KEY
     assert stripe.max_network_retries == 0, 'two sync gunicorn workers cannot afford retries'
+    # A key with no webhook secret is a live payment path the app can never
+    # reconcile: cards charged, every delivery 503. Both or neither.
+    assert not server.STRIPE_ENABLED or server.STRIPE_WEBHOOK_SECRET, \
+        'STRIPE_ENABLED with an empty webhook secret'
+    env = dict(os.environ, STRIPE_MODE='test', STRIPE_TEST_SECRET_KEY='sk_test_' + 'd' * 24,
+               STRIPE_TEST_WEBHOOK_SECRET='')
+    out = subprocess.run([sys.executable, '-c', 'import server'], cwd=_ROOT, env=env,
+                         capture_output=True, text=True)
+    assert out.returncode != 0 and 'STRIPE_TEST_WEBHOOK_SECRET' in out.stderr, \
+        f'a secret key with no webhook secret booted: {out.returncode} {out.stderr[-400:]}'
 
 
 def test_the_pin():
@@ -493,6 +504,13 @@ def test_checkout_creates_the_customer_once_and_opens_a_session(fx):
     finally:
         conn.close()
     assert n == 3, n
+    # Already subscribed: a stale tab cannot open a second subscription on the
+    # same card — the portal is where a live plan changes.
+    set_sub(leader['id'], stripe_status='active')
+    r = c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'})
+    assert r.status_code == 409 and 'portal' in r.get_json()['error'], r.get_json()
+    assert [x[0] for x in st.calls].count('checkout') == 3, 'a second Checkout was opened on one card'
+    set_sub(leader['id'], stripe_status=None)
 
 
 def test_portal_needs_a_customer(fx):
@@ -638,8 +656,18 @@ def test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns
     row = sub_row(leader['id'])
     assert row['stripe_status'] == 'active' and row['cancel_at_period_end'] is True, row
     assert client_as(leader).get('/api/me').get_json()['billing']['state'] == 'ACTIVE'
-    # payment_failed → past_due, open with a warning; other columns kept.
-    post_webhook(event('invoice.payment_failed', {'id': 'in_1', 'object': 'invoice', 'customer': 'cus_A'}))
+    # A failed invoice that names no subscription is dropped, not applied: a
+    # NULL subscription satisfies billing_apply_stripe's guard by
+    # construction and past_due is an OPEN state, so a one-off invoice would
+    # otherwise hold an account open.
+    with quiet():  # the refusal is logged on purpose
+        post_webhook(event('invoice.payment_failed', {'id': 'in_0', 'object': 'invoice', 'customer': 'cus_A'}))
+    assert sub_row(leader['id'])['stripe_status'] == 'active', \
+        'a failed invoice naming no subscription was applied to a live row'
+    assert audit_count('BILLING_PAST_DUE', fx['a']['root']) == 0
+    # Naming the live subscription, it counts: past_due, open with a warning;
+    # other columns kept.
+    post_webhook(invoice_failed('cus_A', 'sub_A1', 'in_1'))
     row = sub_row(leader['id'])
     assert row['stripe_status'] == 'past_due' and row['stripe_subscription_id'] == 'sub_A1', row
     assert audit_count('BILLING_PAST_DUE', fx['a']['root']) == 1
@@ -712,6 +740,33 @@ def test_a_failed_invoice_cannot_reopen_a_cancelled_account(fx):
     assert client_as(leader).get('/api/units').status_code == 200
     # Hand the next test the row it expects: sub_A2, active.
     post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A2', 'active')))
+
+
+def test_a_new_subscription_cancels_the_one_it_supersedes(fx):
+    """One account, one live subscription. Adopting a newer id without
+    cancelling the older one leaves the same card carrying two."""
+    leader, root = fx['a_leader'], fx['a']['root']
+    st = Stripe().install()
+    assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A2'
+    before = audit_count('BILLING_CANCELLED', root)
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A4', 'active')))
+    row = sub_row(leader['id'])
+    assert row['stripe_subscription_id'] == 'sub_A4' and row['stripe_status'] == 'active', row
+    assert [x for x in st.calls if x[0] == 'cancel'] == [('cancel', 'sub_A2')], st.calls
+    assert audit_count('BILLING_CANCELLED', root) == before + 1, 'the cancellation was not audited'
+    # Stripe refusing the cancel does not undo the adoption.
+    def cancel_boom(sub_id):
+        raise OSError('stripe down')
+    server._stripe_cancel = cancel_boom
+    with quiet():  # the failure is logged on purpose
+        post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A5', 'active')))
+    assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A5'
+    # The same subscription again cancels nothing.
+    st = Stripe().install()
+    post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A5', 'active', cancel=False)))
+    assert not any(x[0] == 'cancel' for x in st.calls), st.calls
+    # Hand the next test the row it expects: sub_A2, active.
+    set_sub(leader['id'], stripe_subscription_id='sub_A2')
 
 
 def test_replay_other_mode_unknown_customer_and_unknown_type(fx):
@@ -820,6 +875,31 @@ def test_backup_carries_the_trial_and_never_the_stripe_ids(fx):
             stripe_status=None, trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
 
 
+def test_a_restored_backup_cannot_comp_an_account(fx):
+    """/api/backup/restore is only @owner_required, so the file is
+    attacker-supplied: an owner must not be able to hand-edit an export into a
+    free forever tenant, or into a trial ending in 2030."""
+    leader = fx['a_leader']
+    dump = client_as(fx['a_owner']).get('/api/backup').get_json()
+    u = next(x for x in dump['users'] if x['username'] == 'alpha-leader')
+    u['billing_mode'] = 'comped'
+    u['trial_started_at'] = (utcnow() + 1999 * DAY).isoformat()
+    u['trial_ends_at'] = (utcnow() + 2000 * DAY).isoformat()
+    assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
+    row = sub_row(leader['id'])
+    assert row['billing_mode'] == 'default', 'a hand-edited backup comped the account'
+    ceiling = utcnow() + billing_rules.TRIAL_DAYS * DAY + timedelta(minutes=1)
+    assert row['trial_ends_at'] <= ceiling, f'restored trial ends {row["trial_ends_at"]}'
+    assert row['trial_started_at'] <= ceiling, f'restored trial starts {row["trial_started_at"]}'
+    # End to end: with the dates pushed into the past the account locks. A
+    # comp would have kept it open whatever the clock said.
+    set_sub(leader['id'], trial_ends_at=utcnow() - 30 * DAY, extended_at=utcnow() - 30 * DAY)
+    b = client_as(leader).get('/api/me').get_json()['billing']
+    assert b['state'] == 'LOCKED' and b['reason'] == 'trial_expired', b
+    assert client_as(leader).get('/api/units').status_code == 402
+    set_sub(leader['id'], billing_mode='default', trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
 ADMIN_EMAIL = 'jonathon.carr5@gmail.com'
 _real_verify = server._verify_clerk_session_token
 
@@ -923,10 +1003,12 @@ def main():
         test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns(fx)
         test_a_late_delete_for_a_superseded_subscription_cannot_lock(fx)
         test_a_failed_invoice_cannot_reopen_a_cancelled_account(fx)
+        test_a_new_subscription_cancels_the_one_it_supersedes(fx)
         test_replay_other_mode_unknown_customer_and_unknown_type(fx)
         test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx)
         test_deleting_a_user_cancels_their_subscription_best_effort(fx)
         test_backup_carries_the_trial_and_never_the_stripe_ids(fx)
+        test_a_restored_backup_cannot_comp_an_account(fx)
         test_admin_overview_counts_and_labels_billing(fx)
         test_admin_comp_toggle(fx)
         test_webhook_functions_are_only_called_from_the_webhook()

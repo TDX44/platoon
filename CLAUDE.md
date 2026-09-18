@@ -531,7 +531,10 @@ tenant and has no `g.billing`.
 Env: `STRIPE_MODE=test|live` picks which of `STRIPE_TEST_*` / `STRIPE_LIVE_*`
 (secret key + webhook signing secret) the process reads; dev is `test`,
 production `live`. **No key for the active mode = billing off**, every
-account `COMPED`, one warning at boot. `BILLING_DEFAULT=on|off` is the
+account `COMPED`, one warning at boot. The two are required **together**: a
+secret key with an empty webhook secret is a `SystemExit` at import, because
+cards would be charged while every delivery is answered 503 and the app never
+learns what it sold. `BILLING_DEFAULT=on|off` is the
 default for accounts whose `billing_mode` is `default`; `/admin` comps or
 bills any account (`PUT /api/admin/users/<id>/billing_mode`). The operator's
 own account is always comped.
@@ -547,12 +550,17 @@ only writer of the Stripe columns, through the four SECURITY DEFINER
 greps `server.py` to keep it that way. Replays are no-ops (`stripe_events`); a
 handler that raises is a 500 and the event record rolls back with it, so
 Stripe's retry is handled rather than skipped. `invoice.payment_failed`
-carries the failed invoice's own subscription id (or none, for a late
-delivery against a subscription the account has since replaced), and
-`billing_apply_stripe` refuses to move a **locked** status (`canceled`,
-`unpaid`, `incomplete_expired`) to `past_due` — Stripe does not order
-deliveries and `past_due` is an open state, so a stray failed invoice cannot
-re-open a cancelled account. When that SQL guard suppresses the update,
+must name the subscription it is for (a plain `subscription` id, or
+`parent.subscription_details.subscription` since API 2025-03); one that names
+none is logged and **dropped**, because a NULL subscription satisfies
+`billing_apply_stripe`'s guard by construction and `past_due` is an open
+state. For the ones that do name it, `billing_apply_stripe` refuses to move a
+**locked** status (`canceled`, `unpaid`, `incomplete_expired`) to `past_due` —
+Stripe does not order deliveries, so a late failed invoice cannot re-open a
+cancelled account. `billing_checkout` 409s when the account is already
+subscribed (the portal changes a live plan), and if a subscription event ever
+does adopt an id over a different stored one, `_apply_stripe` cancels the
+superseded subscription at Stripe best-effort so one card cannot carry two. When that SQL guard suppresses the update,
 `_apply_stripe` writes **no audit row**: a row for a write that did not
 happen is a lie the support desk would act on. Cancellation is at period end
 through the Billing Portal and never flips local state — the webhook does.
@@ -600,7 +608,12 @@ the A1 migration, not after. If you change the schema, update both export and
 restore, and keep the `version` check working. An owner's `users` rows
 also carry `billing_mode`, `trial_started_at`, `trial_ends_at` and
 `extended_at` (optional keys; restore upserts a `subscriptions` row from
-them and never writes a Stripe column).
+them and never writes a Stripe column). The file is attacker-supplied, so
+restore takes neither the comp switch nor an unbounded date off it: an
+incoming `'comped'` becomes `'default'` (only `'default'` and `'billed'` are
+accepted — comping is `billing_set_mode` behind `platform_admin_required`),
+and both trial stamps are clamped to at most `now + TRIAL_DAYS`. `extended_at`
+comes back as it stands; it only ever removes an entitlement.
 
 ### Design system
 

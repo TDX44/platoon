@@ -22,10 +22,16 @@ DROP FUNCTION IF EXISTS billing_apply_stripe(text, text, text, text, timestamptz
 DROP FUNCTION IF EXISTS billing_record_event(text);
 DROP FUNCTION IF EXISTS billing_set_mode(int, text, text);
 
+-- stripe_subscription_id comes back too: the webhook has to know which
+-- subscription the account already holds before billing_apply_stripe adopts a
+-- newer one, so the superseded one can be cancelled at Stripe instead of
+-- quietly billing the same card forever. Reading it here keeps every
+-- cross-tenant read inside the enumerated functions.
 CREATE OR REPLACE FUNCTION billing_find_by_customer(p_customer text)
-RETURNS TABLE (user_id int, root_id int)
+RETURNS TABLE (user_id int, root_id int, stripe_subscription_id text)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
-  SELECT s.user_id, s.root_id FROM subscriptions s WHERE s.stripe_customer_id = p_customer;
+  SELECT s.user_id, s.root_id, s.stripe_subscription_id
+    FROM subscriptions s WHERE s.stripe_customer_id = p_customer;
 $$;
 
 -- A subscription event for an id other than the stored one is applied only

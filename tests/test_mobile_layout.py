@@ -306,6 +306,9 @@ INIT_JS = """
 async (fixture) => {
   window.__fixture = fixture;
   window.__units = fixture.units;
+  // The real one, kept: check_402_shows_the_pricing_screen() puts it back for
+  // a single call so the 402 branch runs against a stubbed fetch.
+  window.__realApi = window.api;
   window.api = async (method, path) => {
     const p = String(path).split('?')[0];
     if (p === '/units') return window.__units;
@@ -597,6 +600,55 @@ def check_billing(page, width):
         check_tap_targets(page, width, PRICING_BUTTONS, 'billing page')
     check_billing_modal_without_storage(page, width)
     page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+    # From the home screen, so raising the pricing screen is a real change of
+    # state rather than something the checks above already left on screen.
+    check_402_shows_the_pricing_screen(page, width)
+    page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+
+
+# api()'s 402 branch is the only thing that turns a mid-session lock into the
+# pricing screen, so it is exercised for real: the stub api() steps aside and
+# window.fetch answers one call with the 402 body the server sends. A locked
+# account must get the screen and nothing else — a toast here would be the
+# user's only feedback that every request is now failing.
+API_402_JS = """
+async () => {
+  const stubApi = window.api, realFetch = window.fetch, savedBilling = currentUser.billing;
+  const billing = Object.assign({}, savedBilling, {
+    state: 'LOCKED', reason: 'trial_expired', days_left: null, extension_available: false,
+  });
+  window.api = window.__realApi;
+  window.fetch = async () => new Response(
+    JSON.stringify({ error: 'subscription_required', billing }),
+    { status: 402, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const out = await api('GET', '/personnel');
+    const toast = document.getElementById('apiToast');
+    return {
+      returned: out,
+      active: document.body.classList.contains('billing-active'),
+      shown: getComputedStyle(document.getElementById('billingScreen')).display,
+      buttons: document.querySelectorAll('#billingScreen .pricing-btn').length,
+      toasted: !!toast && getComputedStyle(toast).display !== 'none',
+    };
+  } finally {
+    window.api = stubApi;
+    window.fetch = realFetch;
+    currentUser.billing = savedBilling;
+  }
+}
+"""
+
+
+def check_402_shows_the_pricing_screen(page, width):
+    assert not page.evaluate("document.body.classList.contains('billing-active')"), (
+        f'402 @ {width}px: the billing screen was already up, so this proves nothing')
+    r = page.evaluate(API_402_JS)
+    assert r['active'] and r['shown'] != 'none', (
+        f'402 @ {width}px: a locked reply did not raise the pricing screen ({r})')
+    assert r['buttons'] == 2, f'402 @ {width}px: two purchase buttons expected, got {r["buttons"]}'
+    assert not r['toasted'], f'402 @ {width}px: a locked reply also raised an error toast'
+    assert r['returned'] is None, f'402 @ {width}px: api() returned {r["returned"]!r} instead of null'
 
 
 # Both accessors throw, which is what a private window or a locked-down

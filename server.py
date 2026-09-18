@@ -126,6 +126,14 @@ if STRIPE_MODE not in ('test', 'live'):
 STRIPE_SECRET_KEY = os.environ.get(f'STRIPE_{STRIPE_MODE.upper()}_SECRET_KEY', '').strip()
 STRIPE_WEBHOOK_SECRET = os.environ.get(f'STRIPE_{STRIPE_MODE.upper()}_WEBHOOK_SECRET', '').strip()
 STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
+# Both or neither. A key with no webhook secret charges cards while every
+# delivery is answered 503, so the app never learns what it sold: an account
+# pays and stays locked, a cancellation never lands. Taking money that cannot
+# be reconciled is worse than not booting.
+if STRIPE_ENABLED and not STRIPE_WEBHOOK_SECRET:
+    raise SystemExit(f'STRIPE_{STRIPE_MODE.upper()}_WEBHOOK_SECRET is required whenever '
+                     f'STRIPE_{STRIPE_MODE.upper()}_SECRET_KEY is set: without it cards are '
+                     'charged and every Stripe webhook delivery is refused.')
 STRIPE_TIMEOUT = 5
 PRICE_LOOKUP_KEYS = ('platoon_leader_monthly', 'platoon_leader_annual')
 # The ways out of a lock. Everything else under /api/ answers 402 to a locked
@@ -1570,8 +1578,6 @@ def billing_extend():
     b = g.billing
     if not b or not b['extension_available'] or b['state'] not in ('TRIAL', 'GRACE', 'LOCKED'):
         return jsonify({'error': 'The trial extension is not available.'}), 409
-    if b['state'] == 'LOCKED' and b['reason'] != 'trial_expired':
-        return jsonify({'error': 'The trial extension is not available.'}), 409
     conn = get_db()
     now = billing_rules.utcnow()
     # In trial the end moves by 7 days; in grace (or just locked) it runs from now.
@@ -1590,6 +1596,13 @@ def billing_extend():
 def billing_checkout():
     if not STRIPE_ENABLED:
         return jsonify({'error': 'Billing is not configured on this instance.'}), 503
+    # A stale tab or a Back onto the pricing screen would otherwise open a
+    # second Checkout on the same card: the supersede rule adopts the newer
+    # subscription and the older one keeps charging. Changing a live plan is
+    # the portal's job.
+    if g.billing and g.billing['subscribed']:
+        return jsonify({'error': 'This account already has a subscription. '
+                                 'Change or cancel it in the billing portal.'}), 409
     key = (request.get_json(silent=True) or {}).get('lookup_key')
     price = next((p for p in _prices_cached() if p['lookup_key'] == key), None)
     if not price:
@@ -1693,8 +1706,17 @@ def _handle_stripe_event(conn, event):
         sub = obj.get('subscription')
         if not isinstance(sub, str):
             sub = ((obj.get('parent') or {}).get('subscription_details') or {}).get('subscription')
+        if not isinstance(sub, str) or not sub:
+            # Nothing to check the stored subscription against: passing NULL
+            # makes billing_apply_stripe's `p_subscription IS NULL OR ...`
+            # guard true by construction, and past_due is an OPEN, subscribed
+            # state — a one-off invoice would then hold an account open past
+            # its trial. The subscription events carry the truth anyway.
+            app.logger.warning('stripe event %s: invoice.payment_failed names no subscription, ignored',
+                               event['id'])
+            return
         _apply_stripe(conn, event, customer=obj.get('customer'),
-                      subscription=sub if isinstance(sub, str) else None, status='past_due',
+                      subscription=sub, status='past_due',
                       lookup_key=None, period_end=None, cancel_at_period_end=None)
     elif kind == 'invoice.paid':
         _audit_for_customer(conn, obj.get('customer'), 'BILLING_PAID', f'invoice {obj.get("id")} paid')
@@ -1733,6 +1755,18 @@ def _apply_stripe(conn, event, customer, subscription, status, lookup_key, perio
         app.logger.warning('stripe event %s for customer %s not applied (superseded or refused)',
                            event['id'], customer)
         return
+    # One account, one live subscription. If this event adopted a different
+    # subscription id than the one stored, the old one is still billing the
+    # same card at Stripe — best effort, because the adoption has already
+    # happened and a Stripe outage must not undo it.
+    superseded = None
+    if subscription and target['stripe_subscription_id'] and target['stripe_subscription_id'] != subscription:
+        try:
+            _stripe_cancel(target['stripe_subscription_id'])
+            superseded = target['stripe_subscription_id']
+        except Exception as exc:
+            app.logger.error('could not cancel superseded Stripe subscription %s: %s',
+                             target['stripe_subscription_id'], exc)
     if status in billing_rules.OPEN_STATUSES:
         action = 'BILLING_ACTIVE'
     elif status == 'past_due':
@@ -1743,6 +1777,8 @@ def _apply_stripe(conn, event, customer, subscription, status, lookup_key, perio
         action = 'BILLING_STATUS'
     set_tenant(conn, target['root_id'])
     log_action(action, f'stripe {event["type"]}: {status}' + (f', cancel at period end' if cancel_at_period_end else ''))
+    if superseded:
+        log_action('BILLING_CANCELLED', f'superseded subscription {superseded} cancelled at Stripe')
 
 
 @app.route('/api/me', methods=['GET'])
@@ -3194,6 +3230,22 @@ def export_backup():
                     headers={'Content-Disposition': f'attachment; filename=platoon-backup-{app_today()}.json'})
 
 
+def _restored_stamp(value, ceiling):
+    """A trial stamp off an uploaded backup, never later than `ceiling`.
+
+    Unparseable is None: a restore may carry a trial forward, never invent one.
+    """
+    if not value:
+        return None
+    try:
+        dt = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return min(dt, ceiling)
+
+
 @app.route('/api/backup/restore', methods=['POST'])
 @owner_required
 def import_backup():
@@ -3346,6 +3398,13 @@ def import_backup():
             (root_id, uid, s['key'], value))
 
     skipped_users = []
+    # A backup file is attacker-supplied: /api/backup/restore is only
+    # @owner_required, so an owner can hand-edit an export. billing_mode
+    # belongs to billing_set_mode behind @platform_admin_required, so 'comped'
+    # off the wire becomes 'default'; the trial stamps are clamped so a
+    # restore can never buy more trial than a fresh account gets. extended_at
+    # is taken as it stands — it only ever removes an entitlement.
+    trial_ceiling = billing_rules.utcnow() + billing_rules.TRIAL_DAYS * billing_rules.DAY
     for u in payload.get('users', []):
         # Never the caller's own row: a backup taken before a promotion would
         # otherwise demote the very owner running the restore.
@@ -3375,8 +3434,10 @@ def import_backup():
                     'ON CONFLICT (user_id) DO UPDATE SET billing_mode = EXCLUDED.billing_mode, '
                     'trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at, '
                     'extended_at = EXCLUDED.extended_at, updated_at = now()',
-                    (new_id, root_id, u.get('billing_mode') if u.get('billing_mode') in billing_rules.MODES else 'default',
-                     u.get('trial_started_at') or None, u.get('trial_ends_at') or None, u.get('extended_at') or None))
+                    (new_id, root_id, u.get('billing_mode') if u.get('billing_mode') in ('default', 'billed') else 'default',
+                     _restored_stamp(u.get('trial_started_at'), trial_ceiling),
+                     _restored_stamp(u.get('trial_ends_at'), trial_ceiling),
+                     u.get('extended_at') or None))
         except psycopg.Error:
             conn.execute('ROLLBACK TO SAVEPOINT u')
             skipped_users.append(u.get('username'))
