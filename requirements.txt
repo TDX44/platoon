@@ -2,3 +2,4 @@ flask
 PyJWT[crypto]
 psycopg[binary]
 psycopg_pool
+stripe==15.6.1

@@ -13,7 +13,7 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['units', 'personnel', 'personnel_profile', 'scheduled_events',
                            'duty_roster', 'report_history', 'audit_log', 'settings',
-                           'users', 'invites']
+                           'users', 'invites', 'subscriptions']
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant ON %I', t);

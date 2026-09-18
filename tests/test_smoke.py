@@ -56,6 +56,7 @@ ALLOWED_PLATOON_TOKENS = (
     'platoon-backup-',                      # the backup download filename
     'platoon_owner', 'platoon_app',          # the two database roles
     'platoon-accountability/',               # the User-Agent sent to api.clerk.com
+    'platoon_leader_',                       # the Stripe price lookup keys (PRICE_LOOKUP_KEYS)
 )
 
 

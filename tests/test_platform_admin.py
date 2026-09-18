@@ -464,6 +464,7 @@ ADMIN_FUNCTIONS = [
     'admin_totals(text)',
     'admin_organisations(text)',
     'admin_recent_users(int)',
+    'admin_billing_rows()',
 ]
 
 
@@ -596,7 +597,7 @@ def test_every_admin_call_is_behind_the_decorator():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
     blocks = re.split(r'\n(?=@app\.route|\ndef )', code)
-    callers = [b for b in blocks if re.search(r'\badmin_(totals|organisations|recent_users)\s*\(', b)]
+    callers = [b for b in blocks if re.search(r'\badmin_(totals|organisations|recent_users|billing_rows)\s*\(', b)]
     assert callers, 'no code calls the admin_ functions at all — did they get renamed?'
     for block in callers:
         assert '@platform_admin_required' in block, (

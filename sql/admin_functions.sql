@@ -13,6 +13,8 @@
 -- it turns an operator's headcount page into a cross-tenant data export, and
 -- the people in `personnel` never agreed to be in one. Add a column only with
 -- a reason you would write down.
+-- Billing adds an account's billing mode, trial stamps and Stripe STATUS
+-- word — never a Stripe customer or subscription id.
 --
 -- THE DATABASE CANNOT TELL AN ADMIN REQUEST FROM ANY OTHER. platoon_app holds
 -- EXECUTE on all three functions, because that is the role the application
@@ -38,6 +40,7 @@
 DROP FUNCTION IF EXISTS admin_totals(text);
 DROP FUNCTION IF EXISTS admin_organisations(text);
 DROP FUNCTION IF EXISTS admin_recent_users(int);
+DROP FUNCTION IF EXISTS admin_billing_rows();
 
 CREATE OR REPLACE FUNCTION admin_totals(p_now text)
 RETURNS TABLE (organisations bigint, unit_count bigint, personnel_count bigint,
@@ -94,11 +97,25 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
    LIMIT greatest(0, least(p_limit, 200));
 $$;
 
+-- Every attached account's billing columns, for the overview's Billing
+-- column and its five counts. The state itself is computed in Python by
+-- billing_rules.billing_state() so the rule lives in one place.
+CREATE OR REPLACE FUNCTION admin_billing_rows()
+RETURNS TABLE (user_id int, email text, billing_mode text, trial_ends_at timestamptz,
+               extended_at timestamptz, stripe_status text, cancel_at_period_end boolean,
+               current_period_end timestamptz)
+LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+  SELECT u.id, u.email, COALESCE(s.billing_mode, 'default'), s.trial_ends_at, s.extended_at,
+         s.stripe_status, COALESCE(s.cancel_at_period_end, false), s.current_period_end
+    FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id
+   WHERE u.unit_id IS NOT NULL;
+$$;
+
 DO $$
 DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY[
-    'admin_totals(text)', 'admin_organisations(text)', 'admin_recent_users(int)']
+    'admin_totals(text)', 'admin_organisations(text)', 'admin_recent_users(int)', 'admin_billing_rows()']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO platoon_app', f);
