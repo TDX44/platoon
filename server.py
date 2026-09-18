@@ -1031,6 +1031,10 @@ def _billing_row(conn, user):
     before billing, or while BILLING_DEFAULT was off, gets its full trial from
     the day billing first applies to it. Two workers can race the INSERT;
     ON CONFLICT DO NOTHING makes the loser re-read the winner's row.
+
+    The request's transaction commits only on a success response, so a first
+    request that 4xxs rolls the new row back; the trial is keyed to the first
+    successful request.
     """
     row = conn.execute('SELECT * FROM subscriptions WHERE user_id = %s', (user['id'],)).fetchone()
     if row is None:
@@ -1089,12 +1093,64 @@ def _stripe_customer_for_mode(row):
     mode; None otherwise (a mode switch simply makes a new customer)."""
     stored = (row or {}).get('stripe_customer_id') or ''
     prefix = f'{STRIPE_MODE}:'
-    return stored[len(prefix):] if stored.startswith(prefix) else None
+    return (stored[len(prefix):] or None) if stored.startswith(prefix) else None
+
+
+# ── Stripe seams ──
+# Five one-line functions, one per Stripe call the app makes. Everything
+# above them is testable with these replaced; nothing else in server.py
+# touches the SDK except the webhook's signature check.
+def _stripe_prices():
+    return stripe.Price.list(lookup_keys=list(PRICE_LOOKUP_KEYS), active=True, limit=10).data
+
+
+def _stripe_customer_create(params, idempotency_key):
+    return stripe.Customer.create(**params, idempotency_key=idempotency_key)
+
+
+def _stripe_checkout(params):
+    return stripe.checkout.Session.create(**params)
+
+
+def _stripe_portal(params):
+    return stripe.billing_portal.Session.create(**params)
+
+
+def _stripe_cancel(subscription_id):
+    stripe.Subscription.cancel(subscription_id)
+
+
+PRICES_TTL = 3600
+# A failure is cached too, briefly: one browser polling /api/me during a
+# Stripe outage would otherwise park a sync worker per request.
+PRICES_FAIL_TTL = 60
+_PRICES_CACHE = (0.0, [])   # (expires_at_monotonic, prices)
 
 
 def _prices_cached():
-    # Task 4 replaces this with the cached Stripe lookup.
-    return []
+    """Both prices by lookup key, or [] — never one of them, never a stale
+    amount. Per worker; a restart simply re-asks."""
+    global _PRICES_CACHE
+    expires, prices = _PRICES_CACHE
+    if time.monotonic() < expires:
+        return prices
+    if not STRIPE_ENABLED:
+        return []
+    try:
+        found = {p.lookup_key: p for p in _stripe_prices() if p.lookup_key in PRICE_LOOKUP_KEYS}
+        prices = [{'id': found[k].id, 'lookup_key': k, 'amount': found[k].unit_amount,
+                   'interval': found[k].recurring.interval, 'currency': found[k].currency}
+                  for k in PRICE_LOOKUP_KEYS if k in found]
+        if len(prices) != len(PRICE_LOOKUP_KEYS):
+            app.logger.warning('Stripe returned %d of %d prices; showing none', len(prices), len(PRICE_LOOKUP_KEYS))
+            prices, ttl = [], PRICES_FAIL_TTL
+        else:
+            ttl = PRICES_TTL
+    except Exception as exc:
+        app.logger.warning('could not fetch Stripe prices: %s', exc)
+        prices, ttl = [], PRICES_FAIL_TTL
+    _PRICES_CACHE = (time.monotonic() + ttl, prices)
+    return prices
 
 
 def _billing_payload():
@@ -1481,6 +1537,89 @@ def auth_sync():
 @app.route('/api/logout', methods=['POST'])
 def logout():
     return jsonify({'success': True})
+
+
+# ── Billing routes ──
+# All three are for the account itself, attached, and none is gated by the
+# 402 (/api/billing/ is exempt): they are how a locked account gets out.
+
+def _billing_return_base():
+    slug = _unit_row(get_db(), g.current_user['unit_id'])['slug']
+    return f"{request.host_url.rstrip('/')}/{slug}/settings"
+
+
+def _ensure_stripe_customer(conn, user, row):
+    """The Stripe customer for this account in the active mode, made on first
+    use. The idempotency key means a double-click cannot make two."""
+    existing = _stripe_customer_for_mode(row)
+    if existing:
+        return existing
+    customer = _stripe_customer_create(
+        {'email': user.get('email') or None, 'name': user.get('full_name') or user['username'],
+         'metadata': {'user_id': str(user['id']), 'root_id': str(user['root_id']), 'mode': STRIPE_MODE}},
+        idempotency_key=f'user:{user["id"]}:{STRIPE_MODE}')
+    conn.execute('UPDATE subscriptions SET stripe_customer_id = %s, updated_at = now() WHERE user_id = %s',
+                 (f'{STRIPE_MODE}:{customer.id}', user['id']))
+    g.billing_row['stripe_customer_id'] = f'{STRIPE_MODE}:{customer.id}'
+    return customer.id
+
+
+@app.route('/api/billing/extend', methods=['POST'])
+@attached_required
+def billing_extend():
+    b = g.billing
+    if not b or not b['extension_available'] or b['state'] not in ('TRIAL', 'GRACE', 'LOCKED'):
+        return jsonify({'error': 'The trial extension is not available.'}), 409
+    if b['state'] == 'LOCKED' and b['reason'] != 'trial_expired':
+        return jsonify({'error': 'The trial extension is not available.'}), 409
+    conn = get_db()
+    now = billing_rules.utcnow()
+    # In trial the end moves by 7 days; in grace (or just locked) it runs from now.
+    ends = max(g.billing_row['trial_ends_at'] or now, now) + billing_rules.EXTENSION_DAYS * billing_rules.DAY
+    cur = conn.execute('UPDATE subscriptions SET extended_at = %s, trial_ends_at = %s, updated_at = now() '
+                       'WHERE user_id = %s AND extended_at IS NULL', (now, ends, g.current_user['id']))
+    if cur.rowcount == 0:
+        return jsonify({'error': 'The trial extension has already been used.'}), 409
+    log_action('BILLING_EXTEND', f'trial extended {billing_rules.EXTENSION_DAYS} days to {ends.isoformat()}')
+    _load_billing(g.current_user)
+    return jsonify({'billing': _billing_payload()})
+
+
+@app.route('/api/billing/checkout', methods=['POST'])
+@attached_required
+def billing_checkout():
+    if not STRIPE_ENABLED:
+        return jsonify({'error': 'Billing is not configured on this instance.'}), 503
+    key = (request.get_json(silent=True) or {}).get('lookup_key')
+    price = next((p for p in _prices_cached() if p['lookup_key'] == key), None)
+    if not price:
+        return jsonify({'error': 'Unknown plan.'}), 400
+    conn = get_db()
+    user = g.current_user
+    customer_id = _ensure_stripe_customer(conn, user, g.billing_row)
+    base = _billing_return_base()
+    session = _stripe_checkout({
+        'mode': 'subscription', 'customer': customer_id,
+        'line_items': [{'price': price['id'], 'quantity': 1}],
+        'client_reference_id': str(user['id']),
+        'metadata': {'user_id': str(user['id']), 'root_id': str(user['root_id']), 'mode': STRIPE_MODE},
+        'subscription_data': {'metadata': {'user_id': str(user['id'])}},
+        'success_url': f'{base}?billing=success', 'cancel_url': base,
+    })
+    log_action('BILLING_CHECKOUT_STARTED', f'{key} by {user["username"]}')
+    return jsonify({'url': session.url})
+
+
+@app.route('/api/billing/portal', methods=['POST'])
+@attached_required
+def billing_portal():
+    if not STRIPE_ENABLED:
+        return jsonify({'error': 'Billing is not configured on this instance.'}), 503
+    customer_id = _stripe_customer_for_mode(g.billing_row)
+    if not customer_id:
+        return jsonify({'error': 'No billing account yet. Choose a plan first.'}), 409
+    session = _stripe_portal({'customer': customer_id, 'return_url': _billing_return_base()})
+    return jsonify({'url': session.url})
 
 
 @app.route('/api/me', methods=['GET'])

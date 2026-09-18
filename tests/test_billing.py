@@ -238,7 +238,13 @@ def is_exempt(rule):
 
 def test_every_api_route_is_locked_for_a_locked_account(fx):
     leader = fx['a_leader']
-    set_sub(leader['id'], trial_ends_at=utcnow() - 10 * DAY)
+    # extended_at is set too: Task 4 makes /api/billing/extend a real route, and
+    # with extension_available it would actually succeed as this sweep walks
+    # over it (an exempt route can execute, not just skip the 402), unlocking
+    # the account mid-sweep and writing a stray BILLING_EXTEND audit row.
+    # Marking the extension already used keeps it a no-op 409 like the other
+    # untouched exempt routes.
+    set_sub(leader['id'], trial_ends_at=utcnow() - 10 * DAY, extended_at=utcnow() - 20 * DAY)
     c = client_as(leader)
     gated, exempt = [], []
     for rule, path, method in api_rules():
@@ -295,6 +301,182 @@ def test_rls_hides_another_tenants_row(fx):
         conn.close()
 
 
+def price(key, amount, interval, pid=None):
+    return SimpleNamespace(id=pid or f'price_{key}', lookup_key=key, unit_amount=amount, currency='usd',
+                           recurring=SimpleNamespace(interval=interval))
+
+
+BOTH_PRICES = [price('platoon_leader_annual', 1999, 'year'), price('platoon_leader_monthly', 299, 'month')]
+
+
+class Stripe:
+    """The seams, recorded. Every _stripe_* call lands in .calls."""
+
+    def __init__(self, prices=None, fail_prices=False):
+        self.prices, self.fail_prices, self.calls = prices if prices is not None else BOTH_PRICES, fail_prices, []
+
+    def install(self):
+        server._PRICES_CACHE = (0.0, [])
+
+        def prices():
+            self.calls.append(('prices',))
+            if self.fail_prices:
+                raise OSError('stripe is down')
+            return list(self.prices)
+
+        def customer(params, idempotency_key):
+            self.calls.append(('customer', params, idempotency_key))
+            return SimpleNamespace(id='cus_NEW')
+
+        def checkout(params):
+            self.calls.append(('checkout', params))
+            return SimpleNamespace(url='https://checkout.stripe.com/c/pay/cs_test_1')
+
+        def portal(params):
+            self.calls.append(('portal', params))
+            return SimpleNamespace(url='https://billing.stripe.com/p/session/1')
+
+        def cancel(sub_id):
+            self.calls.append(('cancel', sub_id))
+
+        server._stripe_prices, server._stripe_customer_create = prices, customer
+        server._stripe_checkout, server._stripe_portal, server._stripe_cancel = checkout, portal, cancel
+        return self
+
+
+def test_prices_are_cached_and_ordered(fx):
+    st = Stripe().install()
+    c = client_as(fx['a_leader'])
+    p = c.get('/api/me').get_json()['billing']['prices']
+    assert [x['lookup_key'] for x in p] == ['platoon_leader_monthly', 'platoon_leader_annual'], p
+    assert p[0] == {'lookup_key': 'platoon_leader_monthly', 'amount': 299, 'interval': 'month', 'currency': 'usd'}, p
+    assert 'id' not in p[0], 'the Stripe price id stays server-side'
+    c.get('/api/me')
+    assert st.calls.count(('prices',)) == 1, 'a second /api/me must hit the cache, not Stripe'
+
+
+def test_prices_empty_when_stripe_is_down_or_incomplete(fx):
+    st = Stripe(fail_prices=True).install()
+    c = client_as(fx['a_leader'])
+    assert c.get('/api/me').get_json()['billing']['prices'] == []
+    c.get('/api/me')
+    assert st.calls.count(('prices',)) == 1, 'a failure is cached too (two sync workers)'
+    # Only one of the two prices found: never show a lone wrong price.
+    Stripe(prices=[price('platoon_leader_monthly', 299, 'month')]).install()
+    assert c.get('/api/me').get_json()['billing']['prices'] == []
+    # Failure TTL is the short one.
+    exp, _ = server._PRICES_CACHE
+    assert exp - time.monotonic() <= server.PRICES_FAIL_TTL + 1
+
+
+def test_extend_once_in_trial_and_once_in_grace(fx):
+    Stripe().install()
+    leader = fx['a_leader']
+    ends = utcnow() + 5 * DAY
+    set_sub(leader['id'], trial_ends_at=ends, extended_at=None)
+    c = client_as(leader)
+    r = c.post('/api/billing/extend')
+    assert r.status_code == 200, r.get_json()
+    b = r.get_json()['billing']
+    assert b['state'] == 'TRIAL' and b['days_left'] == 12 and b['extension_available'] is False, b
+    row = sub_row(leader['id'])
+    assert row['extended_at'] is not None
+    assert abs((row['trial_ends_at'] - (ends + 7 * DAY)).total_seconds()) < 2, 'in trial, the end moves by 7 days'
+    r = c.post('/api/billing/extend')
+    assert r.status_code == 409, 'the extension is once'
+    # In grace: the extension runs from now, and the account is back in TRIAL.
+    set_sub(leader['id'], trial_ends_at=utcnow() - 1 * DAY, extended_at=None)
+    assert c.get('/api/me').get_json()['billing']['state'] == 'GRACE'
+    r = c.post('/api/billing/extend')
+    assert r.status_code == 200, r.get_json()
+    b = r.get_json()['billing']
+    assert b['state'] == 'TRIAL' and b['days_left'] == 7, b
+    conn = dbharness.owner_conn()
+    try:
+        n = conn.execute("SELECT count(*) AS n FROM audit_log WHERE action = 'BILLING_EXTEND' AND root_id = %s",
+                         (fx['a']['root'],)).fetchone()['n']
+    finally:
+        conn.close()
+    assert n == 2, 'each extension is audited in the tenant'
+    # Locked after an extension already used: 409, not a second extension.
+    set_sub(leader['id'], trial_ends_at=utcnow() - 10 * DAY)
+    assert c.post('/api/billing/extend').status_code == 409
+    set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
+def test_checkout_creates_the_customer_once_and_opens_a_session(fx):
+    st = Stripe().install()
+    leader = fx['a_leader']
+    set_sub(leader['id'], stripe_customer_id=None)
+    c = client_as(leader)
+    r = c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_annual'},
+               base_url='https://platoondev.carr7.com')
+    assert r.status_code == 200 and r.get_json() == {'url': 'https://checkout.stripe.com/c/pay/cs_test_1'}, r.get_json()
+    kinds = [x[0] for x in st.calls]
+    assert kinds.count('customer') == 1 and kinds.count('checkout') == 1, kinds
+    _, cparams, key = next(x for x in st.calls if x[0] == 'customer')
+    assert key == f'user:{leader["id"]}:test', key
+    assert cparams['email'] == leader['email'] and cparams['metadata']['user_id'] == str(leader['id']), cparams
+    assert sub_row(leader['id'])['stripe_customer_id'] == 'test:cus_NEW'
+    _, params = next(x for x in st.calls if x[0] == 'checkout')
+    assert params['mode'] == 'subscription' and params['customer'] == 'cus_NEW', params
+    assert params['line_items'] == [{'price': 'price_platoon_leader_annual', 'quantity': 1}], params
+    assert params['client_reference_id'] == str(leader['id']), params
+    assert params['metadata'] == {'user_id': str(leader['id']), 'root_id': str(fx['a']['root']), 'mode': 'test'}, params
+    assert params['success_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings?billing=success', params
+    assert params['cancel_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings', params
+    # Second checkout reuses the customer.
+    c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'})
+    assert [x[0] for x in st.calls].count('customer') == 1, 'the customer is created once per mode'
+    # A customer from the other mode is ignored and a new one made.
+    set_sub(leader['id'], stripe_customer_id='live:cus_OLD')
+    c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'})
+    assert [x[0] for x in st.calls].count('customer') == 2
+    assert sub_row(leader['id'])['stripe_customer_id'] == 'test:cus_NEW'
+    # Unknown plan.
+    assert c.post('/api/billing/checkout', json={'lookup_key': 'gold'}).status_code == 400
+    conn = dbharness.owner_conn()
+    try:
+        n = conn.execute("SELECT count(*) AS n FROM audit_log WHERE action = 'BILLING_CHECKOUT_STARTED'").fetchone()['n']
+    finally:
+        conn.close()
+    assert n == 3, n
+
+
+def test_portal_needs_a_customer(fx):
+    st = Stripe().install()
+    leader = fx['a_leader']
+    set_sub(leader['id'], stripe_customer_id=None)
+    c = client_as(leader)
+    assert c.post('/api/billing/portal').status_code == 409
+    set_sub(leader['id'], stripe_customer_id='test:cus_NEW')
+    r = c.post('/api/billing/portal', base_url='https://platoondev.carr7.com')
+    assert r.status_code == 200 and r.get_json()['url'].startswith('https://billing.stripe.com/'), r.get_json()
+    _, params = next(x for x in st.calls if x[0] == 'portal')
+    assert params == {'customer': 'cus_NEW', 'return_url': 'https://platoondev.carr7.com/2ndplatoon/settings'}, params
+    assert c.get('/api/me').get_json()['billing']['portal_available'] is True
+
+
+def test_billing_routes_work_while_locked(fx):
+    Stripe().install()
+    leader = fx['a_leader']
+    set_sub(leader['id'], trial_ends_at=utcnow() - 10 * DAY, extended_at=utcnow() - 12 * DAY)
+    c = client_as(leader)
+    assert c.get('/api/units').status_code == 402
+    assert c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'}).status_code == 200
+    assert c.post('/api/billing/portal').status_code == 200
+    set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
+def test_unattached_and_signed_out_cannot_use_billing_routes(fx):
+    c = client_as(fx['stray'])
+    for path in ('/api/billing/extend', '/api/billing/checkout', '/api/billing/portal'):
+        assert c.post(path, json={}).status_code == 403, path
+    dbharness.as_user(None)
+    for path in ('/api/billing/extend', '/api/billing/checkout', '/api/billing/portal'):
+        assert server.app.test_client().post(path, json={}).status_code == 401, path
+
+
 def main():
     try:
         test_the_tables_exist_and_subscriptions_is_a_tenant_table()
@@ -309,6 +491,13 @@ def main():
         test_every_api_route_is_locked_for_a_locked_account(fx)
         test_open_states_are_not_gated(fx)
         test_rls_hides_another_tenants_row(fx)
+        test_prices_are_cached_and_ordered(fx)
+        test_prices_empty_when_stripe_is_down_or_incomplete(fx)
+        test_extend_once_in_trial_and_once_in_grace(fx)
+        test_checkout_creates_the_customer_once_and_opens_a_session(fx)
+        test_portal_needs_a_customer(fx)
+        test_billing_routes_work_while_locked(fx)
+        test_unattached_and_signed_out_cannot_use_billing_routes(fx)
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)
