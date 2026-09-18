@@ -9,6 +9,7 @@ webhook is fed payloads signed with the real HMAC scheme.
 import hashlib
 import hmac
 import io
+import logging
 import json
 import os
 import re
@@ -553,6 +554,21 @@ def subscription_obj(customer, sub_id='sub_1', status='active', lookup_key='plat
                                 'current_period_end': period_end}]}}
 
 
+class quiet:
+    """The app logger silenced for a block, level saved and restored whatever
+    happens. Some tests below provoke warnings and one deliberate traceback on
+    purpose; a passing run should print `ok` and nothing else."""
+
+    def __enter__(self):
+        self._level = server.app.logger.level
+        server.app.logger.setLevel(logging.CRITICAL)
+        return self
+
+    def __exit__(self, *exc):
+        server.app.logger.setLevel(self._level)
+        return False
+
+
 def post_webhook(payload, **kw):
     dbharness.as_user(None)
     body, headers = signed(payload, **kw)
@@ -570,16 +586,17 @@ def audit_count(action, root_id):
 
 def test_webhook_rejects_a_bad_signature_and_a_huge_body(fx):
     body, headers = signed(event('customer.subscription.created', subscription_obj('cus_A')))
-    r = server.app.test_client().post('/api/billing/webhook', data=body,
-                                      headers={**headers, 'Stripe-Signature': 't=1,v1=deadbeef'})
-    assert r.status_code == 400, r.get_json()
-    r = server.app.test_client().post('/api/billing/webhook', data=body, headers={'Content-Type': 'application/json'})
-    assert r.status_code == 400, 'no signature header must be 400, not 500'
-    body2, headers2 = signed(event('x', {}), secret='whsec_wrong')
-    assert server.app.test_client().post('/api/billing/webhook', data=body2, headers=headers2).status_code == 400
-    # Stale timestamp (outside the SDK's 300 s tolerance).
-    body3, headers3 = signed(event('x', {}), ts=int(time.time()) - 3600)
-    assert server.app.test_client().post('/api/billing/webhook', data=body3, headers=headers3).status_code == 400
+    with quiet():  # every rejection below logs a warning on purpose
+        r = server.app.test_client().post('/api/billing/webhook', data=body,
+                                          headers={**headers, 'Stripe-Signature': 't=1,v1=deadbeef'})
+        assert r.status_code == 400, r.get_json()
+        r = server.app.test_client().post('/api/billing/webhook', data=body, headers={'Content-Type': 'application/json'})
+        assert r.status_code == 400, 'no signature header must be 400, not 500'
+        body2, headers2 = signed(event('x', {}), secret='whsec_wrong')
+        assert server.app.test_client().post('/api/billing/webhook', data=body2, headers=headers2).status_code == 400
+        # Stale timestamp (outside the SDK's 300 s tolerance).
+        body3, headers3 = signed(event('x', {}), ts=int(time.time()) - 3600)
+        assert server.app.test_client().post('/api/billing/webhook', data=body3, headers=headers3).status_code == 400
     # Too big is refused before the body is read.
     big = b'{' + b' ' * (server.WEBHOOK_MAX_BYTES + 1) + b'}'
     r = server.app.test_client().post('/api/billing/webhook', data=big, headers=headers)
@@ -643,9 +660,58 @@ def test_a_late_delete_for_a_superseded_subscription_cannot_lock(fx):
     leader = fx['a_leader']
     post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A2', 'active')))
     assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A2'
-    post_webhook(event('customer.subscription.deleted', subscription_obj('cus_A', 'sub_A1', 'canceled')))
+    cancelled = audit_count('BILLING_CANCELLED', fx['a']['root'])
+    with quiet():  # the refusal is logged on purpose
+        post_webhook(event('customer.subscription.deleted', subscription_obj('cus_A', 'sub_A1', 'canceled')))
     row = sub_row(leader['id'])
     assert row['stripe_status'] == 'active' and row['stripe_subscription_id'] == 'sub_A2', row
+    assert audit_count('BILLING_CANCELLED', fx['a']['root']) == cancelled, \
+        'the suppressed late delete was audited as a cancellation that never happened'
+
+
+def invoice_failed(customer, subscription=None, invoice_id='in_f'):
+    """An invoice.payment_failed object. Stripe puts the subscription id under
+    parent.subscription_details from API 2025-03; omitting it entirely is a
+    one-off invoice."""
+    obj = {'id': invoice_id, 'object': 'invoice', 'customer': customer}
+    if subscription:
+        obj['parent'] = {'type': 'subscription_details',
+                         'subscription_details': {'subscription': subscription}}
+    return event('invoice.payment_failed', obj)
+
+
+def test_a_failed_invoice_cannot_reopen_a_cancelled_account(fx):
+    leader = fx['a_leader']
+    post_webhook(event('customer.subscription.deleted', subscription_obj('cus_A', 'sub_A2', 'canceled')))
+    assert sub_row(leader['id'])['stripe_status'] == 'canceled'
+    locked_audits = audit_count('BILLING_PAST_DUE', fx['a']['root'])
+    with quiet():  # both refusals are logged on purpose
+        # A late failed invoice for the subscription that was cancelled...
+        assert post_webhook(invoice_failed('cus_A', 'sub_A2')).status_code == 200
+        assert sub_row(leader['id'])['stripe_status'] == 'canceled', \
+            'a failed invoice re-opened a cancelled account'
+        # ...and a one-off invoice that names no subscription at all.
+        assert post_webhook(invoice_failed('cus_A')).status_code == 200
+        assert sub_row(leader['id'])['stripe_status'] == 'canceled', \
+            'a subscriptionless failed invoice re-opened a cancelled account'
+    assert audit_count('BILLING_PAST_DUE', fx['a']['root']) == locked_audits
+    r = client_as(leader).get('/api/units')
+    assert r.status_code == 402, r.status_code
+    # A new subscription re-opens it, and a failed payment on THAT one counts:
+    # it is live, so past_due is the truth and the account stays open.
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A3', 'active')))
+    assert sub_row(leader['id'])['stripe_status'] == 'active'
+    # A late failed invoice for the subscription sub_A3 replaced must not
+    # touch the live one: naming the subscription is what tells them apart.
+    with quiet():
+        post_webhook(invoice_failed('cus_A', 'sub_A2', 'in_late'))
+    assert sub_row(leader['id'])['stripe_status'] == 'active', \
+        'a failed invoice for a superseded subscription hit the live one'
+    post_webhook(invoice_failed('cus_A', 'sub_A3'))
+    assert sub_row(leader['id'])['stripe_status'] == 'past_due'
+    assert client_as(leader).get('/api/units').status_code == 200
+    # Hand the next test the row it expects: sub_A2, active.
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A2', 'active')))
 
 
 def test_replay_other_mode_unknown_customer_and_unknown_type(fx):
@@ -675,7 +741,9 @@ def test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx):
         raise RuntimeError('handler died')
     server._handle_stripe_event = boom
     try:
-        r = post_webhook(event('customer.subscription.updated', subscription_obj('cus_A'), event_id='evt_boom'))
+        # The 500 below logs the traceback on purpose; it is not a failure.
+        with quiet():
+            r = post_webhook(event('customer.subscription.updated', subscription_obj('cus_A'), event_id='evt_boom'))
         assert r.status_code == 500, r.status_code
     finally:
         server._handle_stripe_event = real
@@ -732,6 +800,7 @@ def main():
         test_webhook_rejects_a_bad_signature_and_a_huge_body(fx)
         test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns(fx)
         test_a_late_delete_for_a_superseded_subscription_cannot_lock(fx)
+        test_a_failed_invoice_cannot_reopen_a_cancelled_account(fx)
         test_replay_other_mode_unknown_customer_and_unknown_type(fx)
         test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx)
         # test_webhook_functions_are_only_called_from_the_webhook()  # Task 7

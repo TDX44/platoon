@@ -1684,7 +1684,17 @@ def _handle_stripe_event(conn, event):
                       status=obj.get('status'), lookup_key=price.get('lookup_key'),
                       period_end=period_end, cancel_at_period_end=bool(obj.get('cancel_at_period_end')))
     elif kind == 'invoice.payment_failed':
-        _apply_stripe(conn, event, customer=obj.get('customer'), subscription=None, status='past_due',
+        # The subscription this invoice is for: a plain id on API versions
+        # before 2025-03, under parent.subscription_details since, and absent
+        # on a one-off invoice. Without it the apply guard cannot tell a live
+        # subscription's failed payment from a late delivery for one the
+        # account has already cancelled, and past_due is an OPEN state — a
+        # stray invoice would re-open a cancelled account.
+        sub = obj.get('subscription')
+        if not isinstance(sub, str):
+            sub = ((obj.get('parent') or {}).get('subscription_details') or {}).get('subscription')
+        _apply_stripe(conn, event, customer=obj.get('customer'),
+                      subscription=sub if isinstance(sub, str) else None, status='past_due',
                       lookup_key=None, period_end=None, cancel_at_period_end=None)
     elif kind == 'invoice.paid':
         _audit_for_customer(conn, obj.get('customer'), 'BILLING_PAID', f'invoice {obj.get("id")} paid')
@@ -1693,6 +1703,7 @@ def _handle_stripe_event(conn, event):
 
 
 def _audit_for_customer(conn, customer, action, details):
+    customer = customer.get('id') if isinstance(customer, dict) else customer
     target = conn.execute('SELECT * FROM billing_find_by_customer(%s)', (f'{STRIPE_MODE}:{customer}',)).fetchone()
     if not target:
         app.logger.warning('stripe event for unknown customer %s (%s)', customer, action)
@@ -1703,14 +1714,25 @@ def _audit_for_customer(conn, customer, action, details):
 
 
 def _apply_stripe(conn, event, customer, subscription, status, lookup_key, period_end, cancel_at_period_end):
+    # An expanded customer arrives as the object, not the id.
+    customer = customer.get('id') if isinstance(customer, dict) else customer
     cid = f'{STRIPE_MODE}:{customer}'
     target = conn.execute('SELECT * FROM billing_find_by_customer(%s)', (cid,)).fetchone()
     if not target:
         app.logger.warning('stripe event %s for unknown customer %s', event['id'], customer)
         return
     ends = datetime.fromtimestamp(period_end, timezone.utc) if period_end else None
-    conn.execute('SELECT billing_apply_stripe(%s, %s, %s, %s, %s, %s)',
-                 (cid, subscription, status, lookup_key, ends, cancel_at_period_end))
+    applied = conn.execute('SELECT billing_apply_stripe(%s, %s, %s, %s, %s, %s) AS user_id',
+                           (cid, subscription, status, lookup_key, ends, cancel_at_period_end)).fetchone()['user_id']
+    if applied is None:
+        # The function's own guards refused it: a late delivery for a
+        # subscription this account has replaced, or a failed invoice for one
+        # it has already cancelled. Nothing changed, so nothing is audited —
+        # an audit row for a write that did not happen is a lie the support
+        # desk would act on.
+        app.logger.warning('stripe event %s for customer %s not applied (superseded or refused)',
+                           event['id'], customer)
+        return
     if status in billing_rules.OPEN_STATUSES:
         action = 'BILLING_ACTIVE'
     elif status == 'past_due':

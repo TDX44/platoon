@@ -50,6 +50,10 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
           OR s.stripe_subscription_id IS NULL
           OR s.stripe_subscription_id = p_subscription
           OR p_status IN ('active', 'trialing'))
+     -- ...and a failed invoice never downgrades a locked status back into an
+     -- open one. past_due is OPEN, so without this a late or one-off
+     -- invoice.payment_failed would re-open a cancelled account.
+     AND NOT (p_status = 'past_due' AND s.stripe_status IN ('canceled', 'unpaid', 'incomplete_expired'))
   RETURNING s.user_id;
 $$;
 
