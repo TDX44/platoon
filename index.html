@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Platoon Accountability</title>
+<title>Platoon Manager</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Accountability">
+<meta name="apple-mobile-web-app-title" content="Platoon Mgr">
 <link rel="icon" type="image/png" sizes="32x32" href="/images/icon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/images/icon-180.png">
 <!-- Unsized fallback: older iOS ignores the sized link and silently falls back
@@ -3445,7 +3445,7 @@
   <div class="login-card">
     <div class="login-brand">
       <img src="/images/app-logo.png" alt="Unit Logo" style="width:124px;height:124px;object-fit:contain;margin:0 auto 10px;display:block;">
-      <div class="login-title">Platoon Accountability</div>
+      <div class="login-title">Platoon Manager</div>
       <div class="login-subtitle" id="loginSubtitle">Sign in to continue</div>
       <div id="loginError" class="login-error" style="display:none"></div>
       <div class="login-note" id="loginNote"></div>
@@ -3489,7 +3489,7 @@
   <!-- The unit's own logo once the tree is loaded (applyUnitLogo); the box is
        fixed at 140x140 so any aspect ratio up to 512px drops in without shift. -->
   <img id="homeLogo" src="/images/app-logo.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
-  <div class="home-title">Platoon Accountability</div>
+  <div class="home-title">Platoon Manager</div>
   <p class="home-subtitle">Select a unit to begin</p>
   <p class="home-lead" id="homeLead"></p>
   <div class="platoon-cards" id="unitCards"></div>
@@ -3537,7 +3537,7 @@
   <div class="dash-brand">
     <img id="sidebarLogo" src="/images/app-logo.png" alt="Unit insignia"
          width="512" height="512" loading="lazy">
-    <span class="dash-brand-name">Platoon Accountability</span>
+    <span class="dash-brand-name">Platoon Manager</span>
   </div>
   <nav class="dash-nav" aria-label="Main navigation">
     <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
@@ -4999,7 +4999,7 @@ function inviteUrl(token) {
 // Only offered where the browser has it; a dismissed sheet is not an error.
 function shareInviteLink(url) {
   if (!navigator.share) return;
-  navigator.share({ title: 'Platoon Accountability', text: 'Your invite link', url })
+  navigator.share({ title: 'Platoon Manager', text: 'Your invite link', url })
     .catch(e => { if (!e || e.name !== 'AbortError') showToast('Could not share that link.'); });
 }
 

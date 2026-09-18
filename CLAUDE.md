@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Platoon Accountability — a personnel accountability tracker for company formations.
+Platoon Manager (formerly Platoon Accountability) — a personnel accountability tracker for company formations.
 Flask backend + a single-file vanilla-JS SPA. No build step and no linter.
 Tests are standalone assert-based scripts under `tests/`, run directly and in CI.
 
