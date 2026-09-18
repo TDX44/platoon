@@ -1860,6 +1860,17 @@ def delete_user(user_id):
     if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
+    # Nobody keeps paying for a deleted account: cancel at Stripe first, best
+    # effort. The row is this tenant's (RLS), so a cross-tenant id finds nothing.
+    sub = conn.execute('SELECT stripe_subscription_id, stripe_customer_id FROM subscriptions WHERE user_id = %s',
+                       (user_id,)).fetchone()
+    if sub and sub['stripe_subscription_id'] and _stripe_customer_for_mode(sub):
+        try:
+            _stripe_cancel(sub['stripe_subscription_id'])
+            log_action('BILLING_CANCELLED', f'user {user_id} deleted; Stripe subscription cancelled')
+        except Exception as exc:
+            app.logger.error('could not cancel Stripe subscription %s for deleted user %s: %s',
+                             sub['stripe_subscription_id'], user_id, exc)
     # RLS hides another root's users, so a cross-tenant id deletes nothing and
     # used to answer 200 — which told the caller the row had been theirs.
     cur = conn.execute("DELETE FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,))
@@ -3130,9 +3141,19 @@ def export_backup():
     for row in payload['personnel_profile']:
         row.pop('root_id', None)
     if is_owner(g.current_user):
-        payload['users'] = with_unit(conn.execute(
-            'SELECT username, email, full_name, clerk_user_id, unit_id, role FROM users '
-            "WHERE clerk_user_id != '' AND unit_id = ANY(%s) ORDER BY id", (ids,)).fetchall())
+        # Billing rides along as four optional keys: the mode and the trial
+        # stamps, never a Stripe id or status — a restored copy must not be
+        # able to claim someone else's subscription.
+        users = conn.execute(
+            'SELECT u.username, u.email, u.full_name, u.clerk_user_id, u.unit_id, u.role, '
+            's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at '
+            'FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id '
+            "WHERE u.clerk_user_id != '' AND u.unit_id = ANY(%s) ORDER BY u.id", (ids,)).fetchall()
+        payload['users'] = with_unit(users)
+        for row in payload['users']:
+            for k in ('trial_started_at', 'trial_ends_at', 'extended_at'):
+                if row.get(k) is not None:
+                    row[k] = row[k].isoformat()
     log_action('BACKUP_EXPORT', f'{len(payload["personnel"])} personnel, {len(units)} units')
     body = json.dumps(payload, indent=2)
     return Response(body, mimetype='application/json',
@@ -3306,12 +3327,22 @@ def import_backup():
         # that into one reported skip.
         conn.execute('SAVEPOINT u')
         try:
-            conn.execute(
+            new_id = conn.execute(
                 'INSERT INTO users (username, password_hash, clerk_user_id, email, full_name, unit_id, role, root_id) '
                 'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) '
-                'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role',
+                'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role '
+                'RETURNING id',
                 (u['username'], PLACEHOLDER_PASSWORD_HASH, u['clerk_user_id'], u.get('email', ''),
-                 u.get('full_name', ''), uid, u.get('role', 'leader'), root_id))
+                 u.get('full_name', ''), uid, u.get('role', 'leader'), root_id)).fetchone()['id']
+            if u.get('billing_mode') in billing_rules.MODES or u.get('trial_ends_at'):
+                conn.execute(
+                    'INSERT INTO subscriptions (user_id, root_id, billing_mode, trial_started_at, trial_ends_at, extended_at) '
+                    'VALUES (%s, %s, %s, %s, %s, %s) '
+                    'ON CONFLICT (user_id) DO UPDATE SET billing_mode = EXCLUDED.billing_mode, '
+                    'trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at, '
+                    'extended_at = EXCLUDED.extended_at, updated_at = now()',
+                    (new_id, root_id, u.get('billing_mode') if u.get('billing_mode') in billing_rules.MODES else 'default',
+                     u.get('trial_started_at') or None, u.get('trial_ends_at') or None, u.get('extended_at') or None))
         except psycopg.Error:
             conn.execute('ROLLBACK TO SAVEPOINT u')
             skipped_users.append(u.get('username'))

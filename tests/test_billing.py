@@ -757,6 +757,69 @@ def test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx):
     assert post_webhook(event('customer.subscription.updated', subscription_obj('cus_A'), event_id='evt_boom')).status_code == 200
 
 
+def test_deleting_a_user_cancels_their_subscription_best_effort(fx):
+    st = Stripe().install()
+    victim = dbharness.make_user(fx['a']['child'], 'leader', 'alpha-doomed')
+    client_as(victim).get('/api/me')   # creates the row
+    set_sub(victim['id'], stripe_customer_id='test:cus_D', stripe_subscription_id='sub_D', stripe_status='active')
+    owner = client_as(fx['a_owner'])
+    r = owner.delete(f'/api/users/{victim["id"]}')
+    assert r.status_code == 200, r.get_json()
+    assert ('cancel', 'sub_D') in st.calls, st.calls
+    assert sub_row(victim['id']) is None, 'the subscriptions row did not cascade'
+    # Stripe failing does not stop the delete.
+    victim2 = dbharness.make_user(fx['a']['child'], 'leader', 'alpha-doomed-2')
+    client_as(victim2).get('/api/me')
+    set_sub(victim2['id'], stripe_customer_id='test:cus_E', stripe_subscription_id='sub_E', stripe_status='active')
+
+    def cancel_boom(sub_id):
+        raise OSError('stripe down')
+    server._stripe_cancel = cancel_boom
+    assert client_as(fx['a_owner']).delete(f'/api/users/{victim2["id"]}').status_code == 200
+    assert sub_row(victim2['id']) is None
+    # No subscription: nothing is called.
+    st = Stripe().install()
+    victim3 = dbharness.make_user(fx['a']['child'], 'leader', 'alpha-doomed-3')
+    assert client_as(fx['a_owner']).delete(f'/api/users/{victim3["id"]}').status_code == 200
+    assert not any(x[0] == 'cancel' for x in st.calls)
+
+
+def test_backup_carries_the_trial_and_never_the_stripe_ids(fx):
+    leader = fx['a_leader']
+    set_sub(leader['id'], billing_mode='billed', extended_at=utcnow() - DAY, stripe_customer_id='test:cus_A',
+            stripe_subscription_id='sub_A2', stripe_status='active')
+    row = sub_row(leader['id'])
+    dump = client_as(fx['a_owner']).get('/api/backup').get_json()
+    u = next(x for x in dump['users'] if x['username'] == 'alpha-leader')
+    assert u['billing_mode'] == 'billed' and u['trial_ends_at'] == row['trial_ends_at'].isoformat(), u
+    assert u['trial_started_at'] == row['trial_started_at'].isoformat() and u['extended_at'] == row['extended_at'].isoformat(), u
+    assert 'stripe' not in json.dumps(dump).lower(), 'a Stripe id or status reached the backup'
+    # A leader's export has no users list at all (unchanged rule).
+    assert 'users' not in client_as(leader).get('/api/backup').get_json()
+    # Restore into the same tree: the trial stamps come back, the Stripe columns are untouched.
+    set_sub(leader['id'], billing_mode='default', extended_at=None)
+    r = client_as(fx['a_owner']).post('/api/backup/restore', json=dump)
+    assert r.status_code == 200, r.get_json()
+    after = sub_row(leader['id'])
+    assert after['billing_mode'] == 'billed' and after['extended_at'] == row['extended_at'], after
+    assert after['stripe_subscription_id'] == 'sub_A2' and after['stripe_status'] == 'active', 'restore must not touch Stripe columns'
+    # A file without the keys restores as before (no row is invented).
+    conn = dbharness.owner_conn()
+    try:
+        conn.execute('DELETE FROM subscriptions WHERE user_id = %s', (leader['id'],))
+        conn.commit()
+    finally:
+        conn.close()
+    for x in dump['users']:
+        for k in ('billing_mode', 'trial_started_at', 'trial_ends_at', 'extended_at'):
+            x.pop(k, None)
+    assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
+    assert sub_row(leader['id']) is None
+    client_as(leader).get('/api/me')   # fresh trial for the rest of the file
+    set_sub(leader['id'], billing_mode='default', stripe_customer_id='test:cus_A', stripe_subscription_id='sub_A2',
+            stripe_status=None, trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
 def test_webhook_functions_are_only_called_from_the_webhook():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
@@ -803,6 +866,8 @@ def main():
         test_a_failed_invoice_cannot_reopen_a_cancelled_account(fx)
         test_replay_other_mode_unknown_customer_and_unknown_type(fx)
         test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx)
+        test_deleting_a_user_cancels_their_subscription_best_effort(fx)
+        test_backup_carries_the_trial_and_never_the_stripe_ids(fx)
         # test_webhook_functions_are_only_called_from_the_webhook()  # Task 7
         print('ok')
     finally:
