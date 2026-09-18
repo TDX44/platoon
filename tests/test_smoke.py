@@ -61,6 +61,7 @@ ALLOWED_PLATOON_TOKENS = (
     'platoon-accountability/',               # the User-Agent sent to api.clerk.com
     'platoon_leader_',                       # the Stripe price lookup keys (PRICE_LOOKUP_KEYS)
     'platoonmanager.com',                    # the product's own domain (MARKETING_HOSTS, APP_URL)
+    'platoon.carr7.com',                     # the retired hostname (LEGACY_HOSTS)
 )
 
 
@@ -167,6 +168,34 @@ def check_marketing_assets_exist(client):
             assert r.status_code == 200, f'{page} references {path}, which serves {r.status_code}'
 
 
+def check_legacy_host_redirect(client):
+    """The old hostname is retired by 301, not switched off -- people have it
+    bookmarked. '/' goes to the new front page; every other path keeps itself and
+    its query string on the app subdomain, because a bookmark there is a roster,
+    not a brochure.
+    """
+    h = {'Host': server.LEGACY_HOSTS[0]}
+
+    r = client.get('/', headers=h)
+    assert r.status_code == 301 and r.headers['Location'] == server.MARKETING_URL, \
+        ('legacy /', r.status_code, r.headers.get('Location'))
+
+    r = client.get('/alpha/accountability?tab=roster', headers=h)
+    assert r.status_code == 301, ('legacy deep link', r.status_code)
+    assert r.headers['Location'] == server.APP_URL + '/alpha/accountability?tab=roster', \
+        f"a bookmarked roster lost its path or query: {r.headers.get('Location')}"
+
+    # A cross-origin 301 does not move an open tab, it breaks its request -- and
+    # a 301 on a POST drops the body. Neither may happen.
+    assert client.get('/api/me', headers=h).status_code != 301, \
+        '/api/ on the legacy host was redirected; an open tab loses its in-flight write'
+    assert client.post('/api/reset', headers=h).status_code != 301, \
+        'a non-GET was redirected; the 301 would turn the POST into a GET'
+
+    # And none of it fires on any other host.
+    assert client.get('/').status_code == 200, 'the legacy redirect fired on an ordinary host'
+
+
 def check_no_unit_identifier(client):
     """The app is a generic company-formation accountability tool. Nothing served
     to a browser may name the unit that happens to run this instance -- the unit
@@ -266,6 +295,7 @@ def main():
     check_public_pages(client)
     check_marketing_host_split(client)
     check_marketing_assets_exist(client)
+    check_legacy_host_redirect(client)
     check_no_unit_identifier(client)
     check_source_is_not_served(client)
     check_auth_config(client)

@@ -149,6 +149,20 @@ kept as an alias of the marketing page because that was its URL before the
 site moved to the root. Both branches are pinned by
 `check_marketing_host_split` in `tests/test_smoke.py`.
 
+**`LEGACY_HOSTS`** (default `platoon.carr7.com`) is the hostname the app
+answered on before the product had its own domain. `redirect_legacy_host()`, the
+app's only `before_request`, **301s** it onto the new domain rather than
+switching it off, because people have it bookmarked. Only `/` goes to the
+marketing site; **every other path keeps itself and its query string on
+`APP_URL`**, since a bookmark on that host is `/<unit>/accountability`, not a
+front page — sending them all to the front page would turn every bookmark in the
+company into a brochure. Two exemptions, both deliberate: **`/api/` is never
+redirected**, because a cross-origin 301 does not move anybody, it breaks an open
+tab's in-flight request, and at 0630 that is somebody's accountability entry; and
+**non-GET is never redirected**, because a 301 turns a POST into a GET and drops
+the body. The next navigation moves them, which is what actually retires the
+host. Pinned by `check_legacy_host_redirect`.
+
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
 `availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
 `.dash-main` revealed by a `body.<name>-active` class, with matching

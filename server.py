@@ -1470,6 +1470,42 @@ def _is_marketing_host():
     return (request.host or '').split(':')[0].lower() in MARKETING_HOSTS
 
 
+# The hostname the app answered on before the product had its own domain. It is
+# retired by 301, not by switching it off: people have it bookmarked.
+LEGACY_HOSTS = tuple(h.strip().lower() for h in os.environ.get(
+    'LEGACY_HOSTS', 'platoon.carr7.com').split(',') if h.strip())
+
+MARKETING_URL = 'https://' + MARKETING_HOSTS[0] if MARKETING_HOSTS else '/'
+
+
+@app.before_request
+def redirect_legacy_host():
+    """301 the old hostname onto the new domain.
+
+    Every URL on the old host is an *app* URL -- a leader's bookmark is
+    `/<unit>/accountability`, not a front page -- so only '/' goes to the new
+    marketing site and every other path keeps itself, and its query, on the app
+    subdomain. Sending them all to the front page would turn every bookmark in
+    the company into a brochure.
+
+    Two deliberate exemptions. `/api/` is left alone because a cross-origin 301
+    does not move anybody: it breaks an open tab's in-flight request instead,
+    and at 0630 that is somebody's accountability entry. Non-GET is left alone
+    because a 301 turns a POST into a GET and drops the body. Either way the
+    next navigation moves them, which is what actually retires the host.
+    """
+    if request.method not in ('GET', 'HEAD') or request.path.startswith('/api/'):
+        return None
+    if (request.host or '').split(':')[0].lower() not in LEGACY_HOSTS:
+        return None
+    if request.path == '/':
+        return redirect(MARKETING_URL, code=301)
+    target = APP_URL.rstrip('/') + request.path
+    if request.query_string:
+        target += '?' + request.query_string.decode('latin-1')
+    return redirect(target, code=301)
+
+
 @app.route('/')
 def index():
     if _is_marketing_host():
