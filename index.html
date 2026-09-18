@@ -8169,6 +8169,10 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && con
 // response could carry, a price lookup_key, lands in an onclick attribute and
 // is escaped like everything else.
 const BILLING_MODAL_KEY = 'platoon.billingSeen.';
+// Where "seen" lives when localStorage is blocked or throws (private windows,
+// a locked-down browser). Without it the modal re-opens on every route change,
+// which is worse than never showing it.
+let billingModalSeen = null;
 
 function billingDate(iso) {
   if (!iso || typeof iso !== 'string') return '';
@@ -8374,9 +8378,10 @@ async function maybeShowBillingModal() {
   const b = currentUser && currentUser.billing;
   if (!b || !currentUser.id) return;
   const today = getTodayStr();
-  let seen = null;
-  try { seen = localStorage.getItem(BILLING_MODAL_KEY + currentUser.id); } catch (e) {}
+  let seen = billingModalSeen;
+  try { seen = localStorage.getItem(BILLING_MODAL_KEY + currentUser.id) || billingModalSeen; } catch (e) {}
   if (!billingModalDue(b, seen, today)) return;
+  billingModalSeen = today;
   try { localStorage.setItem(BILLING_MODAL_KEY + currentUser.id, today); } catch (e) {}
   const ext = b.extension_available
     ? '<p><button type="button" class="billing-banner-link" onclick="settleConfirm(false); extendTrial()">Extend my trial 7 days</button></p>' : '';
@@ -9692,6 +9697,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('popstate', () => {
+  // The billing screen pushes no history, so the entry Back pops is the page
+  // the user was already on and every branch below would leave #platoonScreen
+  // hidden underneath it. routeAfterLogin() is the one path that re-shows a
+  // screen for the popped URL — and it sends a LOCKED account straight back
+  // to the pricing screen, which is where it has to stay.
+  if (document.body.classList.contains('billing-active')) { routeAfterLogin(); return; }
   const route = parseAppRoute();
   if (route.section === 'admin') {
     if (currentUser && currentUser.platform_admin) { openAdmin(false); return; }

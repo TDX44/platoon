@@ -595,7 +595,77 @@ def check_billing(page, width):
     check_nothing_clips_inside(page, width, '#billingScreen .pricing-card', 'plan cards (billing page)')
     if width < 900:
         check_tap_targets(page, width, PRICING_BUTTONS, 'billing page')
+    check_billing_modal_without_storage(page, width)
     page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+
+
+# Both accessors throw, which is what a private window or a locked-down
+# browser does — not the softer case of returning null.
+BLOCK_STORAGE_JS = """
+() => {
+  window.__storage = [Storage.prototype.getItem, Storage.prototype.setItem];
+  Storage.prototype.getItem = () => { throw new Error('storage blocked'); };
+  Storage.prototype.setItem = () => { throw new Error('storage blocked'); };
+  billingModalSeen = null;
+}
+"""
+
+RESTORE_STORAGE_JS = """
+() => {
+  Storage.prototype.getItem = window.__storage[0];
+  Storage.prototype.setItem = window.__storage[1];
+}
+"""
+
+
+def check_billing_modal_without_storage(page, width):
+    """The last-days modal marks itself seen in localStorage. With storage
+    blocked the mark has nowhere to live, and without the in-page fallback the
+    modal re-opens on every route change for the rest of the session."""
+    opened = 'document.getElementById(\'confirmModal\').classList.contains(\'active\')'
+    page.evaluate(BLOCK_STORAGE_JS)
+    try:
+        # `void` on purpose: the promise resolves only when the dialog is
+        # settled, and awaiting it here would deadlock — settleConfirm() can
+        # only be sent from the next evaluate. The modal is opened
+        # synchronously before the function's first await, so it is on screen
+        # by the time this returns.
+        page.evaluate('void maybeShowBillingModal()')
+        first = page.evaluate(opened)
+        page.evaluate('settleConfirm(false)')
+        page.evaluate('void maybeShowBillingModal()')
+        second = page.evaluate(opened)
+        page.evaluate('settleConfirm(false)')
+    finally:
+        page.evaluate(RESTORE_STORAGE_JS)
+    assert first, (
+        f'billing modal @ {width}px: did not open with two days left and storage blocked')
+    assert not second, (
+        f'billing modal @ {width}px: re-opened the same day with storage blocked')
+
+
+def check_billing_back(page, width):
+    """Browser Back off the Billing page, opened from a unit route — the case
+    the popstate handler cannot see. The screen pushes no history, so the entry
+    Back pops is the unit page the user was already on; the handler's
+    same-unit branch only closes sub-pages, so without a billing branch of its
+    own #platoonScreen stays hidden behind #billingScreen and the press is
+    silently eaten. Dispatching the event exercises the handler without
+    needing a real history stack under this page."""
+    page.evaluate('openBillingPage()')
+    assert page.evaluate("document.body.classList.contains('billing-active')"), (
+        f'billing back @ {width}px: the Billing page did not open over the roster')
+    page.evaluate("window.dispatchEvent(new PopStateEvent('popstate', {state: {section: 'home'}}))")
+    # routeAfterLogin() legitimately raises the last-days modal on the way out
+    # (this fixture is two days from the end of its trial); dismiss it so it is
+    # not left open over every check after this one.
+    page.evaluate('settleConfirm(false)')
+    assert not page.evaluate("document.body.classList.contains('billing-active')"), (
+        f'billing back @ {width}px: Back left body.billing-active set')
+    assert page.evaluate("getComputedStyle(document.getElementById('billingScreen')).display") == 'none', (
+        f'billing back @ {width}px: Back left the billing screen on screen')
+    assert page.evaluate("getComputedStyle(document.getElementById('platoonScreen')).display") != 'none', (
+        f'billing back @ {width}px: Back consumed the press without restoring the roster')
 
 
 def run_checks(page, base_url):
@@ -623,6 +693,9 @@ def run_checks(page, base_url):
         check_modal_controls_fit(page, width)
         if width < 900:
             check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
+
+        check_billing_back(page, width)
+        page.evaluate(ENTER_UNIT_JS, ROOT_UNIT_ID)
 
         page.evaluate('openDirectory()')
         page.wait_for_timeout(50)
@@ -692,6 +765,10 @@ def run_checks(page, base_url):
         page.evaluate('window.__realShowLoginScreen()')
         left = page.evaluate("[adminData, document.getElementById('adminScreen').innerHTML]")
         assert left == [None, ''], f'admin data survived sign-out: {str(left)[:200]}'
+        assert not page.evaluate("!!document.querySelector('#billingBanner .billing-banner')"), (
+            f'sign-out @ {width}px: the billing banner survived sign-out')
+        assert page.evaluate("document.getElementById('billingScreen').innerHTML") == '', (
+            f'sign-out @ {width}px: the billing screen kept its markup through sign-out')
         page.evaluate(INIT_JS, fixture)
 
         # First run: the signed-in user belongs to no unit yet. Last, because
