@@ -139,7 +139,7 @@ def test_a_verified_admin_gets_every_tenant(fx):
     r = client.get(OVERVIEW)
     assert r.status_code == 200, (r.status_code, r.get_data(as_text=True)[:300])
     body = r.get_json()
-    names = sorted(o['org_name'] for o in body['organisations'])
+    names = sorted(o['org_name'] for o in body['organizations'])
     assert names == ['Alpha Co', 'Bravo Co'], names
     assert clerk.calls == ['clerk_boss'], clerk.calls
     assert body['generated_at'], 'the dashboard must say when it was generated'
@@ -392,7 +392,7 @@ def test_the_overview_counts_two_tenants(fx):
     client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
     body = client.get(OVERVIEW).get_json()
     t = body['totals']
-    assert t['organisations'] == 2, t
+    assert t['organizations'] == 2, t
     assert t['unit_count'] == 4, t
     assert t['personnel_count'] == 4, t
     assert t['user_count'] == 3, f'attached users only: {t}'
@@ -400,7 +400,7 @@ def test_the_overview_counts_two_tenants(fx):
     assert t['pending_invites'] == 1, f'pending is unaccepted AND unexpired: {t}'
     assert t['database_bytes'] > 0, t
 
-    orgs = {o['org_name']: o for o in body['organisations']}
+    orgs = {o['org_name']: o for o in body['organizations']}
     alpha, bravo = orgs['Alpha Co'], orgs['Bravo Co']
     assert (alpha['unit_count'], alpha['personnel_count'], alpha['user_count']) == (2, 3, 2), alpha
     assert (bravo['unit_count'], bravo['personnel_count'], bravo['user_count']) == (2, 1, 1), bravo
@@ -418,7 +418,7 @@ def test_the_overview_counts_two_tenants(fx):
     emails = [u['email'] for u in body['recent_users']]
     assert 'stray-2@example.com' in emails, emails
     stray = [u for u in body['recent_users'] if u['email'] == 'stray-2@example.com'][0]
-    assert stray['org_name'] is None, f'an unattached user belongs to no organisation: {stray}'
+    assert stray['org_name'] is None, f'an unattached user belongs to no organization: {stray}'
     attached = [u for u in body['recent_users'] if u['email'] == 'alpha-owner@example.com'][0]
     assert attached['org_name'] == 'Alpha Co', attached
     assert attached['role'] == 'owner' and attached['signed_in'] is True, attached
@@ -462,7 +462,7 @@ FRONT_DOOR = [
 
 ADMIN_FUNCTIONS = [
     'admin_totals(text)',
-    'admin_organisations(text)',
+    'admin_organizations(text)',
     'admin_recent_users(int)',
 ]
 
@@ -584,7 +584,7 @@ def test_a_changed_out_list_does_not_wedge_the_boot():
     server.init_db()          # must not raise
     client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
     body = client.get(OVERVIEW).get_json()
-    assert 'organisations' in (body.get('totals') or {}), \
+    assert 'organizations' in (body.get('totals') or {}), \
         f'the real function did not come back after the reinstall: {body}'
     test_public_cannot_execute()
 
@@ -596,7 +596,7 @@ def test_every_admin_call_is_behind_the_decorator():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
     blocks = re.split(r'\n(?=@app\.route|\ndef )', code)
-    callers = [b for b in blocks if re.search(r'\badmin_(totals|organisations|recent_users)\s*\(', b)]
+    callers = [b for b in blocks if re.search(r'\badmin_(totals|organizations|recent_users)\s*\(', b)]
     assert callers, 'no code calls the admin_ functions at all — did they get renamed?'
     for block in callers:
         assert '@platform_admin_required' in block, (

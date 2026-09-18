@@ -191,7 +191,7 @@ def test_init_db_is_idempotent():
 def test_settings_scope_key_survives_a_restart():
     """`settings` is keyed on (root_id, unit_id, key), and stays keyed on it.
 
-    A1 dropped the old PRIMARY KEY (key) — one organisation's org_timezone must
+    A1 dropped the old PRIMARY KEY (key) — one organization's org_timezone must
     not collide with another's — and replaced it with the settings_scope_key
     unique index. init_db() runs on every start, so this checks both halves:
     a second run neither disturbs existing rows nor drops the new key, and two

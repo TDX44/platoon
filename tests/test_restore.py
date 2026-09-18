@@ -323,7 +323,7 @@ def test_dependents_of_a_skipped_person_are_skipped_too():
     """personnel(id) is a global primary key and the foreign key that guards it
     is checked outside the RLS policies. So a profile or event naming a person
     the restore did not put back is not merely useless: it aborts the whole
-    restore on the FK, or — when that id belongs to another organisation —
+    restore on the FK, or — when that id belongs to another organization —
     lands on their soldier carrying our root_id."""
     mine = dbharness.make_tree('Orphan Co')
     theirs = dbharness.make_tree('Neighbour Co')
@@ -394,7 +394,7 @@ def test_dependents_of_a_skipped_person_are_skipped_too():
     assert profiles == [{'person_id': kept_id, 'phone': 'kept'}], profiles
     assert events == [{'person_id': kept_id}], events
     assert duty == [{'person_id': None, 'last': 'Snapshot'}], duty
-    assert trespass is None, "a profile must never land on another organisation's soldier"
+    assert trespass is None, "a profile must never land on another organization's soldier"
 
 
 def test_a_username_owned_by_another_tree_is_skipped_not_fatal():

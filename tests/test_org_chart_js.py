@@ -247,7 +247,7 @@ def test_the_home_screen_uses_the_pure_function(src):
     assert 'No unit yet.' in home, 'the empty state went missing'
     assert 'renderHomeLead(' in home, 'the lead line went missing'
     assert 'data-depth' not in src, 'the old depth-indented card list is still here'
-    # Wide organisations scroll inside the chart, never the page.
+    # Wide organizations scroll inside the chart, never the page.
     assert re.search(r'\.org-chart\s*\{[^}]*overflow-x:\s*auto', src), \
         'the chart does not scroll horizontally inside itself'
     assert re.search(r'@media \(max-width: 700px\)', src), \

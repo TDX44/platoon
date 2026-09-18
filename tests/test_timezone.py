@@ -6,7 +6,7 @@ question now goes through app_today(), which reads the signed-in tenant's zone.
 
 There is no process-wide clock any more: the zone is one row per root, read
 once per request into g.tz by whatever declares the tenant, so two
-organisations on the same worker can be on different duty days.
+organizations on the same worker can be on different duty days.
 
 Run with: python tests/test_timezone.py
 """
@@ -101,7 +101,7 @@ def check_absence_activates_on_the_units_day():
 
 
 def check_timezone_is_a_tenant_setting():
-    """One zone per organisation: stored at the root, owner-only, validated."""
+    """One zone per organization: stored at the root, owner-only, validated."""
     t = dbharness.make_tree('Tz Co')
     other = dbharness.make_tree('Tz Other Co')
     owner = dbharness.make_user(t['root'], 'owner', 'tzboss')
