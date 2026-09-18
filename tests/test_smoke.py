@@ -86,7 +86,7 @@ def check_index(client):
     r = client.get('/')
     assert r.status_code == 200, f'GET / should return 200, got {r.status_code}'
     body = r.get_data(as_text=True).lower()
-    assert '<html' in body and 'platoon accountability' in body, 'GET / does not look like the SPA shell'
+    assert '<html' in body and 'platoon manager' in body, 'GET / does not look like the SPA shell'
 
 
 def check_spa_fallback(client):
@@ -102,7 +102,7 @@ def check_spa_fallback(client):
 def check_public_pages(client):
     """The signed-out pages must render standalone, not as the SPA shell: Google's
     OAuth consent screen links straight at /privacy and /terms."""
-    for path, marker in (('/welcome', 'Platoon Accountability'),
+    for path, marker in (('/welcome', 'Platoon Manager'),
                          ('/privacy', 'Privacy Policy'),
                          ('/terms', 'Terms of Service')):
         r = client.get(path)
@@ -118,7 +118,7 @@ def check_public_pages(client):
     for path in ('/legal/privacy', '/legal/terms'):
         body = client.get(path).get_data()
         assert body != index, f'{path} served the SPA shell instead of the legal page'
-        assert b'Platoon Accountability' in body, f'{path} did not render a legal page'
+        assert b'Platoon Manager' in body, f'{path} did not render a legal page'
 
     r = client.get('/public/site.css')
     assert r.status_code == 200 and 'cp-accent' in r.get_data(as_text=True), \

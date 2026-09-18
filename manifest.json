@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Platoon Accountability",
-  "short_name": "Accountability",
+  "name": "Platoon Manager",
+  "short_name": "Platoon Mgr",
   "description": "Personnel accountability tracker for company formations",
   "start_url": "/",
   "display": "standalone",
