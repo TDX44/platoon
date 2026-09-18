@@ -8,6 +8,7 @@ webhook is fed payloads signed with the real HMAC scheme.
 """
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -583,6 +584,13 @@ def test_webhook_rejects_a_bad_signature_and_a_huge_body(fx):
     big = b'{' + b' ' * (server.WEBHOOK_MAX_BYTES + 1) + b'}'
     r = server.app.test_client().post('/api/billing/webhook', data=big, headers=headers)
     assert r.status_code == 413, r.status_code
+    # ...and with no Content-Length to trust either (chunked), the read itself
+    # is bounded.
+    r = server.app.test_client().post(
+        '/api/billing/webhook', input_stream=io.BytesIO(big),
+        headers={'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked'},
+        environ_overrides={'wsgi.input_terminated': True, 'CONTENT_LENGTH': ''})
+    assert r.status_code == 413, f'a chunked body is not size-capped: {r.status_code}'
     conn = dbharness.owner_conn()
     try:
         assert conn.execute('SELECT count(*) AS n FROM stripe_events').fetchone()['n'] == 0, 'a refused event was recorded'

@@ -1639,7 +1639,13 @@ def billing_webhook():
         return jsonify({'error': 'Billing is not configured on this instance.'}), 503
     if (request.content_length or 0) > WEBHOOK_MAX_BYTES:
         return jsonify({'error': 'Payload too large.'}), 413
-    payload = request.get_data(cache=False)
+    # A bounded read, not get_data(): the check above trusts Content-Length,
+    # and a chunked request does not send one. MAX_CONTENT_LENGTH is not set
+    # app-wide, so this unauthenticated route would otherwise read whatever it
+    # is handed. One byte over the cap is enough to know it is over.
+    payload = request.stream.read(WEBHOOK_MAX_BYTES + 1)
+    if len(payload) > WEBHOOK_MAX_BYTES:
+        return jsonify({'error': 'Payload too large.'}), 413
     try:
         # construct_event is the signature check (HMAC + 300 s timestamp
         # tolerance). Its StripeObject return is not dict-like in
