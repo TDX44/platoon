@@ -1755,12 +1755,17 @@ def _apply_stripe(conn, event, customer, subscription, status, lookup_key, perio
         app.logger.warning('stripe event %s for customer %s not applied (superseded or refused)',
                            event['id'], customer)
         return
-    # One account, one live subscription. If this event adopted a different
-    # subscription id than the one stored, the old one is still billing the
-    # same card at Stripe — best effort, because the adoption has already
-    # happened and a Stripe outage must not undo it.
+    # One account, one live subscription: a second Checkout completing is the
+    # case this exists for, so only `created` may cancel. billing_apply_stripe
+    # adopts ANY id on an active/trialing status (A14, deliberate), and Stripe
+    # does not order deliveries — a retried `updated` for an older
+    # subscription, arriving after the new one's `created`, adopts the old id,
+    # and cancelling on that would kill the subscription just paid for.
+    # Best effort: the adoption has already happened and a Stripe outage must
+    # not undo it.
     superseded = None
-    if subscription and target['stripe_subscription_id'] and target['stripe_subscription_id'] != subscription:
+    if (event['type'] == 'customer.subscription.created' and subscription
+            and target['stripe_subscription_id'] and target['stripe_subscription_id'] != subscription):
         try:
             _stripe_cancel(target['stripe_subscription_id'])
             superseded = target['stripe_subscription_id']
@@ -3403,8 +3408,10 @@ def import_backup():
     # belongs to billing_set_mode behind @platform_admin_required, so 'comped'
     # off the wire becomes 'default'; the trial stamps are clamped so a
     # restore can never buy more trial than a fresh account gets. extended_at
-    # is taken as it stands — it only ever removes an entitlement.
+    # is taken as it stands — it only ever removes an entitlement, and a row
+    # that carries one is allowed the extension days it already bought.
     trial_ceiling = billing_rules.utcnow() + billing_rules.TRIAL_DAYS * billing_rules.DAY
+    extended_ceiling = trial_ceiling + billing_rules.EXTENSION_DAYS * billing_rules.DAY
     for u in payload.get('users', []):
         # Never the caller's own row: a backup taken before a promotion would
         # otherwise demote the very owner running the restore.
@@ -3428,6 +3435,13 @@ def import_backup():
                 (u['username'], PLACEHOLDER_PASSWORD_HASH, u['clerk_user_id'], u.get('email', ''),
                  u.get('full_name', ''), uid, u.get('role', 'leader'), root_id)).fetchone()['id']
             if u.get('billing_mode') in billing_rules.MODES or u.get('trial_ends_at'):
+                ceiling = extended_ceiling if u.get('extended_at') else trial_ceiling
+                # The floor matters as much as the ceiling: a missing or
+                # unparseable end date used to be written as NULL, which
+                # _billing_row's backfill never repairs (it only fires on a
+                # NULL trial_started_at) and billing_state reads as a trial
+                # with TRIAL_DAYS left — for ever. A restored trial always has
+                # an end, and it is never later than a fresh one's.
                 conn.execute(
                     'INSERT INTO subscriptions (user_id, root_id, billing_mode, trial_started_at, trial_ends_at, extended_at) '
                     'VALUES (%s, %s, %s, %s, %s, %s) '
@@ -3435,8 +3449,8 @@ def import_backup():
                     'trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at, '
                     'extended_at = EXCLUDED.extended_at, updated_at = now()',
                     (new_id, root_id, u.get('billing_mode') if u.get('billing_mode') in ('default', 'billed') else 'default',
-                     _restored_stamp(u.get('trial_started_at'), trial_ceiling),
-                     _restored_stamp(u.get('trial_ends_at'), trial_ceiling),
+                     _restored_stamp(u.get('trial_started_at'), ceiling),
+                     _restored_stamp(u.get('trial_ends_at'), ceiling) or ceiling,
                      u.get('extended_at') or None))
         except psycopg.Error:
             conn.execute('ROLLBACK TO SAVEPOINT u')

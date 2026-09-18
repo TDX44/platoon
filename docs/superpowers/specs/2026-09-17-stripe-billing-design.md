@@ -136,7 +136,9 @@ The webhook has no session and no tenant. Following the `auth_*` and
 `sql/billing_functions.sql`, EXECUTE revoked from PUBLIC and granted to
 `platoon_app`:
 
-- `billing_find_by_customer(stripe_customer_id) → (user_id, root_id)`
+- `billing_find_by_customer(stripe_customer_id) → (user_id, root_id, stripe_subscription_id)`
+  — the subscription id is what lets the webhook cancel a subscription a newer
+  one supersedes, without a second cross-tenant read outside these functions.
 - `billing_apply_stripe(stripe_customer_id, stripe_subscription_id, stripe_status, price_lookup_key, current_period_end, cancel_at_period_end)` — upserts the mirrored columns by customer id and returns the user id. Only these columns; it can never touch `billing_mode` or the trial stamps.
 - `billing_record_event(event_id) → boolean` — false when already recorded.
 - `billing_set_mode(user_id, mode, by)` — the `/admin` comp toggle, called only behind `platform_admin_required`; the header comment and a grep test enforce that, as for `admin_*`.

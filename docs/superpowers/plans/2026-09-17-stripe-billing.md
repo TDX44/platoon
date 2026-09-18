@@ -329,7 +329,7 @@ git commit -m "feat: billing_rules.billing_state, the pure trial/grace/lock rule
 - Create: `tests/test_billing.py` (the structural section only; later tasks append)
 
 **Interfaces:**
-- Produces: tables `subscriptions` and `stripe_events`; functions `billing_find_by_customer(text) → (user_id int, root_id int)`, `billing_apply_stripe(text, text, text, text, timestamptz, boolean) → int`, `billing_record_event(text) → boolean`, `billing_set_mode(int, text, text) → int`, `admin_billing_rows() → TABLE(...)`; module globals `BILLING_DEFAULT_ON: bool`, `STRIPE_MODE: str`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_ENABLED: bool`, `PRICE_LOOKUP_KEYS`, `BILLING_EXEMPT_PREFIXES`, `WEBHOOK_MAX_BYTES`; `import billing_rules` at the top of `server.py`.
+- Produces: tables `subscriptions` and `stripe_events`; functions `billing_find_by_customer(text) → (user_id int, root_id int, stripe_subscription_id text)`, `billing_apply_stripe(text, text, text, text, timestamptz, boolean) → int`, `billing_record_event(text) → boolean`, `billing_set_mode(int, text, text) → int`, `admin_billing_rows() → TABLE(...)`; module globals `BILLING_DEFAULT_ON: bool`, `STRIPE_MODE: str`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_ENABLED: bool`, `PRICE_LOOKUP_KEYS`, `BILLING_EXEMPT_PREFIXES`, `WEBHOOK_MAX_BYTES`; `import billing_rules` at the top of `server.py`.
 
 - [ ] **Step 1: Write the failing structural tests**
 
@@ -629,9 +629,10 @@ DROP FUNCTION IF EXISTS billing_record_event(text);
 DROP FUNCTION IF EXISTS billing_set_mode(int, text, text);
 
 CREATE OR REPLACE FUNCTION billing_find_by_customer(p_customer text)
-RETURNS TABLE (user_id int, root_id int)
+RETURNS TABLE (user_id int, root_id int, stripe_subscription_id text)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
-  SELECT s.user_id, s.root_id FROM subscriptions s WHERE s.stripe_customer_id = p_customer;
+  SELECT s.user_id, s.root_id, s.stripe_subscription_id
+    FROM subscriptions s WHERE s.stripe_customer_id = p_customer;
 $$;
 
 -- A subscription event for an id other than the stored one is applied only

@@ -754,16 +754,27 @@ def test_a_new_subscription_cancels_the_one_it_supersedes(fx):
     assert row['stripe_subscription_id'] == 'sub_A4' and row['stripe_status'] == 'active', row
     assert [x for x in st.calls if x[0] == 'cancel'] == [('cancel', 'sub_A2')], st.calls
     assert audit_count('BILLING_CANCELLED', root) == before + 1, 'the cancellation was not audited'
+    # Only `created` cancels. billing_apply_stripe adopts any id on an
+    # active status, so a retried `updated` for an OLDER subscription,
+    # delivered after the new one's `created`, adopts the old id — cancelling
+    # on that would kill the subscription just paid for.
+    st = Stripe().install()
+    post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A2', 'active')))
+    assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A2'
+    assert not any(x[0] == 'cancel' for x in st.calls), \
+        'a retried update cancelled the live subscription it superseded'
+    st = Stripe().install()
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A4', 'active')))
     # Stripe refusing the cancel does not undo the adoption.
     def cancel_boom(sub_id):
         raise OSError('stripe down')
     server._stripe_cancel = cancel_boom
     with quiet():  # the failure is logged on purpose
-        post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A5', 'active')))
+        post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A5', 'active')))
     assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A5'
     # The same subscription again cancels nothing.
     st = Stripe().install()
-    post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A5', 'active', cancel=False)))
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A5', 'active', cancel=False)))
     assert not any(x[0] == 'cancel' for x in st.calls), st.calls
     # Hand the next test the row it expects: sub_A2, active.
     set_sub(leader['id'], stripe_subscription_id='sub_A2')
@@ -900,6 +911,47 @@ def test_a_restored_backup_cannot_comp_an_account(fx):
     set_sub(leader['id'], billing_mode='default', trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
 
 
+def test_a_restored_row_always_has_a_trial_end(fx):
+    """A NULL trial_ends_at is permanent free access: _billing_row's backfill
+    only fires on a NULL trial_started_at, so nothing repairs it, and
+    billing_state reads a missing end as a trial with TRIAL_DAYS left. A
+    missing or unparseable date must therefore land on the ceiling, never on
+    NULL."""
+    leader = fx['a_leader']
+    dump = client_as(fx['a_owner']).get('/api/backup').get_json()
+    for bad in ('not-a-date', 'MISSING'):
+        u = next(x for x in dump['users'] if x['username'] == 'alpha-leader')
+        u['billing_mode'] = 'billed'
+        u['trial_started_at'] = (utcnow() - 3 * DAY).isoformat()
+        u.pop('extended_at', None)
+        if bad == 'MISSING':
+            u.pop('trial_ends_at', None)
+        else:
+            u['trial_ends_at'] = bad
+        assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200, bad
+        row = sub_row(leader['id'])
+        assert row is not None and row['trial_ends_at'] is not None, \
+            f'{bad}: the restored row has no trial end, so the account is on a trial that never ends'
+        assert row['trial_ends_at'] <= utcnow() + billing_rules.TRIAL_DAYS * DAY + timedelta(minutes=1), row
+        # ...and it really does end: dates in the past, account shut.
+        set_sub(leader['id'], trial_ends_at=utcnow() - 30 * DAY, extended_at=utcnow() - 30 * DAY)
+        assert client_as(leader).get('/api/units').status_code == 402, \
+            f'{bad}: the restored account is still open with its trial long over'
+    # An extended trial is not shortened by the round trip: its ceiling carries
+    # the extension days it already bought.
+    u = next(x for x in dump['users'] if x['username'] == 'alpha-leader')
+    u['extended_at'] = (utcnow() - DAY).isoformat()
+    u['trial_ends_at'] = (utcnow() + billing_rules.TRIAL_DAYS * DAY
+                          + billing_rules.EXTENSION_DAYS * DAY - DAY).isoformat()
+    assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
+    row = sub_row(leader['id'])
+    assert row['trial_ends_at'] > utcnow() + billing_rules.TRIAL_DAYS * DAY, \
+        f'an extended trial was clipped back to an unextended one: {row["trial_ends_at"]}'
+    assert row['trial_ends_at'] <= (utcnow() + billing_rules.TRIAL_DAYS * DAY
+                                    + billing_rules.EXTENSION_DAYS * DAY + timedelta(minutes=1)), row
+    set_sub(leader['id'], billing_mode='default', trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
 ADMIN_EMAIL = 'jonathon.carr5@gmail.com'
 _real_verify = server._verify_clerk_session_token
 
@@ -1009,6 +1061,7 @@ def main():
         test_deleting_a_user_cancels_their_subscription_best_effort(fx)
         test_backup_carries_the_trial_and_never_the_stripe_ids(fx)
         test_a_restored_backup_cannot_comp_an_account(fx)
+        test_a_restored_row_always_has_a_trial_end(fx)
         test_admin_overview_counts_and_labels_billing(fx)
         test_admin_comp_toggle(fx)
         test_webhook_functions_are_only_called_from_the_webhook()
