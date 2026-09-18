@@ -185,6 +185,7 @@ PUBLIC_API = {
     '/api/auth/config',
     '/api/logout',
     '/api/invites/<token>/preview',
+    '/api/billing/webhook',
 }
 
 

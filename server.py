@@ -1023,6 +1023,91 @@ def _unauthenticated_response():
     return jsonify({'error': error}), _auth_status_for(error)
 
 
+def _billing_row(conn, user):
+    """This attached account's subscriptions row, created on first sight.
+
+    The trial starts here — at the first sign-in that finds the account
+    effectively billed — not at account creation, so an account that existed
+    before billing, or while BILLING_DEFAULT was off, gets its full trial from
+    the day billing first applies to it. Two workers can race the INSERT;
+    ON CONFLICT DO NOTHING makes the loser re-read the winner's row.
+    """
+    row = conn.execute('SELECT * FROM subscriptions WHERE user_id = %s', (user['id'],)).fetchone()
+    if row is None:
+        conn.execute('INSERT INTO subscriptions (user_id, root_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING',
+                     (user['id'], user['root_id']))
+        row = conn.execute('SELECT * FROM subscriptions WHERE user_id = %s', (user['id'],)).fetchone()
+    row = dict(row)
+    if row['trial_started_at'] is None and _billing_verdict(row, user)['state'] != 'COMPED':
+        now = billing_rules.utcnow()
+        started = conn.execute(
+            'UPDATE subscriptions SET trial_started_at = %s, trial_ends_at = %s, updated_at = now() '
+            'WHERE user_id = %s AND trial_started_at IS NULL RETURNING *',
+            (now, now + billing_rules.TRIAL_DAYS * billing_rules.DAY, user['id'])).fetchone()
+        if started:
+            row = dict(started)
+    return row
+
+
+def _billing_verdict(row, user):
+    return billing_rules.billing_state(
+        row, billing_rules.utcnow(), default_on=BILLING_DEFAULT_ON,
+        platform_admin=_platform_admin_flag(user) is True, enabled=STRIPE_ENABLED)
+
+
+def _load_billing(user):
+    """Compute this request's billing verdict onto g. None for the unattached:
+    they have no tenant, no row, and the create-unit screen is never gated."""
+    g.billing_row = None
+    g.billing = None
+    if user.get('unit_id') is None:
+        return
+    g.billing_row = _billing_row(get_db(), user)
+    g.billing = _billing_verdict(g.billing_row, user)
+
+
+def _billing_block():
+    """The 402, or None. Called by the three tenant decorators after
+    _resolved_user(); platform_admin_required never comes through here
+    (it declares no tenant and /api/admin/ is exempt anyway).
+
+    It runs ahead of each decorator's own 403, so a locked account gets the
+    same answer on every route whatever its role: the lock is a fact about the
+    account, not about who may use that route. Without that, a locked leader
+    hitting an owner route would be told 'Forbidden' and go looking for a
+    permission problem that isn't there."""
+    b = g.get('billing')
+    if not b or b['state'] != 'LOCKED':
+        return None
+    if request.path == '/api/me' or request.path.startswith(BILLING_EXEMPT_PREFIXES):
+        return None
+    return jsonify({'error': 'subscription_required', 'billing': _billing_payload()}), 402
+
+
+def _stripe_customer_for_mode(row):
+    """The bare Stripe customer id when the stored one belongs to the active
+    mode; None otherwise (a mode switch simply makes a new customer)."""
+    stored = (row or {}).get('stripe_customer_id') or ''
+    prefix = f'{STRIPE_MODE}:'
+    return stored[len(prefix):] if stored.startswith(prefix) else None
+
+
+def _prices_cached():
+    # Task 4 replaces this with the cached Stripe lookup.
+    return []
+
+
+def _billing_payload():
+    b = g.get('billing')
+    if b is None:
+        return None
+    row = g.get('billing_row') or {}
+    wants_prices = not b['subscribed'] and b['state'] != 'COMPED'
+    return {**b,
+            'prices': [{k: v for k, v in p.items() if k != 'id'} for p in _prices_cached()] if wants_prices else [],
+            'portal_available': _stripe_customer_for_mode(row) is not None}
+
+
 def _resolved_user():
     user = get_current_user()
     if not user:
@@ -1035,6 +1120,7 @@ def _resolved_user():
     # The duty day is the tenant's, so it is read once here and cached on g for
     # the rest of the request; app_timezone() has nothing else to ask.
     g.tz = _tenant_timezone(get_db(), user['root_id']) if user.get('root_id') else FALLBACK_TZ
+    _load_billing(user)
     return user
 
 
@@ -1045,6 +1131,9 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if not _resolved_user():
             return _unauthenticated_response()
+        blocked = _billing_block()
+        if blocked:
+            return blocked
         return f(*args, **kwargs)
     return decorated
 
@@ -1055,6 +1144,9 @@ def attached_required(f):
         user = _resolved_user()
         if not user:
             return _unauthenticated_response()
+        blocked = _billing_block()
+        if blocked:
+            return blocked
         if user.get('unit_id') is None:
             return jsonify({'error': 'Create or join a unit first.'}), 403
         return f(*args, **kwargs)
@@ -1067,6 +1159,9 @@ def owner_required(f):
         user = _resolved_user()
         if not user:
             return _unauthenticated_response()
+        blocked = _billing_block()
+        if blocked:
+            return blocked
         if user.get('unit_id') is None or not is_owner(user):
             return jsonify({'error': 'Forbidden'}), 403
         return f(*args, **kwargs)
@@ -1376,9 +1471,11 @@ def auth_sync():
     # they belong to no tenant yet, and UNIT_CREATE is their first row.
     set_tenant(get_db(), user['root_id'])
     g.tz = _tenant_timezone(get_db(), user['root_id']) if user['root_id'] else FALLBACK_TZ
+    _load_billing(user)
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
     return jsonify({**_user_json(get_db(), user), 'invited_by': _invited_by(get_db(), user),
-                    'platform_admin': _platform_admin_flag(user)})
+                    'platform_admin': _platform_admin_flag(user),
+                    'billing': _billing_payload()})
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -1391,7 +1488,8 @@ def logout():
 def me():
     return jsonify({**_user_json(get_db(), g.current_user),
                     'invited_by': _invited_by(get_db(), g.current_user),
-                    'platform_admin': _platform_admin_flag(g.current_user)})
+                    'platform_admin': _platform_admin_flag(g.current_user),
+                    'billing': _billing_payload()})
 
 
 # ── Platform operator dashboard ──
