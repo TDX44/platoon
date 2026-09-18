@@ -8152,7 +8152,7 @@ function billingPlanCards(b, compact) {
       <div class="pricing-name">${name}</div>
       <div class="pricing-amount">${escapeHtml(billingPrice(p))}<span class="pricing-per">/${per}</span></div>
       ${best && save > 0 ? `<div class="pricing-save">Save ${save}%</div>` : '<div class="pricing-save"></div>'}
-      <button type="button" class="btn-login pricing-btn" onclick="startCheckout('${escapeHtml(String(p.lookup_key)).replace(/'/g, '&#39;')}')">${best ? 'Go annual' : 'Go monthly'}</button>
+      <button type="button" class="btn-login pricing-btn" data-key="${escapeHtml(String(p.lookup_key))}" onclick="startCheckout(this.dataset.key)">${best ? 'Go annual' : 'Go monthly'}</button>
     </div>`;
   return `<div class="pricing-cards${compact ? ' pricing-cards-compact' : ''}">${card(monthly, 'Monthly', 'month', false)}${card(annual, 'Annual', 'year', true)}</div>`;
 }

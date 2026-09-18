@@ -47,9 +47,9 @@ CASES = {
     'locked_payment': billing(state='LOCKED', reason='payment_required', days_left=None, extension_available=False,
                               portal_available=True),
     'locked_no_prices': billing(state='LOCKED', reason='trial_expired', days_left=None, extension_available=False, prices=[]),
-    'hostile': billing(state=HOSTILE, reason=HOSTILE, trial_ends_at=HOSTILE, grace_ends_at=HOSTILE,
+    'hostile': billing(state='LOCKED', reason='trial_expired', trial_ends_at=HOSTILE, grace_ends_at=HOSTILE,
                        current_period_end=HOSTILE, days_left=HOSTILE,
-                       prices=[{'lookup_key': HOSTILE, 'amount': 299, 'interval': HOSTILE, 'currency': HOSTILE},
+                       prices=[{'lookup_key': HOSTILE, 'amount': 299, 'interval': 'month', 'currency': 'usd'},
                                {'lookup_key': 'platoon_leader_annual', 'amount': 1999, 'interval': 'year', 'currency': 'usd'}]),
     'none': None,
 }
@@ -138,7 +138,8 @@ def test_banner_copy(out):
 def test_pricing_screen(out):
     h = out['locked_trial']['pricing']
     assert 'Your trial has ended.' in h, h
-    assert "startCheckout('platoon_leader_monthly')" in h and "startCheckout('platoon_leader_annual')" in h, h
+    assert 'data-key="platoon_leader_monthly"' in h and 'data-key="platoon_leader_annual"' in h, h
+    assert 'startCheckout(this.dataset.key)' in h, h
     assert '$2.99' in h and '$19.99' in h and 'Save 44%' in h, h
     assert 'nothing is deleted' in h and 'doLogout()' in h, h
     assert 'Manage billing' not in h, 'no portal link without a Stripe customer'
@@ -151,7 +152,7 @@ def test_pricing_screen(out):
 
 def test_billing_page(out):
     assert 'Trial ends Oct 1' in out['trial']['page'] and 'Extend 7 days' in out['trial']['page']
-    assert "startCheckout('platoon_leader_monthly')" in out['trial']['page'] and '$19.99' in out['trial']['page'] and '/year' in out['trial']['page']
+    assert 'data-key="platoon_leader_monthly"' in out['trial']['page'] and '$19.99' in out['trial']['page'] and '/year' in out['trial']['page']
     assert 'Grace until Oct 4' in out['grace']['page']
     a = out['active']['page']
     assert 'Renews Oct 17' in a and 'openBillingPortal()' in a and 'Cancel subscription' in a and 'Invoices' in a, a
@@ -168,8 +169,12 @@ def test_hostile_strings_never_become_markup(out):
         html = out['hostile'][surface]
         assert '<img src=x' not in html, f'{surface}: a server string reached the page as markup'
         assert tags(html) <= ALLOWED_TAGS, f'{surface}: a server string opened a tag of its own: {sorted(tags(html))}'
-    assert '&quot;&gt;&lt;img' in out['hostile']['pricing'] or 'startCheckout' not in out['hostile']['pricing'], \
-        'the hostile lookup_key is either escaped inside onclick or not rendered'
+    assert 'data-key="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"' in out['hostile']['pricing'], \
+        'the hostile lookup_key must be escaped inside the data-key attribute'
+    assert 'startCheckout(this.dataset.key)' in out['hostile']['pricing'], \
+        'the plan button must read the key from the DOM, not from an inline literal'
+    assert "startCheckout('" not in out['hostile']['pricing'], \
+        'no key may ever sit inside a JS string literal in onclick'
     assert '<img src=x' not in ''.join(out['toggle']) and 'NaN' not in out['toggle'][3]
 
 
