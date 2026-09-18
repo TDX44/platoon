@@ -39,6 +39,20 @@ import server  # noqa: E402  (must follow the env overrides above)
 import billing_rules  # noqa: E402
 from billing_rules import utcnow  # noqa: E402
 
+# Hard guard: nothing may reach the real Stripe API from this file. Every
+# test installs its own seams via Stripe().install() before it does anything
+# billing-related; anything that slips through before that raises loudly
+# instead of silently succeeding (or silently failing) against api.stripe.com.
+def _unstubbed(*_a, **_k):
+    raise AssertionError('a test reached Stripe without installing the stub')
+
+
+server._stripe_prices = _unstubbed
+server._stripe_customer_create = _unstubbed
+server._stripe_checkout = _unstubbed
+server._stripe_portal = _unstubbed
+server._stripe_cancel = _unstubbed
+
 DAY = timedelta(days=1)
 WEBHOOK_SECRET = os.environ['STRIPE_TEST_WEBHOOK_SECRET']
 
@@ -127,6 +141,49 @@ def test_the_pin():
         assert f'{name}=' in env, f'{name} is not documented in .env.example'
 
 
+def price(key, amount, interval, pid=None):
+    return SimpleNamespace(id=pid or f'price_{key}', lookup_key=key, unit_amount=amount, currency='usd',
+                           recurring=SimpleNamespace(interval=interval))
+
+
+BOTH_PRICES = [price('platoon_leader_annual', 1999, 'year'), price('platoon_leader_monthly', 299, 'month')]
+
+
+class Stripe:
+    """The seams, recorded. Every _stripe_* call lands in .calls."""
+
+    def __init__(self, prices=None, fail_prices=False):
+        self.prices, self.fail_prices, self.calls = prices if prices is not None else BOTH_PRICES, fail_prices, []
+
+    def install(self):
+        server._PRICES_CACHE = (0.0, [])
+
+        def prices():
+            self.calls.append(('prices',))
+            if self.fail_prices:
+                raise OSError('stripe is down')
+            return list(self.prices)
+
+        def customer(params, idempotency_key):
+            self.calls.append(('customer', params, idempotency_key))
+            return SimpleNamespace(id='cus_NEW')
+
+        def checkout(params):
+            self.calls.append(('checkout', params))
+            return SimpleNamespace(url='https://checkout.stripe.com/c/pay/cs_test_1')
+
+        def portal(params):
+            self.calls.append(('portal', params))
+            return SimpleNamespace(url='https://billing.stripe.com/p/session/1')
+
+        def cancel(sub_id):
+            self.calls.append(('cancel', sub_id))
+
+        server._stripe_prices, server._stripe_customer_create = prices, customer
+        server._stripe_checkout, server._stripe_portal, server._stripe_cancel = checkout, portal, cancel
+        return self
+
+
 def seed():
     """Alpha: an owner and a leader. Bravo: one owner. Plus one stray who
     joined nothing."""
@@ -183,7 +240,11 @@ def test_first_attached_sign_in_starts_the_trial(fx):
     assert row['trial_ends_at'] == row['trial_started_at'] + billing_rules.TRIAL_DAYS * DAY, row
     b = me['billing']
     assert b['state'] == 'TRIAL' and b['days_left'] == 14 and b['extension_available'] is True, b
-    assert b['subscribed'] is False and b['portal_available'] is False and b['prices'] == [], b
+    assert b['subscribed'] is False and b['portal_available'] is False, b
+    # Stripe().install() (installed globally in main(), before seed()) is
+    # live from the first request on, so a fresh TRIAL account already sees
+    # both real plans -- this is the intended upsell, not an empty stub.
+    assert [p['lookup_key'] for p in b['prices']] == ['platoon_leader_monthly', 'platoon_leader_annual'], b['prices']
     # A second request does not restart it.
     c.get('/api/me')
     assert sub_row(fx['a_leader']['id'])['trial_started_at'] == row['trial_started_at']
@@ -301,49 +362,6 @@ def test_rls_hides_another_tenants_row(fx):
         conn.close()
 
 
-def price(key, amount, interval, pid=None):
-    return SimpleNamespace(id=pid or f'price_{key}', lookup_key=key, unit_amount=amount, currency='usd',
-                           recurring=SimpleNamespace(interval=interval))
-
-
-BOTH_PRICES = [price('platoon_leader_annual', 1999, 'year'), price('platoon_leader_monthly', 299, 'month')]
-
-
-class Stripe:
-    """The seams, recorded. Every _stripe_* call lands in .calls."""
-
-    def __init__(self, prices=None, fail_prices=False):
-        self.prices, self.fail_prices, self.calls = prices if prices is not None else BOTH_PRICES, fail_prices, []
-
-    def install(self):
-        server._PRICES_CACHE = (0.0, [])
-
-        def prices():
-            self.calls.append(('prices',))
-            if self.fail_prices:
-                raise OSError('stripe is down')
-            return list(self.prices)
-
-        def customer(params, idempotency_key):
-            self.calls.append(('customer', params, idempotency_key))
-            return SimpleNamespace(id='cus_NEW')
-
-        def checkout(params):
-            self.calls.append(('checkout', params))
-            return SimpleNamespace(url='https://checkout.stripe.com/c/pay/cs_test_1')
-
-        def portal(params):
-            self.calls.append(('portal', params))
-            return SimpleNamespace(url='https://billing.stripe.com/p/session/1')
-
-        def cancel(sub_id):
-            self.calls.append(('cancel', sub_id))
-
-        server._stripe_prices, server._stripe_customer_create = prices, customer
-        server._stripe_checkout, server._stripe_portal, server._stripe_cancel = checkout, portal, cancel
-        return self
-
-
 def test_prices_are_cached_and_ordered(fx):
     st = Stripe().install()
     c = client_as(fx['a_leader'])
@@ -401,6 +419,38 @@ def test_extend_once_in_trial_and_once_in_grace(fx):
     # Locked after an extension already used: 409, not a second extension.
     set_sub(leader['id'], trial_ends_at=utcnow() - 10 * DAY)
     assert c.post('/api/billing/extend').status_code == 409
+    set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
+def test_extend_guard_holds_when_the_verdict_is_stale(fx):
+    """test_extend_once_in_trial_and_once_in_grace never proves the DB-level
+    `AND extended_at IS NULL` guard on its own: every 409 it sees is already
+    answered by the view's own extension_available check, computed from a
+    fresh read of the row (see task-4-report.md, mutation 2). This test forces
+    the gap open by handing the route a verdict that still claims the
+    extension is available -- standing in for a request that read the row a
+    moment before a concurrent extend committed -- and checks that the UPDATE
+    itself, not the view, is what refuses the second extension."""
+    leader = fx['a_leader']
+    stamp = utcnow() - DAY
+    set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=stamp)
+    before = sub_row(leader['id'])
+    real_verdict = server._billing_verdict
+
+    def stale_verdict(row, user):
+        return real_verdict({**row, 'extended_at': None}, user)
+
+    server._billing_verdict = stale_verdict
+    try:
+        c = client_as(leader)
+        r = c.post('/api/billing/extend')
+    finally:
+        server._billing_verdict = real_verdict
+    assert r.status_code == 409, r.get_json()
+    assert 'already been used' in r.get_json()['error'], r.get_json()
+    after = sub_row(leader['id'])
+    assert after['extended_at'] == before['extended_at'] == stamp, 'the guard must not touch a row it refuses'
+    assert after['trial_ends_at'] == before['trial_ends_at'], 'nor move the trial end it refuses to extend'
     set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
 
 
@@ -483,6 +533,10 @@ def main():
         test_public_cannot_execute_the_billing_functions()
         test_stripe_config_is_read_from_the_active_mode()
         test_the_pin()
+        # Installed before seed(): every subsequent request that touches billing
+        # (starting with the first attached sign-in) goes through the stub, never
+        # api.stripe.com.
+        Stripe().install()
         fx = seed()
         test_no_row_before_an_attached_sign_in(fx)
         test_first_attached_sign_in_starts_the_trial(fx)
@@ -494,6 +548,7 @@ def main():
         test_prices_are_cached_and_ordered(fx)
         test_prices_empty_when_stripe_is_down_or_incomplete(fx)
         test_extend_once_in_trial_and_once_in_grace(fx)
+        test_extend_guard_holds_when_the_verdict_is_stale(fx)
         test_checkout_creates_the_customer_once_and_opens_a_session(fx)
         test_portal_needs_a_customer(fx)
         test_billing_routes_work_while_locked(fx)
