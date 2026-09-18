@@ -3238,7 +3238,8 @@ def export_backup():
 def _restored_stamp(value, ceiling):
     """A trial stamp off an uploaded backup, never later than `ceiling`.
 
-    Unparseable is None: a restore may carry a trial forward, never invent one.
+    None when the key is absent or the value is not a date — what the caller
+    does with that is the caller's decision, and differs per column.
     """
     if not value:
         return None

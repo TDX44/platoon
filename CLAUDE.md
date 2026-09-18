@@ -558,9 +558,16 @@ state. For the ones that do name it, `billing_apply_stripe` refuses to move a
 **locked** status (`canceled`, `unpaid`, `incomplete_expired`) to `past_due` —
 Stripe does not order deliveries, so a late failed invoice cannot re-open a
 cancelled account. `billing_checkout` 409s when the account is already
-subscribed (the portal changes a live plan), and if a subscription event ever
-does adopt an id over a different stored one, `_apply_stripe` cancels the
-superseded subscription at Stripe best-effort so one card cannot carry two. When that SQL guard suppresses the update,
+subscribed (the portal changes a live plan), and when a
+**`customer.subscription.created`** adopts an id over a different stored one,
+`_apply_stripe` cancels the superseded subscription at Stripe best-effort so
+one card cannot carry two. Only `created`: `billing_apply_stripe` adopts any
+id on an `active`/`trialing` status (A14) and Stripe does not order
+deliveries, so a retried `customer.subscription.updated` for an *older*
+subscription, arriving after the new one's `created`, adopts the old id — and
+cancelling on that would kill the subscription just paid for. A second
+Checkout completing is the case the cancel exists for, and it always arrives
+as `created`. When that SQL guard suppresses the update,
 `_apply_stripe` writes **no audit row**: a row for a write that did not
 happen is a lie the support desk would act on. Cancellation is at period end
 through the Billing Portal and never flips local state — the webhook does.
@@ -612,8 +619,14 @@ them and never writes a Stripe column). The file is attacker-supplied, so
 restore takes neither the comp switch nor an unbounded date off it: an
 incoming `'comped'` becomes `'default'` (only `'default'` and `'billed'` are
 accepted — comping is `billing_set_mode` behind `platform_admin_required`),
-and both trial stamps are clamped to at most `now + TRIAL_DAYS`. `extended_at`
-comes back as it stands; it only ever removes an entitlement.
+and both trial stamps are clamped to a ceiling of `now + TRIAL_DAYS`, or
+`now + TRIAL_DAYS + EXTENSION_DAYS` when the incoming row carries
+`extended_at` — otherwise a round trip would clip a trial the account had
+already extended. A missing or unparseable `trial_ends_at` lands **on** that
+ceiling rather than NULL: `_billing_row`'s backfill only fires on a NULL
+`trial_started_at`, so a NULL end is never repaired and `billing_state` reads
+it as a trial with `TRIAL_DAYS` left, for ever. `extended_at` comes back as it
+stands; it only ever removes an entitlement.
 
 ### Design system
 
