@@ -329,3 +329,26 @@ Owner-covers-their-leaders pricing, per-organisation plans, promo codes,
 emails, invoices inside the app (the portal has them), a card-required
 extension, refunds on account deletion, and any interaction with the
 organisation merge or grants.
+
+## 10. Amendments from the code survey (2026-09-17, before planning)
+
+A read-only survey of the tree found thirteen places where sections 3 to 7
+did not match the code as it is. These rulings win over the text above.
+
+| # | Ruling |
+|---|---|
+| A1 | `platform_admin_required` does not go through `_resolved_user()` and never will (it declares no tenant). The gate lives in the three tenant decorators (`login_required`, `attached_required`, `owner_required`) through one helper, `_billing_block()`. `g.billing` is `None` on admin routes and for unattached users; nothing may assume it exists. |
+| A2 | The backup stays **version 3**. The four billing columns (`billing_mode`, `trial_started_at`, `trial_ends_at`, `extended_at`) ride on each row of the existing owner-only `users` list as optional keys, ISO-8601 strings. A file without them restores as today. Restore upserts a `subscriptions` row per restored user from those keys and never writes a Stripe column. |
+| A3 | Colours: the trial and past-due banners use `--cp-amber` / `--cp-amber-bg`, the grace banner `--cp-red` / `--cp-red-bg`, the ordinary trial strip `--cp-steel-bg`. No new tokens. |
+| A4 | The banner is a normal-flow element, `#billingBanner`, first child of `<body>`. Nothing is measured into a CSS variable: the sidebar is sticky, not fixed, and the bottom nav is bottom-anchored, so neither needs an offset. |
+| A5 | `api()` gains a 402 branch: it reads `billing` off the body into `currentUser.billing`, calls `showBillingScreen(true)` and returns `null`. It never toasts or resyncs on a 402. Sign out is the existing `doLogout()`. |
+| A6 | The pricing screen and the Settings → Billing page are one screen, `#billingScreen`, rendered by `pricingScreenHtml()` (locked) or `billingPageHtml()` (everything else). The Settings row opens it without pushing history; Back calls `routeAfterLogin()`, which lands wherever the URL still says. |
+| A7 | `delete_user` reads the row's `stripe_subscription_id` before the DELETE and cancels it best-effort. There is no self-delete route today, so this covers an owner removing a leader and nothing else. |
+| A8 | The webhook refuses a body over `WEBHOOK_MAX_BYTES` (64 KB) with 413 before reading it, and reads it with `request.get_data(cache=False)`. The route is added to the smoke test's `PUBLIC_API` list. |
+| A9 | `requirements.txt` pins `stripe==15.6.1` (the first pin in the file, on purpose: a payments SDK is not something to float). The SDK is used through its module-level API (`stripe.Price.list`, `stripe.Customer.create`, `stripe.checkout.Session.create`, `stripe.billing_portal.Session.create`, `stripe.Subscription.cancel`, `stripe.Webhook.construct_event`), with `stripe.default_http_client = stripe.RequestsClient(timeout=5)` and `stripe.max_network_retries = 0`, because gunicorn runs two sync workers. |
+| A10 | Billing time is **UTC**: `billing_rules.utcnow()` is the only clock the rules read, every billing column is `timestamptz`, and the pure function takes `now` as an argument. `app_now()` stays the duty-day clock and is not used for billing. The once-a-day modal uses the frontend's `getTodayStr()` (the tenant's day) only as a `localStorage` key. |
+| A11 | Prices are cached per worker with a 1 h TTL on success and a 60 s TTL on failure or on an incomplete answer (fewer than both lookup keys), the same shape as the platform-admin verdict cache. The payload is `[]` in either failure case. |
+| A12 | The rules live in `billing_rules.py`, a pure module with no Flask and no database import, so `tests/test_billing_state.py` runs without Postgres and the file can be copied to Resyrv. `server.py` imports it. |
+| A13 | **No Stripe key for the active mode means billing is off**: every account is `COMPED`, the app logs one warning at boot, and no trial is started. This keeps CI, a fresh checkout and a mis-set `.env` from locking anyone out. `BILLING_DEFAULT=on` only means something once a key is present. |
+| A14 | A `customer.subscription.*` event whose subscription id differs from the stored one is applied only when its status is `active` or `trialing` (a new subscription supersedes), or when nothing is stored yet. A late `deleted` for a superseded subscription therefore cannot lock an account that has since resubscribed. |
+| A15 | The admin overview computes each account's state in Python from a new SECURITY DEFINER `admin_billing_rows()` (mode, trial stamps, Stripe status — never a Stripe id). For that display only, an account whose stored email is in `PLATFORM_ADMIN_EMAILS` counts as comped; the real verdict is still Clerk's. |
