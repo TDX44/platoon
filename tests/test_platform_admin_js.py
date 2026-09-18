@@ -103,6 +103,7 @@ def render(src, node):
         extract(src, r'function adminBytes\(.*?\n\}', 'adminBytes()'),
         extract(src, r'function adminCell\(.*?\n\}', 'adminCell()'),
         extract(src, r'function adminSortValue\(.*?\n\}', 'adminSortValue()'),
+        extract(src, r'function adminCompToggle\(.*?\n\}', 'adminCompToggle()'),
         extract(src, r'function adminOverviewHtml\(.*?\n\}', 'adminOverviewHtml()'),
         extract(src, r'function clearPlatformAdmin\(\) \{.*?\n\}', 'clearPlatformAdmin()'),
         DRIVER,
@@ -169,7 +170,7 @@ def test_both_tables_sort_through_the_shared_helpers(out):
     assert by_name[0].startswith('&lt;img'), f'name-ascending puts the escaped name first: {by_name}'
     # Sorted headers are marked by the shared helper, not by hand.
     assert 'class="sortable sorted"' in out['page'], 'the sorted column is not marked'
-    assert out['page'].count('sort-caret') == 14, 'every column must carry a caret'
+    assert out['page'].count('sort-caret') == 15, 'every column must carry a caret'
 
 
 def test_the_empty_and_loading_states_say_so(out):

@@ -7928,6 +7928,7 @@ const ADMIN_USER_COLUMNS = [
   { key: 'role',      label: 'Role' },
   { key: 'org_name',  label: 'Organisation' },
   { key: 'signed_in', label: 'Signed in' },
+  { key: 'billing_state', label: 'Billing' },
 ];
 let adminData = null;
 let adminOrgSort = { key: 'personnel_count', dir: -1 };
@@ -7974,6 +7975,11 @@ function adminOverviewHtml(data, orgSort, userSort) {
     ['Users', adminNum(t.user_count)],
     ['Unattached', adminNum(t.unattached_users)],
     ['Pending invites', adminNum(t.pending_invites)],
+    ['Trialing', adminNum(t.billing_trial)],
+    ['In grace', adminNum(t.billing_grace)],
+    ['Locked', adminNum(t.billing_locked)],
+    ['Subscribed', adminNum(t.billing_active)],
+    ['Comped', adminNum(t.billing_comped)],
     ['Database', adminBytes(t.database_bytes)],
   ].map(([label, value]) => `<div class="admin-total">
         <div class="admin-total-n">${escapeHtml(value)}</div>
@@ -8001,6 +8007,7 @@ function adminOverviewHtml(data, orgSort, userSort) {
       <td>${adminCell(u.role)}</td>
       <td>${adminCell(u.org_name)}</td>
       <td>${adminCell(u.signed_in)}</td>
+      <td>${adminCell(u.billing_state)} ${adminCompToggle(u)}</td>
     </tr>`).join('');
 
   return `
@@ -8090,6 +8097,127 @@ document.getElementById('addFirst').addEventListener('keydown', function(e) { if
 document.getElementById('listEditModal').addEventListener('click', function(e) { if (e.target === this) closeListEdit(); });
 document.getElementById('confirmModal').addEventListener('click', function(e) { if (e.target === this) settleConfirm(false); });
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && confirmResolve) settleConfirm(false); });
+
+// ─── Billing ───
+// Pure renderers over currentUser.billing (the payload /api/me carries), run
+// under node by tests/test_billing_js.py. The state words are looked up, the
+// dates parsed, the amounts are integers; the only free text a tampered
+// response could carry, a price lookup_key, lands in an onclick attribute and
+// is escaped like everything else.
+const BILLING_MODAL_KEY = 'platoon.billingSeen.';
+
+function billingDate(iso) {
+  if (!iso || typeof iso !== 'string') return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function billingPrice(p) {
+  return `$${(Number(p.amount) / 100).toFixed(2)}`;
+}
+
+function billingDays(n) {
+  const days = Number(n);
+  if (!Number.isFinite(days)) return '';
+  return days === 1 ? '1 day' : `${days} days`;
+}
+
+function billingBannerHtml(b) {
+  if (!b) return '';
+  const days = billingDays(b.days_left);
+  const link = (label, fn) => `<button type="button" class="billing-banner-link" onclick="${fn}">${label}</button>`;
+  const ext = b.extension_available === true ? link('Extend my trial 7 days', 'extendTrial()') : '';
+  if (b.state === 'TRIAL') {
+    const urgent = Number(b.days_left) <= 3 ? ' billing-banner-warn' : '';
+    return `<div class="billing-banner${urgent}" role="status">${days} left in your trial. ${link('Add billing details', 'openBillingPage()')}${ext}</div>`;
+  }
+  if (b.state === 'GRACE') {
+    return `<div class="billing-banner billing-banner-danger" role="alert">Your trial ended. ${days} until access is paused. ${link('Choose a plan', 'openBillingPage()')}${ext}</div>`;
+  }
+  if (b.state === 'PAST_DUE') {
+    return `<div class="billing-banner billing-banner-warn" role="alert">We couldn't process your last payment. ${link('Update your card', 'openBillingPortal()')}</div>`;
+  }
+  return '';
+}
+
+function billingPlanCards(b, compact) {
+  const prices = Array.isArray(b && b.prices) ? b.prices : [];
+  const monthly = prices.find(p => p.interval === 'month');
+  const annual = prices.find(p => p.interval === 'year');
+  if (!monthly || !annual) {
+    return `<div class="pricing-loading">Prices are loading. <button type="button" class="billing-banner-link" onclick="refreshBilling()">Try again</button></div>`;
+  }
+  const save = Math.round((1 - Number(annual.amount) / (Number(monthly.amount) * 12)) * 100);
+  const card = (p, name, per, best) => `<div class="pricing-card${best ? ' pricing-card-best' : ''}">
+      <div class="pricing-name">${name}</div>
+      <div class="pricing-amount">${escapeHtml(billingPrice(p))}<span class="pricing-per">/${per}</span></div>
+      ${best && save > 0 ? `<div class="pricing-save">Save ${save}%</div>` : '<div class="pricing-save"></div>'}
+      <button type="button" class="btn-login pricing-btn" onclick="startCheckout('${escapeHtml(String(p.lookup_key)).replace(/'/g, '&#39;')}')">${best ? 'Go annual' : 'Go monthly'}</button>
+    </div>`;
+  return `<div class="pricing-cards${compact ? ' pricing-cards-compact' : ''}">${card(monthly, 'Monthly', 'month', false)}${card(annual, 'Annual', 'year', true)}</div>`;
+}
+
+function pricingScreenHtml(b) {
+  const heading = b && b.reason === 'payment_required' ? 'Your subscription is no longer active.' : 'Your trial has ended.';
+  const portal = b && b.portal_available === true
+    ? '<button type="button" class="billing-banner-link" onclick="openBillingPortal()">Manage billing</button>' : '';
+  return `<div class="login-card"><div class="login-brand pricing-panel">
+      <img src="/images/app-logo.png" alt="" class="pricing-logo">
+      <h1 class="login-title">${heading}</h1>
+      <p class="login-subtitle">Pick a plan to keep going. Your roster and everything in it is kept; nothing is deleted.</p>
+      ${billingPlanCards(b, false)}
+      <p id="pricingStatus" class="pricing-status" aria-live="polite"></p>
+      <div class="pricing-links">${portal}<button type="button" class="billing-banner-link" onclick="doLogout()">Sign out</button></div>
+    </div></div>`;
+}
+
+function billingPageHtml(b) {
+  const back = '<button type="button" class="soldier-back" onclick="routeAfterLogin()">&larr; Back</button>';
+  if (!b) {
+    return `<div class="login-card"><div class="login-brand pricing-panel">${back}<section class="soldier-card"><h3>Billing</h3><p class="settings-row-hint">Billing does not apply to this account.</p></section></div></div>`;
+  }
+  let status;
+  if (b.state === 'COMPED') status = 'Complimentary access.';
+  else if (b.state === 'TRIAL') status = `Trial ends ${billingDate(b.trial_ends_at)}.`;
+  else if (b.state === 'GRACE') status = `Your trial ended. Grace until ${billingDate(b.grace_ends_at)}.`;
+  else if (b.state === 'PAST_DUE') status = 'Your last payment failed. Update your card to keep access.';
+  else if (b.state === 'ACTIVE') status = b.cancel_at_period_end === true
+    ? `Ends ${billingDate(b.current_period_end)}. You will not be billed again.`
+    : `Renews ${billingDate(b.current_period_end)}.`;
+  else if (b.state === 'LOCKED') status = 'Access is paused.';
+  else status = '';
+  const rows = [];
+  if (b.extension_available === true) {
+    rows.push(settingsRow('Extend trial', 'One extension of 7 days. No card needed.', 'Extend 7 days', 'extendTrial()'));
+  }
+  if (b.subscribed !== true && b.state !== 'COMPED') rows.push(billingPlanCards(b, true));
+  if (b.subscribed === true || b.portal_available === true) {
+    rows.push(settingsRow('Update card', 'Card details, handled by Stripe.', 'Open', 'openBillingPortal()'));
+    rows.push(settingsRow('Invoices', 'Receipts and past invoices.', 'Open', 'openBillingPortal()'));
+    if (b.subscribed === true && b.cancel_at_period_end !== true) {
+      rows.push(settingsRow('Cancel subscription', 'Ends at the period end. Nothing is deleted.', 'Cancel', 'openBillingPortal()', 'dash-btn-ghost'));
+    }
+  }
+  return `<div class="login-card"><div class="login-brand pricing-panel">${back}
+      <section class="soldier-card billing-card"><h3>Billing</h3><p class="billing-status">${escapeHtml(status)}</p>${rows.join('')}</section>
+    </div></div>`;
+}
+
+// Once a calendar day (the tenant's day, by getTodayStr()) during the last
+// three days of a trial. `seen` is the stored date string or null.
+function billingModalDue(b, seen, today) {
+  if (!b || b.state !== 'TRIAL') return false;
+  if (!(Number(b.days_left) <= 3)) return false;
+  return seen !== today;
+}
+
+function adminCompToggle(u) {
+  if (!u || !u.billing_mode) return '';
+  const id = Number(u.user_id);
+  if (!Number.isInteger(id)) return '';
+  const comped = u.billing_mode === 'comped';
+  return `<button type="button" class="admin-btn admin-btn-ghost admin-btn-xs" onclick="setBillingMode(${id}, '${comped ? 'default' : 'comped'}')">${comped ? 'Uncomp' : 'Comp'}</button>`;
+}
 
 // ─── Auth ───
 function showAppScreen(screen) {
