@@ -57,6 +57,10 @@ python tests/test_unit_tree_js.py     # frontend tree helpers (unitById/unitBySl
 python tests/test_platform_admin.py   # /admin: the Clerk-verified email gate, the
                                       # cross-tenant counts, what the payload may not carry
 python tests/test_platform_admin_js.py # the /admin page's markup, under node
+python tests/test_billing_state.py    # billing_rules.billing_state(): every state and boundary, no DB
+python tests/test_billing.py          # the subscriptions row, the 402 gate sweep, extend/checkout/portal
+                                      # with Stripe stubbed, the signed webhook, deletion, backup, /admin comp
+python tests/test_billing_js.py       # banner, pricing screen, Billing page and modal rule, under node
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -352,7 +356,10 @@ DEFINER`, owned by `platoon_owner`, `SET search_path FROM CURRENT` (the
 standard guard against search-path hijacking of definer functions), and
 `EXECUTE` is revoked from `PUBLIC` and granted only to `platoon_app`. This
 list is deliberately small and enumerable: if a cross-tenant read or write is
-not one of these six functions, it does not happen.
+not one of these six functions, the four `billing_*` functions in
+`sql/billing_functions.sql` (the webhook has no session and declares no
+tenant, so it cannot go through RLS either) or `admin_billing_rows()` in
+`sql/admin_functions.sql`, it does not happen.
 
 Table owners and `BYPASSRLS` roles skip policies silently, which looks
 exactly like a working app while leaking every tenant. `server.py` refuses to
@@ -502,6 +509,67 @@ is not scoped to a unit — the operator opens it from the home screen with no
 `currentUnit`. Tests: `tests/test_platform_admin.py`,
 `tests/test_platform_admin_js.py`.
 
+### Billing
+
+Per-account Stripe billing, spec `docs/superpowers/specs/2026-09-17-stripe-billing-design.md`
+(read section 10 first — the rulings that fit the spec to this code).
+**`billing_rules.py`** is the whole rule: `billing_state(row, now, default_on,
+platform_admin, enabled)` → `COMPED | ACTIVE | PAST_DUE | TRIAL | GRACE | LOCKED`,
+pure, UTC, clock-injected, no Flask. `_resolved_user()` creates the
+`subscriptions` row at an attached account's first sign-in (the trial starts
+at the first sign-in that finds the account billed, not at creation) and
+computes `g.billing`. The three tenant decorators (`login_required`,
+`attached_required`, `owner_required`) each call `_billing_block()` **before**
+their own role check, so a locked account gets the same **402**
+`{'error': 'subscription_required', 'billing': {...}}` whatever its role —
+`attached_required`'s unit-membership 403 and `owner_required`'s owner-only
+403 never run for it. The 402 fires on every `/api/` route except `/api/me`
+and the `/api/auth/`, `/api/billing/`, `/api/admin/` prefixes. `GET
+/api/units` is deliberately not exempt. `platform_admin_required` declares no
+tenant and has no `g.billing`.
+
+Env: `STRIPE_MODE=test|live` picks which of `STRIPE_TEST_*` / `STRIPE_LIVE_*`
+(secret key + webhook signing secret) the process reads; dev is `test`,
+production `live`. **No key for the active mode = billing off**, every
+account `COMPED`, one warning at boot. `BILLING_DEFAULT=on|off` is the
+default for accounts whose `billing_mode` is `default`; `/admin` comps or
+bills any account (`PUT /api/admin/users/<id>/billing_mode`). The operator's
+own account is always comped.
+
+The webhook (`POST /api/billing/webhook`, undecorated, signature is the
+auth, listed in the smoke test's `PUBLIC_API`) reads the body with a bounded
+`request.stream.read(WEBHOOK_MAX_BYTES + 1)` — a `Content-Length` check alone
+does not cap a chunked body — verifies it with `stripe.Webhook.construct_event`,
+then parses those same verified bytes with `json.loads` (construct_event's
+`StripeObject` return is not dict-like in stripe-python >= 12). It is the
+only writer of the Stripe columns, through the four SECURITY DEFINER
+`billing_*` functions in `sql/billing_functions.sql`; `tests/test_billing.py`
+greps `server.py` to keep it that way. Replays are no-ops (`stripe_events`); a
+handler that raises is a 500 and the event record rolls back with it, so
+Stripe's retry is handled rather than skipped. `invoice.payment_failed`
+carries the failed invoice's own subscription id (or none, for a late
+delivery against a subscription the account has since replaced), and
+`billing_apply_stripe` refuses to move a **locked** status (`canceled`,
+`unpaid`, `incomplete_expired`) to `past_due` — Stripe does not order
+deliveries and `past_due` is an open state, so a stray failed invoice cannot
+re-open a cancelled account. When that SQL guard suppresses the update,
+`_apply_stripe` writes **no audit row**: a row for a write that did not
+happen is a lie the support desk would act on. Cancellation is at period end
+through the Billing Portal and never flips local state — the webhook does.
+Stripe is called through five one-line `_stripe_*` seams; tests replace
+those. `stripe_customer_id` is stored `<mode>:<id>`.
+
+Prices are cached per worker — 1 h on success, 60 s on a failure or a
+partial answer (fewer than both lookup keys returned) — and are `[]` in
+both failure cases, never a stale or half-complete amount.
+
+The plan buttons carry the price lookup key in a `data-key` attribute, read
+back via `this.dataset.key`; no server string is ever interpolated into
+inline JS. The billing screen (pricing, locked, or Settings → Billing) pushes
+no history, so the `popstate` handler returns through `routeAfterLogin()`
+while `body.billing-active` — the same path that sends a still-`LOCKED`
+account straight back to the pricing screen.
+
 ### Day reset — there is no background worker
 
 There used to be a `_midnight_reset_worker` thread, started only inside
@@ -529,7 +597,10 @@ tree (units matched by slug, created if absent); sequences are resynced
 after. `version: 1` and `version: 2` files are refused with a clear message —
 those predate per-tenant scoping, and anyone holding one restores it before
 the A1 migration, not after. If you change the schema, update both export and
-restore, and keep the `version` check working.
+restore, and keep the `version` check working. An owner's `users` rows
+also carry `billing_mode`, `trial_started_at`, `trial_ends_at` and
+`extended_at` (optional keys; restore upserts a `subscriptions` row from
+them and never writes a Stripe column).
 
 ### Design system
 
