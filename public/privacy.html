@@ -6,21 +6,49 @@
 <title>Privacy Policy | Platoon Manager</title>
 <meta name="description" content="How Platoon Manager collects, uses, shares, and protects personnel information.">
 <link rel="icon" type="image/png" sizes="32x32" href="/images/icon-32.png">
+<link rel="preload" as="font" type="font/woff2" href="/public/fonts/poppins-700.woff2" crossorigin>
 <link rel="stylesheet" href="/public/site.css">
 </head>
 <body>
 
+<a class="skip-link" href="#main">Skip to content</a>
+
 <header class="site-head">
   <div class="wrap">
-    <a class="brand" href="/welcome"><span class="brand-mark">PM</span> Platoon Manager</a>
-    <nav class="head-nav">
-      <a href="/terms">Terms</a>
-      <a class="btn btn-ghost" href="/">Sign in</a>
+    <a class="brand" href="/">
+      <img src="/images/app-logo.png" alt="" width="512" height="512">
+      Platoon Manager
+    </a>
+
+    <nav class="head-nav" aria-label="Main">
+      <a href="/#product">Product</a>
+      <a href="/#how">How it works</a>
+      <a href="/#pricing">Pricing</a>
+      <a href="/#security">Security</a>
     </nav>
+
+    <div class="head-cta">
+      <a class="signin" href="/app">Sign in</a>
+      <a class="btn" href="/app">Start free trial</a>
+    </div>
+
+    <details class="menu-toggle">
+      <summary role="button" aria-label="Menu"></summary>
+      <nav class="menu-panel" aria-label="Main">
+        <a href="/#product">Product</a>
+        <a href="/#how">How it works</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="/#security">Security</a>
+        <a href="/legal/privacy">Privacy</a>
+        <a href="/legal/terms">Terms</a>
+        <a href="/app">Sign in</a>
+        <a class="btn" href="/app">Start free trial</a>
+      </nav>
+    </details>
   </div>
 </header>
 
-<main>
+<main id="main">
   <div class="legal-head">
     <div class="wrap">
       <p class="eyebrow">Legal</p>
@@ -223,12 +251,63 @@
 
 <footer class="site-foot">
   <div class="wrap">
-    <span>Platoon Manager</span>
-    <span class="foot-links">
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-      <a href="mailto:jonathon@carr7.com">Contact</a>
-    </span>
+    <div class="foot-grid">
+      <div class="foot-about">
+        <a class="brand" href="/">
+          <img src="/images/app-logo.png" alt="" width="512" height="512">
+          Platoon Manager
+        </a>
+        <p>
+          Personnel accountability and readiness for company formations. Who is here,
+          who is out, and why.
+        </p>
+      </div>
+
+      <div class="foot-col">
+        <h2>Product</h2>
+        <ul>
+          <li><a href="/#product">Formation mode</a></li>
+          <li><a href="/#product">Directory &amp; readiness</a></li>
+          <li><a href="/#product">Schools &amp; locations</a></li>
+          <li><a href="/#pricing">Pricing</a></li>
+        </ul>
+      </div>
+
+      <div class="foot-col">
+        <h2>Get started</h2>
+        <ul>
+          <li><a href="/#how">How it works</a></li>
+          <li><a href="/#security">Security</a></li>
+          <li><a href="/#faq">Questions</a></li>
+          <li><a href="/app">Sign in</a></li>
+        </ul>
+      </div>
+
+      <div class="foot-col">
+        <h2>Legal</h2>
+        <ul>
+          <li><a href="/legal/privacy">Privacy Policy</a></li>
+          <li><a href="/legal/terms">Terms of Service</a></li>
+          <li><a href="mailto:jonathon@carr7.com">Contact</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="foot-disclaimer">
+      Platoon Manager is a unit-run accountability tool. It is not an official Army or
+      Department of Defense system of record, it is not endorsed by them, and it does
+      not replace eMILPO, IPPS-A, DTMS or any other system of record. Do not enter
+      classified information.
+    </p>
+
+    <div class="foot-bottom">
+      <span>&copy; 2026 Platoon Manager</span>
+      <span class="foot-links">
+        <a href="/legal/privacy">Privacy</a>
+        <a href="/legal/terms">Terms</a>
+        <a href="mailto:jonathon@carr7.com">Contact</a>
+      </span>
+    </div>
   </div>
 </footer>
 

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-from flask import Flask, Response, request, jsonify, send_from_directory, session, g, has_request_context
+from flask import Flask, Response, request, jsonify, redirect, send_from_directory, session, g, has_request_context
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
@@ -1441,27 +1441,68 @@ def _close_db(exc):
 
 # ── Auth routes ──
 
+# platoonmanager.com serves the marketing site at '/'; every other host --
+# app.platoonmanager.com, the LAN address, localhost -- serves the app there, as
+# it always has. The list names the MARKETING side on purpose: unset it or get it
+# wrong and a visitor misses the brochure, which is recoverable, rather than a
+# leader losing the product at 0630, which is not.
+MARKETING_HOSTS = tuple(h.strip().lower() for h in os.environ.get(
+    'MARKETING_HOSTS', 'platoonmanager.com,www.platoonmanager.com').split(',') if h.strip())
+
+# Where the marketing site's 'Sign in' sends people when the app is on its own
+# subdomain.
+APP_URL = os.environ.get('APP_URL', 'https://app.platoonmanager.com')
+
+# The file each public path serves. Only the literal routes declared below reach
+# this map, so a filename is never built out of the request.
+PUBLIC_PAGES = {
+    '/': 'home.html',
+    '/welcome': 'home.html',
+    '/home': 'home.html',
+    '/privacy': 'privacy.html',
+    '/legal/privacy': 'privacy.html',
+    '/terms': 'terms.html',
+    '/legal/terms': 'terms.html',
+}
+
+
+def _is_marketing_host():
+    return (request.host or '').split(':')[0].lower() in MARKETING_HOSTS
+
+
 @app.route('/')
 def index():
+    if _is_marketing_host():
+        return send_from_directory('public', PUBLIC_PAGES['/'])
     return send_from_directory('.', 'index.html')
 
 
+@app.route('/app')
+def app_entry():
+    """Where every 'Sign in' and 'Start free trial' on the marketing site points.
+    On the marketing host that is the app's own subdomain; anywhere else the app
+    is already at '/', so go there rather than bouncing a developer -- or the LAN
+    address -- out to production."""
+    return redirect(APP_URL if _is_marketing_host() else '/', code=302)
+
+
 @app.route('/welcome')
+@app.route('/home')
 @app.route('/privacy')
 @app.route('/terms')
 @app.route('/legal/privacy')
 @app.route('/legal/terms')
 def public_page():
-    """The signed-out pages: the marketing placeholder plus the two legal pages
-    Google's OAuth consent screen links to. They live outside index.html because
-    they have to render with no Clerk, no session and no JS.
+    """The signed-out pages: the marketing site plus the two legal pages Google's
+    OAuth consent screen links to. They live outside index.html because they have
+    to render with no Clerk, no session and no JS.
 
     /legal/* answers the same pages because that is the shape the sibling apps
     use and it is the URL people reach for; without it the path falls through to
-    spa_fallback and quietly serves the app shell instead. The filename comes
-    from the last segment, and only the literal paths above reach this function.
+    spa_fallback and quietly serves the app shell instead. /welcome is kept
+    because it was the marketing URL before the site moved to the root.
     """
-    return send_from_directory('public', request.path.rsplit('/', 1)[-1] + '.html')
+    return send_from_directory('public', PUBLIC_PAGES[request.path])
 
 
 # Everything the browser may fetch from the repo root. The fallback below used to

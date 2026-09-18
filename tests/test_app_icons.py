@@ -108,6 +108,15 @@ def test_every_icon_anything_references_exists_at_the_size_it_claims():
         assert os.path.isfile(on_disk), \
             f'{who}: points at {path}, which is not on disk — the browser gets ' \
             'the SPA fallback and shows a blank square'
+        if not rel.endswith('.png'):
+            # The marketing screenshots under images/site/ are WebP. They still
+            # have to exist and still have to be on the allowlist -- both checked
+            # above, which is the part that keeps a typo from silently becoming
+            # the SPA shell -- but there is no PNG header to read and nothing
+            # declares a size for them.
+            assert size is None, f'{who}: declares a pixel size but is not a PNG'
+            seen.add(path)
+            continue
         actual = png_size(on_disk)
         if size:
             assert actual == size, \

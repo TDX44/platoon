@@ -27,7 +27,10 @@ EXPECTED_TABLES = [
 ]
 
 # '/' and the catch-all are checked directly below, not via the generic sweep.
-SKIP_RULES = {'/', '/<path:path>'}
+# '/app' joins them because it is the one public route whose right answer is a
+# redirect, which the sweep treats as a bad deploy; check_marketing_host_split
+# pins both of its branches instead.
+SKIP_RULES = {'/', '/app', '/<path:path>'}
 
 
 
@@ -57,6 +60,7 @@ ALLOWED_PLATOON_TOKENS = (
     'platoon_owner', 'platoon_app',          # the two database roles
     'platoon-accountability/',               # the User-Agent sent to api.clerk.com
     'platoon_leader_',                       # the Stripe price lookup keys (PRICE_LOOKUP_KEYS)
+    'platoonmanager.com',                    # the product's own domain (MARKETING_HOSTS, APP_URL)
 )
 
 
@@ -102,7 +106,8 @@ def check_spa_fallback(client):
 def check_public_pages(client):
     """The signed-out pages must render standalone, not as the SPA shell: Google's
     OAuth consent screen links straight at /privacy and /terms."""
-    for path, marker in (('/welcome', 'Platoon Manager'),
+    for path, marker in (('/home', 'Start free trial'),
+                         ('/welcome', 'Platoon Manager'),
                          ('/privacy', 'Privacy Policy'),
                          ('/terms', 'Terms of Service')):
         r = client.get(path)
@@ -123,6 +128,43 @@ def check_public_pages(client):
     r = client.get('/public/site.css')
     assert r.status_code == 200 and 'cp-accent' in r.get_data(as_text=True), \
         'the public stylesheet must be served'
+
+
+def check_marketing_host_split(client):
+    """'/' serves the marketing site on the marketing domain and the app shell on
+    every other host. This split is the only thing between a leader opening the
+    app at 0630 and being handed a brochure, so pin both sides of it -- including
+    that an unrecognised host (localhost, the LAN address, app.*) gets the app.
+    """
+    app_shell = client.get('/').get_data()
+    assert b'<html' in app_shell.lower(), '/ did not serve the app shell on an ordinary host'
+
+    host = server.MARKETING_HOSTS[0]
+    body = client.get('/', headers={'Host': host}).get_data()
+    assert body != app_shell, f'{host}/ served the app shell instead of the marketing site'
+    assert b'Start free trial' in body, f'{host}/ did not serve the marketing site'
+    assert b'<script' not in body.lower(), 'the marketing site must render with no JS at all'
+
+    # 'Sign in' leaves for the app's own subdomain from the marketing host, and
+    # stays local anywhere else -- clicking it in dev must not land in production.
+    r = client.get('/app', headers={'Host': host})
+    assert r.status_code == 302 and r.headers['Location'] == server.APP_URL, \
+        ('marketing host /app', r.status_code, r.headers.get('Location'))
+    r = client.get('/app')
+    assert r.status_code == 302 and r.headers['Location'] == '/', \
+        ('ordinary host /app', r.status_code, r.headers.get('Location'))
+
+
+def check_marketing_assets_exist(client):
+    """Every image and font the public pages name is really on disk and really
+    served. images/site/ is a new directory under an existing STATIC_DIRS prefix;
+    a path typo here is a broken hero on the front page and nothing else fails.
+    """
+    for page in ('home.html', 'privacy.html', 'terms.html'):
+        html = open(os.path.join(ROOT, 'public', page)).read()
+        for path in sorted(set(re.findall(r'"(/(?:images|public)/[^"]+)"', html))):
+            r = client.get(path)
+            assert r.status_code == 200, f'{page} references {path}, which serves {r.status_code}'
 
 
 def check_no_unit_identifier(client):
@@ -222,6 +264,8 @@ def main():
     check_index(client)
     check_spa_fallback(client)
     check_public_pages(client)
+    check_marketing_host_split(client)
+    check_marketing_assets_exist(client)
     check_no_unit_identifier(client)
     check_source_is_not_served(client)
     check_auth_config(client)

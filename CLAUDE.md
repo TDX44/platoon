@@ -119,13 +119,35 @@ for it. **A new asset directory has to be added to `STATIC_DIRS` or it 404s into
 the SPA.**
 
 `public/` is the one part of the frontend that is not `index.html`: the
-signed-out pages `/welcome`, `/privacy` and `/terms`, plus `public/site.css`.
-They are plain HTML with no JS and no Clerk, because Google's OAuth consent
-screen links straight at `/privacy` and `/terms` and they have to render for a
-stranger with no session. Their `--cp-*` tokens are a copy of the ones in
-`index.html`; keep the two in step. Google will not leave Testing without a
-reachable privacy-policy URL, so if those routes break, Google sign-in
-eventually breaks with them.
+signed-out **marketing site** (`public/home.html`) plus the legal pages
+`privacy.html` and `terms.html`, `public/site.css`, `public/fonts/` and the
+screenshots in `images/site/`. They are plain HTML with no JS at all and no
+Clerk, because Google's OAuth consent screen links straight at `/privacy` and
+`/terms` and they have to render for a stranger with no session. **Nothing in
+`public/` may grow a `<script>` tag** — `tests/test_smoke.py` fails the build
+if one appears. The mobile menu and the FAQ are `<details>` elements for
+exactly that reason, and the display face is self-hosted in `public/fonts/`
+rather than linked from a CDN. `site.css` carries two token sets: the `--cp-*`
+block is a copy of the one in `index.html` and must stay in step with it, and
+the `--pm-*` block is the marketing site's own light-blue palette, which the
+app never sees. Google will not leave Testing without a reachable
+privacy-policy URL, so if those routes break, Google sign-in eventually breaks
+with them.
+
+**Which site answers `/` is decided by the Host header.** `MARKETING_HOSTS`
+(default `platoonmanager.com,www.platoonmanager.com`) serves `home.html` at
+`/`; **every other host — the app subdomain, the LAN address, localhost —
+serves the app shell there, exactly as before.** The env var deliberately names
+the *marketing* side rather than the app side: unset or misspell it and a
+visitor misses the brochure, which is recoverable, instead of a leader losing
+the product at 0630, which is not. `/home` serves the marketing page on any
+host, which is how you preview it in dev. Every "Sign in" and "Start free
+trial" points at **`/app`**, which redirects to `APP_URL`
+(`https://app.platoonmanager.com`) on a marketing host and to `/` anywhere
+else, so clicking it in dev does not bounce you into production. `/welcome` is
+kept as an alias of the marketing page because that was its URL before the
+site moved to the root. Both branches are pinned by
+`check_marketing_host_split` in `tests/test_smoke.py`.
 
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
 `availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
