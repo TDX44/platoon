@@ -8,7 +8,7 @@ import secrets
 import string
 import struct
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from functools import wraps
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -1620,6 +1620,101 @@ def billing_portal():
         return jsonify({'error': 'No billing account yet. Choose a plan first.'}), 409
     session = _stripe_portal({'customer': customer_id, 'return_url': _billing_return_base()})
     return jsonify({'url': session.url})
+
+
+# ── The webhook ──
+# Stripe is the caller: no session, no tenant, the signature is the auth.
+# Deliberately undecorated (tests/test_smoke.py lists it in PUBLIC_API). Every
+# database write goes through the billing_* SECURITY DEFINER functions; the
+# only thing done as the tenant is the audit row, after set_tenant() on the
+# root the customer was found in.
+
+SUBSCRIPTION_EVENTS = ('customer.subscription.created', 'customer.subscription.updated',
+                       'customer.subscription.deleted')
+
+
+@app.route('/api/billing/webhook', methods=['POST'])
+def billing_webhook():
+    if not (STRIPE_ENABLED and STRIPE_WEBHOOK_SECRET):
+        return jsonify({'error': 'Billing is not configured on this instance.'}), 503
+    if (request.content_length or 0) > WEBHOOK_MAX_BYTES:
+        return jsonify({'error': 'Payload too large.'}), 413
+    payload = request.get_data(cache=False)
+    try:
+        # construct_event is the signature check (HMAC + 300 s timestamp
+        # tolerance). Its StripeObject return is not dict-like in
+        # stripe-python >= 12, so the now-verified payload is read back as
+        # plain JSON; construct_event has already parsed it once, so this
+        # cannot fail on anything that got past the signature.
+        stripe.Webhook.construct_event(payload, request.headers.get('Stripe-Signature', ''), STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        app.logger.warning('stripe webhook: bad signature from %s', request.remote_addr)
+        return jsonify({'error': 'Bad signature.'}), 400
+    event = json.loads(payload)
+    if bool(event.get('livemode')) != (STRIPE_MODE == 'live'):
+        return jsonify({'ignored': 'other mode'})
+    conn = get_db()
+    fresh = conn.execute('SELECT billing_record_event(%s) AS fresh', (event['id'],)).fetchone()['fresh']
+    if not fresh:
+        return jsonify({'replay': True})
+    # A handler that raises becomes a 500 through errorhandler(Exception), and
+    # _close_db() rolls the transaction back — including the event record
+    # above — so Stripe's retry is handled, not mistaken for a replay.
+    _handle_stripe_event(conn, event)
+    return jsonify({'ok': True})
+
+
+def _handle_stripe_event(conn, event):
+    obj = event['data']['object']
+    kind = event['type']
+    if kind in SUBSCRIPTION_EVENTS:
+        items = ((obj.get('items') or {}).get('data') or [])
+        first = items[0] if items else {}
+        price = first.get('price') or {}
+        # API versions before 2025-03 put current_period_end on the
+        # subscription; since then it is on each item.
+        period_end = obj.get('current_period_end') or first.get('current_period_end')
+        _apply_stripe(conn, event, customer=obj.get('customer'), subscription=obj.get('id'),
+                      status=obj.get('status'), lookup_key=price.get('lookup_key'),
+                      period_end=period_end, cancel_at_period_end=bool(obj.get('cancel_at_period_end')))
+    elif kind == 'invoice.payment_failed':
+        _apply_stripe(conn, event, customer=obj.get('customer'), subscription=None, status='past_due',
+                      lookup_key=None, period_end=None, cancel_at_period_end=None)
+    elif kind == 'invoice.paid':
+        _audit_for_customer(conn, obj.get('customer'), 'BILLING_PAID', f'invoice {obj.get("id")} paid')
+    # checkout.session.completed and everything else: acknowledged, ignored —
+    # the subscription events carry the truth.
+
+
+def _audit_for_customer(conn, customer, action, details):
+    target = conn.execute('SELECT * FROM billing_find_by_customer(%s)', (f'{STRIPE_MODE}:{customer}',)).fetchone()
+    if not target:
+        app.logger.warning('stripe event for unknown customer %s (%s)', customer, action)
+        return None
+    set_tenant(conn, target['root_id'])
+    log_action(action, details)
+    return target
+
+
+def _apply_stripe(conn, event, customer, subscription, status, lookup_key, period_end, cancel_at_period_end):
+    cid = f'{STRIPE_MODE}:{customer}'
+    target = conn.execute('SELECT * FROM billing_find_by_customer(%s)', (cid,)).fetchone()
+    if not target:
+        app.logger.warning('stripe event %s for unknown customer %s', event['id'], customer)
+        return
+    ends = datetime.fromtimestamp(period_end, timezone.utc) if period_end else None
+    conn.execute('SELECT billing_apply_stripe(%s, %s, %s, %s, %s, %s)',
+                 (cid, subscription, status, lookup_key, ends, cancel_at_period_end))
+    if status in billing_rules.OPEN_STATUSES:
+        action = 'BILLING_ACTIVE'
+    elif status == 'past_due':
+        action = 'BILLING_PAST_DUE'
+    elif status in billing_rules.LOCKED_STATUSES:
+        action = 'BILLING_CANCELLED'
+    else:
+        action = 'BILLING_STATUS'
+    set_tenant(conn, target['root_id'])
+    log_action(action, f'stripe {event["type"]}: {status}' + (f', cancel at period end' if cancel_at_period_end else ''))
 
 
 @app.route('/api/me', methods=['GET'])

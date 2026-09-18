@@ -527,6 +527,174 @@ def test_unattached_and_signed_out_cannot_use_billing_routes(fx):
         assert server.app.test_client().post(path, json={}).status_code == 401, path
 
 
+def signed(payload, secret=WEBHOOK_SECRET, ts=None):
+    """A body plus the Stripe-Signature header the SDK will accept."""
+    body = json.dumps(payload).encode()
+    ts = ts or int(time.time())
+    mac = hmac.new(secret.encode(), f'{ts}.'.encode() + body, hashlib.sha256).hexdigest()
+    return body, {'Stripe-Signature': f't={ts},v1={mac}', 'Content-Type': 'application/json'}
+
+
+_EVENT_N = [0]
+
+
+def event(type_, obj, livemode=False, event_id=None):
+    _EVENT_N[0] += 1
+    return {'id': event_id or f'evt_{_EVENT_N[0]}', 'type': type_, 'livemode': livemode,
+            'data': {'object': obj}}
+
+
+def subscription_obj(customer, sub_id='sub_1', status='active', lookup_key='platoon_leader_monthly',
+                     period_end=1_800_000_000, cancel=False):
+    return {'id': sub_id, 'object': 'subscription', 'customer': customer, 'status': status,
+            'cancel_at_period_end': cancel,
+            'items': {'data': [{'price': {'id': 'price_x', 'lookup_key': lookup_key},
+                                'current_period_end': period_end}]}}
+
+
+def post_webhook(payload, **kw):
+    dbharness.as_user(None)
+    body, headers = signed(payload, **kw)
+    return server.app.test_client().post('/api/billing/webhook', data=body, headers=headers)
+
+
+def audit_count(action, root_id):
+    conn = dbharness.owner_conn()
+    try:
+        return conn.execute('SELECT count(*) AS n FROM audit_log WHERE action = %s AND root_id = %s',
+                            (action, root_id)).fetchone()['n']
+    finally:
+        conn.close()
+
+
+def test_webhook_rejects_a_bad_signature_and_a_huge_body(fx):
+    body, headers = signed(event('customer.subscription.created', subscription_obj('cus_A')))
+    r = server.app.test_client().post('/api/billing/webhook', data=body,
+                                      headers={**headers, 'Stripe-Signature': 't=1,v1=deadbeef'})
+    assert r.status_code == 400, r.get_json()
+    r = server.app.test_client().post('/api/billing/webhook', data=body, headers={'Content-Type': 'application/json'})
+    assert r.status_code == 400, 'no signature header must be 400, not 500'
+    body2, headers2 = signed(event('x', {}), secret='whsec_wrong')
+    assert server.app.test_client().post('/api/billing/webhook', data=body2, headers=headers2).status_code == 400
+    # Stale timestamp (outside the SDK's 300 s tolerance).
+    body3, headers3 = signed(event('x', {}), ts=int(time.time()) - 3600)
+    assert server.app.test_client().post('/api/billing/webhook', data=body3, headers=headers3).status_code == 400
+    # Too big is refused before the body is read.
+    big = b'{' + b' ' * (server.WEBHOOK_MAX_BYTES + 1) + b'}'
+    r = server.app.test_client().post('/api/billing/webhook', data=big, headers=headers)
+    assert r.status_code == 413, r.status_code
+    conn = dbharness.owner_conn()
+    try:
+        assert conn.execute('SELECT count(*) AS n FROM stripe_events').fetchone()['n'] == 0, 'a refused event was recorded'
+    finally:
+        conn.close()
+
+
+def test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns(fx):
+    leader, bravo = fx['a_leader'], fx['b_owner']
+    set_sub(leader['id'], stripe_customer_id='test:cus_A', trial_ends_at=utcnow() - 10 * DAY, billing_mode='default')
+    set_sub(bravo['id'], stripe_customer_id='test:cus_B', trial_ends_at=utcnow() + 5 * DAY)
+    before = sub_row(leader['id'])
+    r = post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A1', 'active')))
+    assert r.status_code == 200, r.get_json()
+    row = sub_row(leader['id'])
+    assert row['stripe_subscription_id'] == 'sub_A1' and row['stripe_status'] == 'active', row
+    assert row['stripe_price_lookup_key'] == 'platoon_leader_monthly', row
+    assert row['current_period_end'].timestamp() == 1_800_000_000 and row['cancel_at_period_end'] is False, row
+    for col in ('billing_mode', 'trial_started_at', 'trial_ends_at', 'extended_at', 'stripe_customer_id'):
+        assert row[col] == before[col], f'{col} changed on a Stripe event'
+    assert sub_row(bravo['id'])['stripe_status'] is None, "Bravo's row was touched by Alpha's event"
+    assert audit_count('BILLING_ACTIVE', fx['a']['root']) == 1
+    assert audit_count('BILLING_ACTIVE', fx['b']['root']) == 0
+    # The locked account is now open.
+    assert client_as(leader).get('/api/units').status_code == 200
+    # Cancel at period end: still active, flag mirrored.
+    post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A1', 'active', cancel=True)))
+    row = sub_row(leader['id'])
+    assert row['stripe_status'] == 'active' and row['cancel_at_period_end'] is True, row
+    assert client_as(leader).get('/api/me').get_json()['billing']['state'] == 'ACTIVE'
+    # payment_failed → past_due, open with a warning; other columns kept.
+    post_webhook(event('invoice.payment_failed', {'id': 'in_1', 'object': 'invoice', 'customer': 'cus_A'}))
+    row = sub_row(leader['id'])
+    assert row['stripe_status'] == 'past_due' and row['stripe_subscription_id'] == 'sub_A1', row
+    assert audit_count('BILLING_PAST_DUE', fx['a']['root']) == 1
+    assert client_as(leader).get('/api/units').status_code == 200
+    # invoice.paid is audit only.
+    post_webhook(event('invoice.paid', {'id': 'in_2', 'object': 'invoice', 'customer': 'cus_A'}))
+    assert audit_count('BILLING_PAID', fx['a']['root']) == 1
+    assert sub_row(leader['id'])['stripe_status'] == 'past_due'
+    # deleted → canceled → locked (trial long over).
+    post_webhook(event('customer.subscription.deleted', subscription_obj('cus_A', 'sub_A1', 'canceled')))
+    assert sub_row(leader['id'])['stripe_status'] == 'canceled'
+    assert audit_count('BILLING_CANCELLED', fx['a']['root']) == 1
+    r = client_as(leader).get('/api/units')
+    assert r.status_code == 402 and r.get_json()['billing']['reason'] == 'payment_required', r.get_json()
+
+
+def test_a_late_delete_for_a_superseded_subscription_cannot_lock(fx):
+    leader = fx['a_leader']
+    post_webhook(event('customer.subscription.created', subscription_obj('cus_A', 'sub_A2', 'active')))
+    assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_A2'
+    post_webhook(event('customer.subscription.deleted', subscription_obj('cus_A', 'sub_A1', 'canceled')))
+    row = sub_row(leader['id'])
+    assert row['stripe_status'] == 'active' and row['stripe_subscription_id'] == 'sub_A2', row
+
+
+def test_replay_other_mode_unknown_customer_and_unknown_type(fx):
+    leader = fx['a_leader']
+    ev = event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A2', 'past_due'), event_id='evt_replay')
+    assert post_webhook(ev).status_code == 200
+    assert sub_row(leader['id'])['stripe_status'] == 'past_due'
+    set_sub(leader['id'], stripe_status='active')
+    r = post_webhook(ev)
+    assert r.status_code == 200 and r.get_json().get('replay') is True, r.get_json()
+    assert sub_row(leader['id'])['stripe_status'] == 'active', 'a replayed event was applied again'
+    # An event from the other mode is acknowledged and ignored.
+    r = post_webhook(event('customer.subscription.updated', subscription_obj('cus_A', 'sub_A2', 'canceled'), livemode=True))
+    assert r.status_code == 200 and sub_row(leader['id'])['stripe_status'] == 'active'
+    # Unknown customer: 200, nothing changes anywhere.
+    assert post_webhook(event('customer.subscription.updated', subscription_obj('cus_NOBODY', 'sub_Z', 'canceled'))).status_code == 200
+    # checkout.session.completed and anything else: acknowledged, ignored.
+    assert post_webhook(event('checkout.session.completed', {'id': 'cs_1', 'customer': 'cus_A'})).status_code == 200
+    assert post_webhook(event('charge.refunded', {'id': 'ch_1'})).status_code == 200
+    assert sub_row(leader['id'])['stripe_status'] == 'active'
+
+
+def test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx):
+    real = server._handle_stripe_event
+
+    def boom(conn, ev):
+        raise RuntimeError('handler died')
+    server._handle_stripe_event = boom
+    try:
+        r = post_webhook(event('customer.subscription.updated', subscription_obj('cus_A'), event_id='evt_boom'))
+        assert r.status_code == 500, r.status_code
+    finally:
+        server._handle_stripe_event = real
+    conn = dbharness.owner_conn()
+    try:
+        assert conn.execute("SELECT count(*) AS n FROM stripe_events WHERE event_id = 'evt_boom'").fetchone()['n'] == 0, \
+            'an event whose handler failed was recorded, so the Stripe retry will be treated as a replay'
+    finally:
+        conn.close()
+    # The retry succeeds.
+    assert post_webhook(event('customer.subscription.updated', subscription_obj('cus_A'), event_id='evt_boom')).status_code == 200
+
+
+def test_webhook_functions_are_only_called_from_the_webhook():
+    src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
+    code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
+    blocks = re.split(r'\n(?=@app\.route|\ndef )', code)
+    allowed = {'billing_webhook', '_handle_stripe_event', '_apply_stripe', '_audit_for_customer'}
+    for block in blocks:
+        if re.search(r'\bbilling_(find_by_customer|apply_stripe|record_event)\s*\(', block):
+            m = re.search(r'def (\w+)\(', block)
+            assert m and m.group(1) in allowed, f'a webhook-only billing_ function is called outside the webhook:\n{block[:300]}'
+        if re.search(r'\bbilling_set_mode\s*\(', block):
+            assert '@platform_admin_required' in block, f'billing_set_mode called outside the admin gate:\n{block[:300]}'
+    assert any(re.search(r'\bbilling_set_mode\s*\(', b) for b in blocks), 'nothing calls billing_set_mode — renamed?'
+
+
 def main():
     try:
         test_the_tables_exist_and_subscriptions_is_a_tenant_table()
@@ -553,6 +721,12 @@ def main():
         test_portal_needs_a_customer(fx)
         test_billing_routes_work_while_locked(fx)
         test_unattached_and_signed_out_cannot_use_billing_routes(fx)
+        test_webhook_rejects_a_bad_signature_and_a_huge_body(fx)
+        test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns(fx)
+        test_a_late_delete_for_a_superseded_subscription_cannot_lock(fx)
+        test_replay_other_mode_unknown_customer_and_unknown_type(fx)
+        test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx)
+        # test_webhook_functions_are_only_called_from_the_webhook()  # Task 7
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)
