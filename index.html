@@ -2281,6 +2281,15 @@
   .directory-table tbody tr:last-child td { border-bottom: none; }
   .directory-table .dir-name { font-weight: 600; color: var(--cp-text-strong); }
   .directory-table .dir-muted { color: var(--cp-muted); }
+  /* A number is only worth styling as a link where it dials; phoneHtml()
+     returns plain text for anything that is not ten digits. */
+  .phone-link { color: var(--cp-accent); text-decoration: none; font-variant-numeric: tabular-nums; }
+  .phone-link:hover, .phone-link:focus-visible { text-decoration: underline; }
+  .phone-sms {
+    margin-left: 8px; color: var(--cp-muted); text-decoration: none;
+    font-size: 0.82em; border: 1px solid var(--cp-border); border-radius: 4px; padding: 1px 6px;
+  }
+  .phone-sms:hover, .phone-sms:focus-visible { color: var(--cp-accent); border-color: var(--cp-accent); }
 
   .person-details { max-height: 60vh; overflow-y: auto; }
   .person-details h3 {
@@ -2537,6 +2546,13 @@
     display: block; margin-top: 12px; font-size: 0.72em; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.03em; color: var(--theme_text-muted);
   }
+  /* Call / Text ride on the label row: the number below them is an input and
+     cannot be a link. Empty until the field holds ten digits. */
+  .pf-actions a {
+    float: right; margin-left: 8px; text-transform: none; letter-spacing: 0;
+    color: var(--cp-accent); text-decoration: none; font-weight: 600;
+  }
+  .pf-actions a:hover, .pf-actions a:focus-visible { text-decoration: underline; }
   .soldier-card input, .soldier-card textarea, .soldier-card select {
     width: 100%; min-width: 0; box-sizing: border-box; margin-top: 4px;
     background: var(--theme_surface-soft, var(--theme_surface));
@@ -4866,6 +4882,46 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ─── Phone numbers ──────────────────────────────────────────────────────────
+// They arrive from twenty different hands — "3105550147", "310-555-0147",
+// "+1 (610) 757 8261" — and the directory column has to read as a column, so
+// one spelling is stored: saveProfile() runs formatPhone() over the field
+// before it PUTs. formatPhone() also runs on display, because rows typed
+// before this existed are still in the database.
+function phoneDigits(raw) {
+  const s = String(raw == null ? '' : raw);
+  // "DSN 312-555-0100" is ten digits and is not a number you can dial from a
+  // phone. Any letter in the field means the field is not just a number, so
+  // it is left exactly as it was typed.
+  if (/[a-z]/i.test(s)) return '';
+  const d = s.replace(/\D/g, '');
+  return d.length === 11 && d[0] === '1' ? d.slice(1) : d;
+}
+
+function formatPhone(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  const d = phoneDigits(s);
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : s;
+}
+
+// ponytail: 10 digits means a US number and nothing else is assumed. An
+// extension, a DSN, a note in the field — anything that is not ten digits
+// stays plain text rather than becoming a link that dials nothing.
+// withSms is for the details modal, where you have stopped to look somebody
+// up; the directory cell is tight and gets the number alone.
+function phoneHtml(raw, withSms = false) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  const d = phoneDigits(s);
+  if (d.length !== 10) return escapeHtml(s);
+  // The directory row is itself a click target, so the link must not open the
+  // soldier page on its way to the dialler.
+  const call = `<a class="phone-link" href="tel:+1${d}" onclick="event.stopPropagation()">${escapeHtml(formatPhone(s))}</a>`;
+  return withSms
+    ? `${call} <a class="phone-sms" href="sms:+1${d}" onclick="event.stopPropagation()">Text</a>`
+    : call;
+}
+
 // ─── Units (full page) ───────────────────────────────────────────────────
 // The subtree beneath the current unit, with the three things a leader does to
 // it: add a child, rename one, delete an empty one. Root rename/delete is the
@@ -5884,12 +5940,14 @@ const PERSON_DETAIL_GROUPS = [
   ['Notes', [['profile_notes', 'Notes']]],
 ];
 const PERSON_DETAIL_DATES = new Set(['dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date']);
+const PERSON_DETAIL_PHONES = new Set(['phone', 'emergency_phone']);
 
-function detailRow(label, value, isDate) {
+function detailRow(label, value, isDate, isPhone) {
   const shown = (value || '').trim();
   const text = shown && isDate ? formatDateWithYear(shown) : shown;
+  const html = isPhone ? phoneHtml(shown, true) : (text ? escapeHtml(text) : '');
   return `<div class="pd-row"><div class="pd-label">${label}</div>` +
-         `<div class="pd-value${text ? '' : ' empty'}">${text ? escapeHtml(text) : 'Not recorded'}</div></div>`;
+         `<div class="pd-value${html ? '' : ' empty'}">${html || 'Not recorded'}</div></div>`;
 }
 
 async function openPersonDetails(id) {
@@ -5914,7 +5972,7 @@ async function openPersonDetails(id) {
       : detailRow('Next scheduled', ''));
   document.getElementById('personDetailsBody').innerHTML = status + PERSON_DETAIL_GROUPS.map(([title, fields]) =>
     `<h3>${title}</h3>` + fields.map(([key, label]) =>
-      detailRow(label, profile[key] || '', PERSON_DETAIL_DATES.has(key))).join('')
+      detailRow(label, profile[key] || '', PERSON_DETAIL_DATES.has(key), PERSON_DETAIL_PHONES.has(key))).join('')
   ).join('');
 }
 
@@ -5965,7 +6023,7 @@ function renderDirectory() {
       <td data-label="DOD ID">${escapeHtml(r.dod_id || '') || dash}</td>
       <td data-label="DOB">${r.dob ? formatDateWithYear(r.dob) : dash}</td>
       <td data-label="MOS">${escapeHtml(r.mos || '') || dash}</td>
-      <td data-label="Phone">${escapeHtml(r.phone || '') || dash}</td>
+      <td data-label="Phone">${phoneHtml(r.phone) || dash}</td>
       <td class="dir-actions" onclick="event.stopPropagation()">
         <details class="dash-row-menu dir-row-menu">
           <summary aria-label="Actions for ${escapeHtml(r.last)}">&#8943;</summary>
@@ -6003,6 +6061,7 @@ const PROFILE_FIELD_IDS = [
   'clearance', 'ets_date', 'section', 'profile_notes',
   'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'
 ];
+const PROFILE_PHONE_IDS = ['phone', 'emergency_phone'];
 let currentSoldierId = null;
 let pendingSoldierId = null;
 let soldierTab = 'overview';
@@ -6037,8 +6096,9 @@ function openSoldierPage(id, push = true) {
     if (profile && !profile.error && currentSoldierId === id) {
       PROFILE_FIELD_IDS.forEach(f => {
         const el = document.getElementById('pf_' + f);
-        if (el) el.value = profile[f] || '';
+        if (el) el.value = PROFILE_PHONE_IDS.includes(f) ? formatPhone(profile[f]) : (profile[f] || '');
       });
+      syncPhoneActions();
     }
   });
 }
@@ -6066,8 +6126,23 @@ function soldierInitials(p) {
 function profileField(label, id, type = 'text') {
   const control = type === 'textarea'
     ? `<textarea id="pf_${id}" rows="2"></textarea>`
-    : `<input type="${type}" id="pf_${id}">`;
-  return `<label class="pf-label" for="pf_${id}">${label}</label>${control}`;
+    : `<input type="${type}" id="pf_${id}"${type === 'tel' ? ' oninput="syncPhoneActions()"' : ''}>`;
+  const actions = type === 'tel' ? `<span class="pf-actions" id="pfa_${id}"></span>` : '';
+  return `<label class="pf-label" for="pf_${id}">${label}${actions}</label>${control}`;
+}
+
+// The Contact card is a form, so the number itself lives in an input and
+// cannot be the link. This pair beside the label is.
+function syncPhoneActions() {
+  PROFILE_PHONE_IDS.forEach(f => {
+    const slot = document.getElementById('pfa_' + f);
+    const el = document.getElementById('pf_' + f);
+    if (!slot || !el) return;
+    const d = phoneDigits(el.value);
+    slot.innerHTML = d.length === 10
+      ? `<a href="tel:+1${d}">Call</a><a href="sms:+1${d}">Text</a>`
+      : '';
+  });
 }
 
 function renderSoldierPage() {
@@ -6179,7 +6254,11 @@ async function saveProfile() {
   const body = {};
   PROFILE_FIELD_IDS.forEach(f => {
     const el = document.getElementById('pf_' + f);
-    if (el) body[f] = el.value;
+    if (!el) return;
+    // Normalising in the field, not just in the body, so the leader sees the
+    // one spelling that was stored rather than the one they typed.
+    if (PROFILE_PHONE_IDS.includes(f)) el.value = formatPhone(el.value);
+    body[f] = el.value;
   });
   const btn = document.querySelector('#soldierView .soldier-hero-actions .dash-btn-primary');
   const res = await api('PUT', `/personnel/${currentSoldierId}/profile`, body);
