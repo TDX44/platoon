@@ -154,7 +154,7 @@ def test_helpers_under_node(src, node):
     # ── roleHelp ──
     assert out['roleLeader'] == 'Sees and edits this unit and everything beneath it.', out['roleLeader']
     assert out['roleOwner'] == \
-        'Also manages the organisation: owners, time zone, removing people, backups.', out['roleOwner']
+        'Also manages the organization: owners, time zone, removing people, backups.', out['roleOwner']
     assert out['roleJunk'] == '', 'an unknown role explains nothing rather than lying'
 
     # ── accessLoadState ──

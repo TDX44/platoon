@@ -8,7 +8,7 @@ services:
     environment:
       DATA_DIR: /data
       HTTPS: "true"
-      # The host runs UTC. The duty day is an ORGANISATION setting stored in the
+      # The host runs UTC. The duty day is an ORGANIZATION setting stored in the
       # database (settings key org_timezone) and changed from Settings, so
       # PLATOON_TZ is only the fallback used before that row exists. TZ affects
       # nothing the database stores — every stored timestamp is written from

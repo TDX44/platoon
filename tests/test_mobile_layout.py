@@ -164,7 +164,7 @@ AVAILABILITY_FIXTURE = {
 }
 
 # The signed-in user: an owner at the root, so every Units-page control and the
-# owner-only Organisation settings row are on screen to be measured.
+# owner-only Organization settings row are on screen to be measured.
 USER_FIXTURE = {
     'id': 1, 'username': 'ada.fixture', 'email': 'ada@example.invalid',
     'full_name': 'SFC Ada Fixtureton-Placeholder', 'unit_id': ROOT_UNIT_ID,
@@ -186,16 +186,16 @@ USER_FIXTURE = {
 }
 
 # What GET /api/admin/overview returns. Deliberately wide content — long
-# organisation names, long owner emails, nine columns — because the admin
+# organization names, long owner emails, nine columns — because the admin
 # tables are the widest thing the app draws on a 320px phone.
 ADMIN_FIXTURE = {
     'generated_at': TODAY.isoformat() + ' 06:30:00',
-    'totals': {'organisations': 3, 'unit_count': 1284, 'personnel_count': 9876,
+    'totals': {'organizations': 3, 'unit_count': 1284, 'personnel_count': 9876,
                'user_count': 142, 'unattached_users': 37, 'pending_invites': 6,
                'database_bytes': 86423219,
                'billing_trial': 12, 'billing_grace': 3, 'billing_locked': 4,
                'billing_active': 118, 'billing_comped': 5},
-    'organisations': [
+    'organizations': [
         {'org_id': 1, 'org_name': 'Headhunter Company (Forward Support Battalion)',
          'org_slug': 'headhunter-company', 'org_kind': 'company',
          'created_stamp': '2026-01-02 03:04:05', 'unit_count': 5, 'personnel_count': 42,
@@ -301,7 +301,7 @@ def stop_server(httpd, thread):
 
 # Stub the one thing a signed-out browser cannot have — the API — and then let
 # the app drive itself. `window.__units` is what GET /units answers, so the
-# wide-organisation pass is a change of fixture, not a change of code path.
+# wide-organization pass is a change of fixture, not a change of code path.
 INIT_JS = """
 async (fixture) => {
   window.__fixture = fixture;
@@ -421,7 +421,7 @@ def check_fits_width(page, width, selector, view_label):
 def check_nothing_clips_inside(page, width, selector, view_label):
     """Content that runs out past the box it is drawn in.
 
-    The totals tiles are the case that bit: "ORGANISATIONS" is one long word,
+    The totals tiles are the case that bit: "ORGANIZATIONS" is one long word,
     and in a narrow tile it ran out under the tile's own border instead of
     wrapping. scrollWidth against clientWidth sees exactly that, whether the
     box hides the overflow or lets it bleed."""
@@ -554,7 +554,7 @@ def check_formation_fits(page, width, height, label):
 def check_home(page, width, units, label):
     """The home screen is the whole org chart. The chart scrolls inside itself
     on purpose; the page it sits on must not, at any width, however wide the
-    organisation gets."""
+    organization gets."""
     page.evaluate(SHOW_HOME_JS, units)
     cards = page.evaluate("document.querySelectorAll('%s').length" % HOME_CARDS)
     assert cards, f'{label} @ {width}px: the org chart drew no unit cards'
@@ -731,7 +731,7 @@ def run_checks(page, base_url):
         page.goto(f'{base_url}/', wait_until='load')
         page.evaluate(INIT_JS, fixture)
 
-        # Home: the org chart, normal tree and a nine-across organisation.
+        # Home: the org chart, normal tree and a nine-across organization.
         check_home(page, width, UNITS_FIXTURE, 'home')
         check_home(page, width, WIDE_UNITS_FIXTURE, 'home (wide org)')
         check_billing(page, width)

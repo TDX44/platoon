@@ -4,7 +4,7 @@ Run with: python tests/test_platform_admin_js.py
 
 adminOverviewHtml() is pure, so the one thing that matters about it — that a
 string which came off the wire never becomes markup — is testable without a
-browser. The payload crosses tenants, so the organisation names and user
+browser. The payload crosses tenants, so the organization names and user
 emails in it come from people this operator has never met.
 
 Also checks the two entry points are gated on currentUser.platform_admin, and
@@ -28,10 +28,10 @@ PAYLOAD = {
     # The stamp is server-made today, but it lands on the page the same way
     # every other server string does, so it is fixtured the same way too.
     'generated_at': '2026-09-17 06:30:00 <img src=x onerror=alert(3)>',
-    'totals': {'organisations': 2, 'unit_count': 1234, 'personnel_count': 9876,
+    'totals': {'organizations': 2, 'unit_count': 1234, 'personnel_count': 9876,
                'user_count': 12, 'unattached_users': 3, 'pending_invites': 1,
                'database_bytes': 86423219},
-    'organisations': [
+    'organizations': [
         {'org_id': 1, 'org_name': 'Alpha Co', 'org_slug': 'alpha-co', 'org_kind': 'company',
          'created_stamp': '2026-01-02 03:04:05', 'unit_count': 4, 'personnel_count': 12345,
          'user_count': 5, 'owner_emails': 'boss@example.com', 'pending_invites': 2,
@@ -50,7 +50,7 @@ PAYLOAD = {
 }
 
 EMPTY = {'generated_at': '2026-09-17 06:30:00', 'totals': {},
-         'organisations': [], 'recent_users': []}
+         'organizations': [], 'recent_users': []}
 
 DRIVER = r'''
 const PAYLOAD = ''' + json.dumps(PAYLOAD) + r''';
@@ -65,7 +65,7 @@ console.log(JSON.stringify({
   bytes: [adminBytes(0), adminBytes(999), adminBytes(86423219), adminBytes(5 * 1024 ** 3)],
   nums: [adminNum(0), adminNum(1234), adminNum(9876543)],
   cleared: (() => {
-    adminData = { organisations: [{ org_name: 'Alpha Co', owner_emails: 'boss@example.com' }] };
+    adminData = { organizations: [{ org_name: 'Alpha Co', owner_emails: 'boss@example.com' }] };
     adminScreenEl.innerHTML = '<td>Alpha Co</td><td>boss@example.com</td>';
     clearPlatformAdmin();
     return { data: adminData, html: adminScreenEl.innerHTML, removed: removedClasses };
@@ -116,12 +116,12 @@ def render(src, node):
     return json.loads(proc.stdout)
 
 
-def test_a_hostile_organisation_name_is_never_markup(out):
+def test_a_hostile_organization_name_is_never_markup(out):
     html = out['page']
-    assert '<img src=x' not in html, 'an organisation name reached the page as markup'
+    assert '<img src=x' not in html, 'an organization name reached the page as markup'
     assert '<script>' not in html, 'a user email reached the page as markup'
     assert '&lt;img src=x onerror=alert(1)&gt; &quot;Ghost&quot; Co' in html, \
-        'the organisation name is not escaped the way escapeHtml() escapes it'
+        'the organization name is not escaped the way escapeHtml() escapes it'
     assert '&lt;script&gt;alert(2)&lt;/script&gt;' in html, 'the email is not escaped'
     # The only tags on this page are the ones the function writes itself.
     tags = set(re.findall(r'<(/?[a-zA-Z][\w-]*)', html))
@@ -174,7 +174,7 @@ def test_both_tables_sort_through_the_shared_helpers(out):
 
 
 def test_the_empty_and_loading_states_say_so(out):
-    assert 'No organisations yet.' in out['empty'], out['empty'][:300]
+    assert 'No organizations yet.' in out['empty'], out['empty'][:300]
     assert 'No users yet.' in out['empty']
     assert 'Loading' in out['loading'] and '<table' not in out['loading'], out['loading']
 
@@ -213,7 +213,7 @@ def test_the_menu_entries_are_gated_on_the_flag(src):
 
 
 def test_signing_out_takes_every_tenants_data_with_it(out, src):
-    """The payload names every organisation on the instance and its owners'
+    """The payload names every organization on the instance and its owners'
     email addresses. Hiding the screen leaves all of it in the DOM and in a
     global for whoever signs in next on a shared machine, so the sign-out path
     has to empty both."""
@@ -246,7 +246,7 @@ def main():
     node = shutil.which('node')
     assert node, 'node is required to run the frontend rules (it ships with the CI image)'
     out = render(src, node)
-    test_a_hostile_organisation_name_is_never_markup(out)
+    test_a_hostile_organization_name_is_never_markup(out)
     test_no_handler_carries_anything_but_a_literal(out)
     test_numbers_go_through_the_page_formatter(out)
     test_missing_values_read_as_missing_not_as_null(out)

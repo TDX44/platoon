@@ -105,7 +105,7 @@ def test_an_unattached_user_declares_no_tenant():
 
     A user who has signed in but not yet created or joined a unit has no
     root_id. Parking them on tenant 0 would give every unattached user of every
-    organisation one shared, writable tenant — and 0 is a value rows really
+    organization one shared, writable tenant — and 0 is a value rows really
     hold: auth_create_root_unit inserts root_id = 0 before it knows the new id.
     So the seeded half-built unit below is exactly what such a user must not
     see.

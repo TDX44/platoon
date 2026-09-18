@@ -12,7 +12,7 @@ table, no migration. Three things have to hold and none of them are obvious:
     A leader of that team cannot write the company's logo but must be able to
     read it — a logo is not sensitive, and the sidebar would otherwise be
     blank for everyone below the top.
-  * it is a tenant row like any other. Another organisation's unit id is a
+  * it is a tenant row like any other. Another organization's unit id is a
     404 on all three verbs: same answer whether the unit exists or not, so
     nothing here is an existence oracle.
 """

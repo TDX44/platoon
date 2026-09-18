@@ -86,7 +86,7 @@ def test_moving_and_promoting_a_user():
 def test_an_owners_row_is_owner_only_and_the_root_keeps_one():
     """Two halves of the same brick. Granting owner is owner-only, so anything
     that strips the last owner is a one-way door out of ever administering the
-    organisation again: a leader must not be able to demote or rename an owner,
+    organization again: a leader must not be able to demote or rename an owner,
     and an owner must not be able to demote or move away the only one left.
 
     Its own tree, deliberately — the test above promotes a second owner into

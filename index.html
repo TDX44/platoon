@@ -1231,7 +1231,7 @@
     display: block; width: min(1200px, 100%); max-width: 100%; min-width: 0;
   }
   .org-chart {
-    /* Wide organisations scroll here, inside the chart. The page never does.
+    /* Wide organizations scroll here, inside the chart. The page never does.
        `safe center` is the whole reason this is a flex box: plain centring of
        an over-wide child scrolls its left-hand columns off where nothing can
        reach them. A browser that does not know `safe` drops the declaration
@@ -2364,7 +2364,7 @@
      unit, and the operator reaches it from the home screen with no unit
      selected. Everything below reuses the --cp-* tokens, so dark mode is
      inherited rather than restated. */
-  /* Wider than the app's other pages on purpose: the organisations table is
+  /* Wider than the app's other pages on purpose: the organizations table is
      nine columns, and on a laptop they should fit without scrolling. */
   #adminScreen {
     display: none; flex-direction: column; gap: 18px;
@@ -2407,7 +2407,7 @@
   .admin-total-label {
     margin-top: 2px; font-size: 0.72em; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.04em; color: var(--cp-muted);
-    /* "ORGANISATIONS" is one long word and does not fit a narrow tile: let it
+    /* "ORGANIZATIONS" is one long word and does not fit a narrow tile: let it
        break rather than run out past the tile's edge. */
     overflow-wrap: anywhere;
   }
@@ -4066,7 +4066,7 @@ function kindLabel(kind) {
 const ACCESS_REACH_NAMES = 4;
 const ROLE_HELP = {
   leader: 'Sees and edits this unit and everything beneath it.',
-  owner: 'Also manages the organisation: owners, time zone, removing people, backups.',
+  owner: 'Also manages the organization: owners, time zone, removing people, backups.',
 };
 
 function roleHelp(role) {
@@ -4370,7 +4370,7 @@ async function load() {
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
-    // The organisation owns the duty day; adopt it before anything renders a
+    // The organization owns the duty day; adopt it before anything renders a
     // date, so an admin changing it elsewhere reaches this device on next load.
     if (settings.timezone) APP_TZ = settings.timezone;
     applyTdyLists(settings);
@@ -4625,7 +4625,7 @@ function settingsNavRow(label, hint, fn) {
   </button>`;
 }
 
-// The organisation has exactly one timezone. The full IANA list is authoritative
+// The organization has exactly one timezone. The full IANA list is authoritative
 // but unusable as a phone picker, so the zones this unit actually spans are
 // pinned at the top and the rest follow.
 const COMMON_TZ = [
@@ -4679,13 +4679,13 @@ function timezoneSettingsRow(isOwner) {
     <div class="settings-row-text">
       <div class="settings-row-label">Time zone</div>
       <div class="settings-row-hint">
-        The duty day for the whole organisation &mdash; every unit shares it.
+        The duty day for the whole organization &mdash; every unit shares it.
         Right now it is <strong id="tzNow">${escapeHtml(now)}</strong> ${escapeHtml(tzOffsetLabel(APP_TZ))}.
         ${isOwner ? '' : 'Only the owner can change this.'}
       </div>
     </div>
     <select class="settings-select" id="orgTimezone" onchange="saveOrgTimezone(this.value)"
-            ${isOwner ? '' : 'disabled'} aria-label="Organisation time zone">
+            ${isOwner ? '' : 'disabled'} aria-label="Organization time zone">
       ${current}${common}${rest ? `<optgroup label="All time zones">${rest}</optgroup>` : ''}
     </select>
   </div>`;
@@ -4740,7 +4740,7 @@ function renderSettings() {
         ${logoSettingsRow()}
       </section>
       <section class="soldier-card">
-        <h3>Organisation</h3>
+        <h3>Organization</h3>
         ${timezoneSettingsRow(isOwner)}
       </section>
       <section class="soldier-card">
@@ -4754,7 +4754,7 @@ function renderSettings() {
         <h3>Data</h3>
         ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
         ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
-        ${settingsRow('Export backup', 'Full JSON snapshot of the organisation.', 'Export', 'exportBackup()')}
+        ${settingsRow('Export backup', 'Full JSON snapshot of the organization.', 'Export', 'exportBackup()')}
         ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
         ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
       </section>
@@ -4765,7 +4765,7 @@ function renderSettings() {
         ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
         ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
         ${currentUser && currentUser.platform_admin
-          ? settingsNavRow('Admin', 'Every organisation on this instance. Operator only.', 'openAdmin()')
+          ? settingsNavRow('Admin', 'Every organization on this instance. Operator only.', 'openAdmin()')
           : ''}
         ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
       </section>
@@ -5001,7 +5001,7 @@ function unitInviteChips(unitId, today, state) {
   if (state === 'failed') return `<span class="unit-chip unit-chip-none">Couldn't load invites</span>`;
   return unitInvites.filter(i => Number(i.unit_id) === Number(unitId)).map(i => {
     const bits = [i.label || 'Unnamed invite'];
-    // An owner invite hands over the whole organisation; say so on the chip.
+    // An owner invite hands over the whole organization; say so on the chip.
     if (i.role === 'owner') bits.push('owner');
     bits.push(inviteExpiryLabel(i.expires_at, today));
     if (i.created_by) bits.push('by ' + i.created_by);   // escaped once, on the join below
@@ -7976,7 +7976,7 @@ function renderAuditLog() {
 // the verified operator, so this is a convenience gate, not the security one —
 // currentUser.platform_admin comes back from /api/me and only hides the menu.
 const ADMIN_ORG_COLUMNS = [
-  { key: 'org_name',         label: 'Organisation' },
+  { key: 'org_name',         label: 'Organization' },
   { key: 'unit_count',       label: 'Units' },
   { key: 'personnel_count',  label: 'Personnel' },
   { key: 'user_count',       label: 'Users' },
@@ -7990,7 +7990,7 @@ const ADMIN_USER_COLUMNS = [
   { key: 'email',     label: 'Email' },
   { key: 'full_name', label: 'Name' },
   { key: 'role',      label: 'Role' },
-  { key: 'org_name',  label: 'Organisation' },
+  { key: 'org_name',  label: 'Organization' },
   { key: 'signed_in', label: 'Signed in' },
   { key: 'billing_state', label: 'Billing' },
 ];
@@ -8033,7 +8033,7 @@ function adminOverviewHtml(data, orgSort, userSort) {
   if (!data) return '<div class="dash-section-empty">Loading…</div>';
   const t = data.totals || {};
   const totals = [
-    ['Organisations', adminNum(t.organisations)],
+    ['Organizations', adminNum(t.organizations)],
     ['Units', adminNum(t.unit_count)],
     ['Personnel', adminNum(t.personnel_count)],
     ['Users', adminNum(t.user_count)],
@@ -8050,7 +8050,7 @@ function adminOverviewHtml(data, orgSort, userSort) {
         <div class="admin-total-label">${label}</div>
       </div>`).join('');
 
-  const orgs = sortRows(data.organisations || [], orgSort, adminSortValue);
+  const orgs = sortRows(data.organizations || [], orgSort, adminSortValue);
   const orgRows = orgs.map(o => `<tr>
       <td class="admin-strong">${adminCell(o.org_name)}<div class="admin-muted">${adminCell(o.org_slug)} · ${adminCell(o.org_kind)}</div>
         <div class="admin-muted">${adminCell(o.owner_emails)}</div></td>
@@ -8085,11 +8085,11 @@ function adminOverviewHtml(data, orgSort, userSort) {
     </div>
     <div class="admin-totals">${totals}</div>
     <section class="admin-section">
-      <h2>Organisations</h2>
+      <h2>Organizations</h2>
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>${sortHeaders(ADMIN_ORG_COLUMNS, orgSort, 'sortAdminOrgs')}</tr></thead>
-          <tbody>${orgRows || `<tr><td colspan="${ADMIN_ORG_COLUMNS.length}" class="admin-muted">No organisations yet.</td></tr>`}</tbody>
+          <tbody>${orgRows || `<tr><td colspan="${ADMIN_ORG_COLUMNS.length}" class="admin-muted">No organizations yet.</td></tr>`}</tbody>
         </table>
       </div>
     </section>
@@ -8109,7 +8109,7 @@ function renderAdmin() {
   if (view) view.innerHTML = adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
 }
 
-// Every other organisation's name, size and owner email, sitting in a global
+// Every other organization's name, size and owner email, sitting in a global
 // and in the DOM. On a shared machine the next person must not find them, so
 // this runs on the way out of the page AND from showLoginScreen(), which is
 // the one funnel every sign-out reaches: the menu item, the session timeout,

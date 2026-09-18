@@ -6,7 +6,7 @@
 -- the schema (public in production, the test schema under tests), the standard
 -- guard against search_path hijacking of definer functions.
 --
--- WHAT MAY BE EXPOSED HERE: counts, sizes, timestamps, organisation names and
+-- WHAT MAY BE EXPOSED HERE: counts, sizes, timestamps, organization names and
 -- slugs, and the email/name/role of a USER of the app. Nothing else. Not
 -- soldier names, not profile rows, not audit `details` text, not invite
 -- tokens, not logo bytes, not Clerk ids. Widening this is not a small change:
@@ -38,12 +38,15 @@
 -- function until this commits, and then sees the new one. There is no window
 -- in which the function is missing.
 DROP FUNCTION IF EXISTS admin_totals(text);
+DROP FUNCTION IF EXISTS admin_organizations(text);
+-- The pre-rename British-spelled name. A deployed instance still has it, granted
+-- to platoon_app; drop the orphan so no un-routed SECURITY DEFINER function lingers.
 DROP FUNCTION IF EXISTS admin_organisations(text);
 DROP FUNCTION IF EXISTS admin_recent_users(int);
 DROP FUNCTION IF EXISTS admin_billing_rows();
 
 CREATE OR REPLACE FUNCTION admin_totals(p_now text)
-RETURNS TABLE (organisations bigint, unit_count bigint, personnel_count bigint,
+RETURNS TABLE (organizations bigint, unit_count bigint, personnel_count bigint,
                user_count bigint, unattached_users bigint, pending_invites bigint,
                database_bytes bigint)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
@@ -60,7 +63,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
          pg_database_size(current_database());
 $$;
 
-CREATE OR REPLACE FUNCTION admin_organisations(p_now text)
+CREATE OR REPLACE FUNCTION admin_organizations(p_now text)
 RETURNS TABLE (org_id int, org_name text, org_slug text, org_kind text, created_stamp text,
                unit_count bigint, personnel_count bigint, user_count bigint,
                owner_emails text, pending_invites bigint, has_logo boolean,
@@ -115,7 +118,7 @@ DO $$
 DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY[
-    'admin_totals(text)', 'admin_organisations(text)', 'admin_recent_users(int)', 'admin_billing_rows()']
+    'admin_totals(text)', 'admin_organizations(text)', 'admin_recent_users(int)', 'admin_billing_rows()']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO platoon_app', f);

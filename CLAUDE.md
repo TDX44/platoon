@@ -283,7 +283,7 @@ about. Range mode means "unavailable on any day of the range" and each person ca
 
 ### Time
 
-The duty day is the **organisation's**, not the server's or the viewer's.
+The duty day is the **organization's**, not the server's or the viewer's.
 prodsrv02 runs UTC, so `date.today()` rolled the roster over at 1900 Central and
 activated absences for courses starting the next morning. `app_today()`,
 `app_now()` and `app_stamp()` are the only ways the backend asks what time it
@@ -293,7 +293,7 @@ reappears.
 The zone is a **setting**, not config: `settings` key `org_timezone`, scoped
 `(root_id, NULL, 'org_timezone')` — one duty day per root, read per request
 rather than cached, so a request against one tenant never serves another
-tenant's zone. Changed by an owner from Settings → Organisation, validated as
+tenant's zone. Changed by an owner from Settings → Organization, validated as
 a real IANA zone, and audited as `ORG_TIMEZONE`. `PLATOON_TZ` is just the
 fallback before that row exists.
 
@@ -321,7 +321,7 @@ the two defaults in step.
 
 ### Tenancy
 
-Organisations nest as a `units` adjacency list (`parent_id` self-reference,
+Organizations nest as a `units` adjacency list (`parent_id` self-reference,
 `kind` one of company/platoon/squad/team/section/detachment/flight/crew,
 `UNIQUE(root_id, slug)`). Every tenant table — `units`, `personnel`,
 `personnel_profile`, `scheduled_events`, `duty_roster`, `report_history`,
@@ -426,7 +426,7 @@ a transient blip. The client retries `/api/auth/sync` once on a 503.
 A Clerk account that has never synced here either redeems a live
 `invite_token` (attaches at the invite's unit and role) or matches a
 pre-existing local row by email/username with an empty `clerk_user_id`
-(`auth_claim_legacy_user` — how the migrated organisation's five accounts,
+(`auth_claim_legacy_user` — how the migrated organization's five accounts,
 and the dev rehearsal's copy of them, land under a new Clerk instance) —
 otherwise it gets a fresh `unit_id NULL` row and the self-serve signup screen
 described under Tenancy above. There is no admin-bootstrap allowlist; whoever
@@ -442,7 +442,7 @@ backup/restore — they are short-lived credentials, not data.
 ### Platform admin
 
 One person runs this instance, and `/admin` is theirs: a **read-only,
-cross-tenant** dashboard (totals, one row per organisation, the newest users)
+cross-tenant** dashboard (totals, one row per organization, the newest users)
 served by `GET /api/admin/overview`. It is not an app role — `owner` and
 `leader` are still the only roles inside a tenant — it is the operator of the
 server.
@@ -478,7 +478,7 @@ already matches the list, so an ordinary sign-in never touches Clerk.
 **What it may show.** Every number comes from the three `admin_*` SECURITY
 DEFINER functions in **`sql/admin_functions.sql`**, installed at boot beside
 `auth_functions.sql`. That file's header is the rule: counts, sizes,
-timestamps, organisation names/slugs, and app users' email/name/role — and
+timestamps, organization names/slugs, and app users' email/name/role — and
 nothing else. No soldier names, no profile rows, no audit `details`, no invite
 tokens, no logo bytes, no Clerk ids. **The database cannot tell an admin
 request from any other** — `platoon_app` holds EXECUTE on all three — so every

@@ -193,7 +193,7 @@ def _tenant_timezone(conn, root_id):
 
 
 def app_timezone():
-    """The signed-in organisation's timezone name inside a request; the
+    """The signed-in organization's timezone name inside a request; the
     fallback outside one (init_db, tests' fixtures, the CLI scripts)."""
     if has_request_context() and getattr(g, 'tz', None):
         return g.tz
@@ -296,7 +296,7 @@ def set_tenant(conn, root_id):
     None is NOT tenant 0. 0 is an ordinary value a row can hold —
     auth_create_root_unit inserts root_id = 0 transiently — so parking every
     unattached user on it would hand them one shared, writable tenant across
-    organisations. An unattached user declares the empty string, which NULLIF
+    organizations. An unattached user declares the empty string, which NULLIF
     folds to NULL in the policies: they see nothing and can write nothing.
     Setting '' rather than skipping the call also clears a value an earlier
     statement on this connection may have set.
@@ -1509,7 +1509,7 @@ def _invited_by(conn, u):
     /api/users, and one invite query per person there is an N+1. Only the two
     routes that answer "who am I" pay for it, and only after they have declared
     a tenant — `invites` and `users` are both under RLS, so this can never see
-    past the caller's own organisation.
+    past the caller's own organization.
     """
     if not u.get('root_id') or not u.get('clerk_user_id'):
         return ''
@@ -1810,7 +1810,7 @@ def admin_overview():
     # the edges; it is a dashboard count, not a gate.
     now_stamp = app_stamp()
     totals = conn.execute('SELECT * FROM admin_totals(%s)', (now_stamp,)).fetchone()
-    orgs = conn.execute('SELECT * FROM admin_organisations(%s)', (now_stamp,)).fetchall()
+    orgs = conn.execute('SELECT * FROM admin_organizations(%s)', (now_stamp,)).fetchall()
     recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (25,)).fetchall()
     # Billing per account, computed here with the same pure rule the gate
     # uses. For this display an account whose stored email is the operator's
@@ -1833,7 +1833,7 @@ def admin_overview():
     app.logger.info('platform admin overview read by %s', g.auth_claims.get('sub'))
     return jsonify({
         'totals': {**dict(totals), **counts},
-        'organisations': [dict(r) for r in orgs],
+        'organizations': [dict(r) for r in orgs],
         'recent_users': [{**dict(r), 'billing_state': states.get(r['user_id'], (None, None))[0],
                           'billing_mode': states.get(r['user_id'], (None, None))[1]} for r in recent],
         'generated_at': now_stamp,
@@ -1917,7 +1917,7 @@ def update_user(user_id):
             "SELECT count(*) AS n FROM users WHERE role = 'owner' AND unit_id = %s AND clerk_user_id != ''",
             (_root(),)).fetchone()['n']
         if owners <= 1:
-            return jsonify({'error': 'The organisation must keep at least one owner.'}), 400
+            return jsonify({'error': 'The organization must keep at least one owner.'}), 400
     values.append(user_id)
     try:
         conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s', values)
@@ -2206,7 +2206,7 @@ def create_unit():
         g.tz = FALLBACK_TZ
         g.pop('subtree', None)
         _seed_root_defaults(conn, root_id, root_id)
-        log_action('UNIT_CREATE', f'Created {kind} "{name}" (new organisation)', root_id)
+        log_action('UNIT_CREATE', f'Created {kind} "{name}" (new organization)', root_id)
         return jsonify(_unit_json(_unit_row(conn, root_id), 0, _resolved_logos(conn))), 201
 
     if user.get('unit_id') is None or not can_access(parent_id):
@@ -2831,7 +2831,7 @@ def update_settings():
     logs = []
     if 'timezone' in data:
         if not is_owner(g.current_user):
-            return jsonify({'error': 'Only an owner can change the organisation timezone.'}), 403
+            return jsonify({'error': 'Only an owner can change the organization timezone.'}), 403
         try:
             new_tz, _ = validate_timezone(data['timezone'])
         except ValueError as exc:
@@ -2844,7 +2844,7 @@ def update_settings():
             'ON CONFLICT (root_id, COALESCE(unit_id, 0), key) DO UPDATE SET value = EXCLUDED.value',
             (_root(), TIMEZONE_KEY, new_tz))
         g.tz = new_tz   # this request's own stamps use the new day from here on
-        logs.append(('ORG_TIMEZONE', f'Organisation timezone set to {new_tz}'))
+        logs.append(('ORG_TIMEZONE', f'Organization timezone set to {new_tz}'))
     for field, kind in (('tdy_schools', 'schools'), ('tdy_locations', 'locations')):
         if field not in data:
             continue
@@ -3205,7 +3205,7 @@ def export_backup():
             'SELECT * FROM duty_roster WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
         'report_history': with_unit(conn.execute(
             'SELECT * FROM report_history WHERE unit_id = ANY(%s) ORDER BY id', (ids,)).fetchall()),
-        # The organisation-wide settings (unit_id NULL — the clock) belong to
+        # The organization-wide settings (unit_id NULL — the clock) belong to
         # the whole tenant, so only a backup taken from the top carries them.
         'settings': [{'unit': slug_of.get(r['unit_id']), 'key': r['key'], 'value': r['value']}
                      for r in conn.execute(
@@ -3320,7 +3320,7 @@ def import_backup():
     # row's person_id is just a number out of the file, and personnel(id) is a
     # *global* primary key: a profile or event whose person was skipped either
     # aborts the whole restore on the foreign key, or — when that id happens to
-    # belong to another organisation — lands on their soldier carrying our
+    # belong to another organization — lands on their soldier carrying our
     # root_id, because referential integrity is checked outside the RLS
     # policies. An id-less personnel row gets an id nobody in the file can name,
     # so its dependents have nothing to attach to either.
@@ -3464,7 +3464,7 @@ def import_backup():
     # claimed. COALESCE(MAX(id), 1) alone is the A0 form and is wrong here:
     # RLS hides every other tenant's rows, so the visible maximum can sit far
     # below where the shared sequence actually stands, and setval() would wind
-    # it *backwards* onto ids another organisation already holds. nextval() is
+    # it *backwards* onto ids another organization already holds. nextval() is
     # the floor — the sequence only ever moves forward.
     for table in resync:
         seq = f"pg_get_serial_sequence('{table}', 'id')"
@@ -3504,7 +3504,7 @@ def reset_day():
             (list(ids),)
         )
     else:
-        # A whole-organisation reset touches every unit; only an owner may do
+        # A whole-organization reset touches every unit; only an owner may do
         # it. RLS is what bounds the unscoped UPDATE to this tenant.
         if not is_owner(g.current_user):
             return jsonify({'error': 'Forbidden'}), 403
