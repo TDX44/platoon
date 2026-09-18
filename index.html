@@ -331,6 +331,54 @@
   #createUnitScreen input, #createUnitScreen select { margin-bottom: 18px; min-height: 44px; font-size: 1em; }
   #createUnitScreen .btn-login { min-height: 46px; margin-top: 6px; }
   #createUnitScreen .login-error { margin-top: 14px; }
+
+  /* ─── Billing ─── */
+  /* The banner is in normal flow at the top of <body>: nothing fixed, nothing
+     to offset. body.dash-active zeroes the body padding, so it is full-bleed
+     on the roster and inset like everything else elsewhere. */
+  .billing-banner {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 14px;
+    padding: 8px 16px; margin-bottom: 12px; font-size: 0.92em; text-align: center;
+    background: var(--cp-steel-bg); color: var(--cp-text-strong); border-bottom: 1px solid var(--cp-border);
+  }
+  .billing-banner-warn { background: var(--cp-amber-bg); }
+  .billing-banner-danger { background: var(--cp-red-bg); }
+  .billing-banner-link {
+    background: none; border: 0; padding: 6px 4px; min-height: 32px; cursor: pointer;
+    color: var(--cp-accent); font: inherit; font-weight: 600; text-decoration: underline;
+  }
+  .billing-banner-link:hover { color: var(--cp-accent-hover); }
+  body.dash-active .billing-banner { margin-bottom: 0; }
+  #billingScreen {
+    display: none; align-items: center; justify-content: center; min-height: calc(100vh - 48px); padding: 8px 0;
+  }
+  #billingScreen .login-card, body.light-mode #billingScreen .login-card { background: none; }
+  #billingScreen .login-brand { align-items: stretch; padding: 28px; }
+  #billingScreen .login-card { width: min(100%, 560px); }
+  /* .soldier-back is 24px where it came from; on a phone this one is a real
+     tap target. */
+  #billingScreen .soldier-back { min-height: 32px; }
+  .pricing-logo { width: 72px; height: 72px; object-fit: contain; margin: 0 auto 10px; display: block; }
+  .pricing-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 8px; }
+  .pricing-cards-compact { margin: 8px 0; }
+  .pricing-card {
+    display: flex; flex-direction: column; gap: 6px; padding: 16px 14px; min-width: 0;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg); background: var(--cp-surface);
+  }
+  .pricing-card-best { border-color: var(--cp-accent); }
+  .pricing-name { font-weight: 600; color: var(--cp-text-strong); }
+  .pricing-amount { font-size: 1.5em; font-weight: 700; color: var(--cp-text-strong); font-variant-numeric: tabular-nums; }
+  .pricing-per { font-size: 0.55em; font-weight: 500; color: var(--cp-muted); }
+  .pricing-save { min-height: 1.2em; font-size: 0.82em; font-weight: 600; color: var(--cp-green); }
+  .pricing-btn { min-height: 44px; margin-top: auto; }
+  .pricing-loading, .pricing-status { text-align: center; color: var(--cp-muted); font-size: 0.9em; margin: 10px 0 0; min-height: 1.2em; }
+  .pricing-links { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+  .billing-card { margin-top: 12px; }
+  .billing-status { margin: 0 0 12px; color: var(--cp-text); }
+  .admin-btn-xs { padding: 4px 8px; font-size: 0.78em; min-height: 28px; margin-left: 6px; }
+  @media (max-width: 420px) {
+    .pricing-cards { grid-template-columns: 1fr; }
+  }
   .login-card select {
     width: 100%; padding: 9px 10px; margin-bottom: 14px; border: 1px solid var(--cp-border);
     border-radius: 5px; background: var(--cp-input); color: var(--cp-text); font-size: 0.95em;
@@ -3440,6 +3488,8 @@
 </head>
 <body>
 
+<div id="billingBanner"></div>
+
 <!-- ─── Login Screen ─── -->
 <div id="loginScreen">
   <div class="login-card">
@@ -3523,6 +3573,9 @@
     </form>
   </div>
 </div>
+
+<!-- ─── Billing: the pricing screen (locked) and the Billing page ─── -->
+<div id="billingScreen" style="display:none"></div>
 
 <!-- ─── Platform admin (/admin) ───
      Read-only, cross-tenant, and only ever reached by whoever runs the
@@ -4252,6 +4305,16 @@ async function api(method, path, body) {
     return null;
   }
   if (res.status === 401) { showLoginScreen(); return null; }
+  // 402 = the account is locked behind the pricing screen. The body carries
+  // the billing verdict; show the screen and stop. Never a toast, never a
+  // resync: every other call would 402 too.
+  if (res.status === 402) {
+    let j = null;
+    try { j = await res.json(); } catch (e) {}
+    if (currentUser && j && j.billing) currentUser.billing = j.billing;
+    showBillingScreen(true);
+    return null;
+  }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
@@ -4697,6 +4760,7 @@ function renderSettings() {
       </section>
       <section class="soldier-card">
         <h3>Account</h3>
+        ${settingsNavRow('Billing', billingSettingsHint(currentUser && currentUser.billing), 'openBillingPage()')}
         ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
         ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
         ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
@@ -8219,6 +8283,113 @@ function adminCompToggle(u) {
   return `<button type="button" class="admin-btn admin-btn-ghost admin-btn-xs" onclick="setBillingMode(${id}, '${comped ? 'default' : 'comped'}')">${comped ? 'Uncomp' : 'Comp'}</button>`;
 }
 
+function billingSettingsHint(b) {
+  if (!b) return 'Plan, card and invoices.';
+  if (b.state === 'COMPED') return 'Complimentary access.';
+  if (b.state === 'TRIAL') return `Trial ends ${billingDate(b.trial_ends_at)}.`;
+  if (b.state === 'GRACE') return `Trial ended. ${billingDays(b.days_left)} until access is paused.`;
+  if (b.state === 'PAST_DUE') return 'Payment failed. Update your card.';
+  if (b.state === 'ACTIVE') return b.cancel_at_period_end ? `Ends ${billingDate(b.current_period_end)}.` : `Renews ${billingDate(b.current_period_end)}.`;
+  return 'Plan, card and invoices.';
+}
+
+function renderBillingBanner() {
+  const el = document.getElementById('billingBanner');
+  if (!el) return;
+  const signedIn = document.body.classList.contains('app-authenticated');
+  const onPricing = document.body.classList.contains('billing-active');
+  el.innerHTML = signedIn && !onPricing ? billingBannerHtml(currentUser && currentUser.billing) : '';
+}
+
+// One screen, two faces: the pricing screen when locked, the Billing page
+// otherwise. Neither pushes history — Back is routeAfterLogin(), which lands
+// wherever the address bar still says.
+function showBillingScreen(locked) {
+  showAppScreen('billing');
+  const b = currentUser && currentUser.billing;
+  document.getElementById('billingScreen').innerHTML = locked ? pricingScreenHtml(b) : billingPageHtml(b);
+  window.scrollTo({ top: 0 });
+}
+
+function openBillingPage() { showBillingScreen(false); }
+
+function setPricingStatus(msg) {
+  const el = document.getElementById('pricingStatus');
+  if (el) el.textContent = msg;
+}
+
+async function refreshBilling() {
+  const me = await api('GET', '/me');
+  if (!me) return;
+  currentUser = me;
+  renderBillingBanner();
+  if (document.body.classList.contains('billing-active')) {
+    showBillingScreen(me.billing && me.billing.state === 'LOCKED');
+  }
+}
+
+async function extendTrial() {
+  const r = await api('POST', '/billing/extend');
+  if (!r || !r.billing) return;
+  currentUser.billing = r.billing;
+  renderBillingBanner();
+  if (document.body.classList.contains('billing-active')) showBillingScreen(false);
+  else if (document.getElementById('settingsView') && document.body.classList.contains('settings-active')) renderSettings();
+}
+
+async function startCheckout(lookupKey) {
+  setPricingStatus('Opening secure checkout…');
+  const r = await api('POST', '/billing/checkout', { lookup_key: lookupKey });
+  if (r && r.url) { window.location.assign(r.url); return; }
+  setPricingStatus('');
+}
+
+async function openBillingPortal() {
+  const r = await api('POST', '/billing/portal');
+  if (r && r.url) window.location.assign(r.url);
+}
+
+// After Checkout, Stripe sends us back before the webhook has necessarily
+// landed. Poll /api/me (exempt from the 402) until the account reads as
+// subscribed, then route home; give up quietly after 30 s and leave the
+// banner or the pricing screen to say what the server says.
+async function awaitBillingActive() {
+  for (let i = 0; i < 15; i++) {
+    const me = await api('GET', '/me');
+    if (me) {
+      currentUser = me;
+      if (me.billing && me.billing.subscribed) {
+        renderBillingBanner();
+        if (document.body.classList.contains('billing-active')) routeAfterLogin();
+        return;
+      }
+    }
+    setPricingStatus('Confirming your payment…');
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  setPricingStatus('Still confirming. Refresh in a moment, or check Settings → Billing.');
+}
+
+async function maybeShowBillingModal() {
+  const b = currentUser && currentUser.billing;
+  if (!b || !currentUser.id) return;
+  const today = getTodayStr();
+  let seen = null;
+  try { seen = localStorage.getItem(BILLING_MODAL_KEY + currentUser.id); } catch (e) {}
+  if (!billingModalDue(b, seen, today)) return;
+  try { localStorage.setItem(BILLING_MODAL_KEY + currentUser.id, today); } catch (e) {}
+  const ext = b.extension_available
+    ? '<p><button type="button" class="billing-banner-link" onclick="settleConfirm(false); extendTrial()">Extend my trial 7 days</button></p>' : '';
+  const body = `<p class="list-confirm-lead">Your trial ends ${escapeHtml(billingDate(b.trial_ends_at))}. Pick a plan to keep your roster and everything in it.</p>${ext}`;
+  const choose = await confirmDialog('Keep your access', body, 'Choose a plan', { html: true });
+  if (choose) openBillingPage();
+}
+
+async function setBillingMode(userId, mode) {
+  const r = await api('PUT', `/admin/users/${userId}/billing_mode`, { mode });
+  if (r) refreshAdmin();
+}
+
 // ─── Auth ───
 function showAppScreen(screen) {
   document.body.classList.add('app-authenticated');
@@ -8241,6 +8412,9 @@ function showAppScreen(screen) {
   // rather than a page inside the dashboard shell.
   document.getElementById('adminScreen').style.display = screen === 'admin' ? 'flex' : 'none';
   document.body.classList.toggle('admin-active', screen === 'admin');
+  document.getElementById('billingScreen').style.display = screen === 'billing' ? 'flex' : 'none';
+  document.body.classList.toggle('billing-active', screen === 'billing');
+  renderBillingBanner();
 }
 
 function showCreateUnitScreen() {
@@ -8278,6 +8452,10 @@ function showLoginScreen(view) {
   document.getElementById('createUnitScreen').style.display = 'none';
   document.getElementById('platoonScreen').style.display = 'none';
   document.getElementById('adminScreen').style.display = 'none';
+  document.getElementById('billingScreen').style.display = 'none';
+  document.getElementById('billingScreen').innerHTML = '';
+  document.body.classList.remove('billing-active');
+  document.getElementById('billingBanner').innerHTML = '';
   // Not just hidden: emptied. Hiding leaves every tenant's name and every
   // owner's email in the DOM for whoever signs in next on this machine.
   clearPlatformAdmin();
@@ -8964,6 +9142,14 @@ function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
+  // Back from Stripe Checkout: strip the marker and wait for the webhook.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('billing') === 'success') {
+    history.replaceState({}, '', window.location.pathname);
+    awaitBillingActive();
+  }
+  // A locked account lands on the pricing screen and nowhere else.
+  if (currentUser && currentUser.billing && currentUser.billing.state === 'LOCKED') { showBillingScreen(true); return; }
   const route = parseAppRoute();
   // Before the needs_unit check: /admin is not unit-scoped, so an operator who
   // belongs to no unit must still land on it rather than on the "name your
@@ -8976,6 +9162,9 @@ function routeAfterLogin() {
     history.replaceState({ section: 'home' }, '', '/');
   }
   if (currentUser && currentUser.needs_unit) { showCreateUnitScreen(); return; }
+  // Above the home-screen early return: home is where most sign-ins land, and
+  // below it the modal would only ever have fired on a unit-scoped route.
+  maybeShowBillingModal();
   if (!route.unit) { loadHome(); return; }
   selectUnit(route.unit, false, route.section === 'soldier' ? route.soldierId : null);
   if (route.section === 'directory') openDirectory(false);

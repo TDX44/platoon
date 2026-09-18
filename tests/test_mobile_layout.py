@@ -174,6 +174,15 @@ USER_FIXTURE = {
     # Also the operator of the instance, so the Admin menu item, the Settings
     # row and the /admin screen itself are all on screen to be measured.
     'platform_admin': True,
+    # Two days left in the trial, with the extension still available, so the
+    # banner is at its longest: the countdown plus two links.
+    'billing': {'state': 'TRIAL', 'reason': None, 'days_left': 2,
+                'trial_ends_at': TODAY.isoformat() + 'T12:00:00+00:00',
+                'grace_ends_at': TODAY.isoformat() + 'T12:00:00+00:00',
+                'extension_available': True, 'subscribed': False, 'cancel_at_period_end': False,
+                'current_period_end': None, 'portal_available': False,
+                'prices': [{'lookup_key': 'platoon_leader_monthly', 'amount': 299, 'interval': 'month', 'currency': 'usd'},
+                           {'lookup_key': 'platoon_leader_annual', 'amount': 1999, 'interval': 'year', 'currency': 'usd'}]},
 }
 
 # What GET /api/admin/overview returns. Deliberately wide content — long
@@ -183,7 +192,9 @@ ADMIN_FIXTURE = {
     'generated_at': TODAY.isoformat() + ' 06:30:00',
     'totals': {'organisations': 3, 'unit_count': 1284, 'personnel_count': 9876,
                'user_count': 142, 'unattached_users': 37, 'pending_invites': 6,
-               'database_bytes': 86423219},
+               'database_bytes': 86423219,
+               'billing_trial': 12, 'billing_grace': 3, 'billing_locked': 4,
+               'billing_active': 118, 'billing_comped': 5},
     'organisations': [
         {'org_id': 1, 'org_name': 'Headhunter Company (Forward Support Battalion)',
          'org_slug': 'headhunter-company', 'org_kind': 'company',
@@ -198,10 +209,12 @@ ADMIN_FIXTURE = {
     ],
     'recent_users': [
         {'user_id': 9, 'email': 'brand.new.signup@example.invalid', 'full_name': 'PFC Brand Newsignup',
-         'role': 'leader', 'org_name': None, 'signed_in': True},
+         'role': 'leader', 'org_name': None, 'signed_in': True,
+         'billing_state': 'TRIAL', 'billing_mode': 'default'},
         {'user_id': 8, 'email': 'ada.fixtureton-placeholder@example.invalid',
          'full_name': 'SFC Ada Fixtureton-Placeholder', 'role': 'owner',
-         'org_name': 'Headhunter Company (Forward Support Battalion)', 'signed_in': True},
+         'org_name': 'Headhunter Company (Forward Support Battalion)', 'signed_in': True,
+         'billing_state': 'COMPED', 'billing_mode': 'comped'},
     ],
 }
 
@@ -304,6 +317,8 @@ async (fixture) => {
     if (p === '/invites') return fixture.invites;
     if (p === '/me') return fixture.user;
     if (p === '/admin/overview') return fixture.admin;
+    if (p === '/billing/extend') return { billing: fixture.user.billing };
+    if (p === '/billing/checkout' || p === '/billing/portal') return null;
     if (/^\\/personnel\\/\\d+\\/profile$/.test(p)) return fixture.profile;
     return [];
   };
@@ -545,6 +560,44 @@ def check_home(page, width, units, label):
         check_tap_targets(page, width, HOME_CARDS, label)
 
 
+BILLING_LINKS = '#billingBanner .billing-banner-link'
+PRICING_BUTTONS = '#billingScreen .pricing-btn, #billingScreen .billing-banner-link, #billingScreen .dash-btn, #billingScreen .soldier-back'
+
+
+def check_billing(page, width):
+    """The trial banner sits above every signed-in screen; the pricing screen
+    and the Billing page are one full-screen panel. None of it may overflow,
+    and every control on it is a real tap target."""
+    assert page.evaluate("!!document.querySelector('#billingBanner .billing-banner')"), (
+        f'billing @ {width}px: the trial banner did not render on the home screen')
+    check_no_horizontal_overflow(page, width, 'home + billing banner')
+    if width < 900:
+        check_tap_targets(page, width, BILLING_LINKS, 'billing banner')
+    page.evaluate('showBillingScreen(true)')
+    assert page.evaluate("document.querySelectorAll('#billingScreen .pricing-btn').length") == 2, (
+        f'pricing @ {width}px: two purchase buttons expected')
+    assert not page.evaluate("!!document.querySelector('#billingBanner .billing-banner')"), (
+        'the banner must not sit above the pricing screen')
+    check_no_horizontal_overflow(page, width, 'pricing')
+    check_fits_width(page, width, '#billingScreen .login-card', 'pricing')
+    # A plan card too narrow for its own price does not move the page edge —
+    # the amount and the button just run out under the card's border. Only a
+    # box-vs-content test sees that, so the responsive column rule is checked
+    # here rather than by the overflow sweep above.
+    check_nothing_clips_inside(page, width, '#billingScreen .pricing-card', 'plan cards')
+    if width < 900:
+        check_tap_targets(page, width, PRICING_BUTTONS, 'pricing')
+    page.evaluate('showBillingScreen(false)')
+    assert page.evaluate("!!document.querySelector('#billingScreen .billing-card')"), (
+        f'billing page @ {width}px: the Billing card did not render')
+    check_no_horizontal_overflow(page, width, 'billing page')
+    check_fits_width(page, width, '#billingScreen .login-card', 'billing page')
+    check_nothing_clips_inside(page, width, '#billingScreen .pricing-card', 'plan cards (billing page)')
+    if width < 900:
+        check_tap_targets(page, width, PRICING_BUTTONS, 'billing page')
+    page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+
+
 def run_checks(page, base_url):
     fixture = {'units': UNITS_FIXTURE, 'roster': ROSTER_FIXTURE, 'directory': DIRECTORY_FIXTURE,
                'availability': AVAILABILITY_FIXTURE, 'users': USERS_FIXTURE,
@@ -559,6 +612,7 @@ def run_checks(page, base_url):
         # Home: the org chart, normal tree and a nine-across organisation.
         check_home(page, width, UNITS_FIXTURE, 'home')
         check_home(page, width, WIDE_UNITS_FIXTURE, 'home (wide org)')
+        check_billing(page, width)
 
         page.evaluate(ENTER_UNIT_JS, ROOT_UNIT_ID)
 
@@ -591,6 +645,8 @@ def run_checks(page, base_url):
         page.evaluate('openSettings()')
         assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
             f'settings @ {width}px: the Unit logo row did not render')
+        assert page.evaluate("!!document.querySelector('#settingsView [onclick=\"openBillingPage()\"]')"), (
+            f'settings @ {width}px: the Billing row did not render')
         check_no_horizontal_overflow(page, width, 'settings')
         page.evaluate('closeSettings()')
 
