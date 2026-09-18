@@ -820,6 +820,65 @@ def test_backup_carries_the_trial_and_never_the_stripe_ids(fx):
             stripe_status=None, trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
 
 
+ADMIN_EMAIL = 'jonathon.carr5@gmail.com'
+_real_verify = server._verify_clerk_session_token
+
+
+def admin_client(sub='clerk_boss', email=ADMIN_EMAIL):
+    server._clerk_verified_email = lambda cid: email if cid == sub else ''
+    server._PLATFORM_ADMIN_CACHE.clear()
+    server._verify_clerk_session_token = lambda: ({'sub': sub}, None)
+    return server.app.test_client()
+
+
+def test_admin_overview_counts_and_labels_billing(fx):
+    leader, a_owner, b_owner = fx['a_leader'], fx['a_owner'], fx['b_owner']
+    set_sub(leader['id'], billing_mode='default', stripe_status=None, trial_ends_at=utcnow() + 5 * DAY)
+    set_sub(a_owner['id'], billing_mode='comped')
+    set_sub(b_owner['id'], billing_mode='default', stripe_status='active')
+    try:
+        body = admin_client().get('/api/admin/overview').get_json()
+    finally:
+        server._verify_clerk_session_token = _real_verify
+    t = body['totals']
+    assert (t['billing_trial'], t['billing_comped'], t['billing_active']) == (1, 1, 1), t
+    assert t['billing_grace'] == 0 and t['billing_locked'] == 0, t
+    by_email = {u['email']: u for u in body['recent_users']}
+    assert by_email['alpha-leader@example.com']['billing_state'] == 'TRIAL', by_email['alpha-leader@example.com']
+    assert by_email['alpha-leader@example.com']['billing_mode'] == 'default'
+    assert by_email['alpha-owner@example.com']['billing_state'] == 'COMPED'
+    assert by_email['bravo-owner@example.com']['billing_state'] == 'ACTIVE'
+    assert by_email['stray@example.com']['billing_state'] is None, 'an unattached user has no billing'
+    assert 'stripe' not in json.dumps(body).lower(), 'a Stripe id reached the admin payload'
+
+
+def test_admin_comp_toggle(fx):
+    leader = fx['a_leader']
+    try:
+        c = admin_client()
+        r = c.put(f'/api/admin/users/{leader["id"]}/billing_mode', json={'mode': 'comped'})
+        assert r.status_code == 200 and r.get_json() == {'user_id': leader['id'], 'billing_mode': 'comped'}, r.get_json()
+        row = sub_row(leader['id'])
+        assert row['billing_mode'] == 'comped' and row['comped_by'] == 'clerk_boss', row
+        assert audit_count('BILLING_COMP', fx['a']['root']) == 1
+        assert c.put(f'/api/admin/users/{leader["id"]}/billing_mode', json={'mode': 'free'}).status_code == 400
+        assert c.put(f'/api/admin/users/{fx["stray"]["id"]}/billing_mode', json={'mode': 'comped'}).status_code == 404
+        assert c.put('/api/admin/users/999999/billing_mode', json={'mode': 'comped'}).status_code == 404
+        # Back to default.
+        assert c.put(f'/api/admin/users/{leader["id"]}/billing_mode', json={'mode': 'default'}).status_code == 200
+        assert sub_row(leader['id'])['billing_mode'] == 'default'
+        # A non-admin is 404, like every /api/admin/ route.
+        other = admin_client(sub='clerk_nobody', email='nobody@example.com')
+        assert other.put(f'/api/admin/users/{leader["id"]}/billing_mode', json={'mode': 'comped'}).status_code == 404
+        assert sub_row(leader['id'])['billing_mode'] == 'default'
+    finally:
+        server._verify_clerk_session_token = _real_verify
+    # Comped overrides a cancelled Stripe status end to end.
+    set_sub(leader['id'], billing_mode='comped', stripe_status='canceled')
+    assert client_as(leader).get('/api/units').status_code == 200
+    set_sub(leader['id'], billing_mode='default', stripe_status=None)
+
+
 def test_webhook_functions_are_only_called_from_the_webhook():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
@@ -868,7 +927,9 @@ def main():
         test_a_failing_handler_is_500_and_the_event_is_not_recorded(fx)
         test_deleting_a_user_cancels_their_subscription_best_effort(fx)
         test_backup_carries_the_trial_and_never_the_stripe_ids(fx)
-        # test_webhook_functions_are_only_called_from_the_webhook()  # Task 7
+        test_admin_overview_counts_and_labels_billing(fx)
+        test_admin_comp_toggle(fx)
+        test_webhook_functions_are_only_called_from_the_webhook()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

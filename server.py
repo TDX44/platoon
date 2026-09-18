@@ -1767,21 +1767,55 @@ def admin_overview():
     # is filtered on before a tenant is known. Invite expiry stamps are written
     # in each tenant's own zone, so "pending" here can be a few hours out at
     # the edges; it is a dashboard count, not a gate.
-    now = app_stamp()
-    totals = conn.execute('SELECT * FROM admin_totals(%s)', (now,)).fetchone()
-    orgs = conn.execute('SELECT * FROM admin_organisations(%s)', (now,)).fetchall()
+    now_stamp = app_stamp()
+    totals = conn.execute('SELECT * FROM admin_totals(%s)', (now_stamp,)).fetchone()
+    orgs = conn.execute('SELECT * FROM admin_organisations(%s)', (now_stamp,)).fetchall()
     recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (25,)).fetchall()
+    # Billing per account, computed here with the same pure rule the gate
+    # uses. For this display an account whose stored email is the operator's
+    # counts as comped; the real verdict is still Clerk's, on the gate.
+    now = billing_rules.utcnow()
+    states = {}
+    counts = {'billing_trial': 0, 'billing_grace': 0, 'billing_locked': 0, 'billing_active': 0, 'billing_comped': 0}
+    bucket = {'TRIAL': 'billing_trial', 'GRACE': 'billing_grace', 'LOCKED': 'billing_locked',
+              'ACTIVE': 'billing_active', 'PAST_DUE': 'billing_active', 'COMPED': 'billing_comped'}
+    for b in conn.execute('SELECT * FROM admin_billing_rows()').fetchall():
+        admin = (b['email'] or '').strip().lower() in PLATFORM_ADMIN_EMAILS
+        s = billing_rules.billing_state(dict(b), now, default_on=BILLING_DEFAULT_ON, platform_admin=admin,
+                                        enabled=STRIPE_ENABLED)
+        states[b['user_id']] = (s['state'], b['billing_mode'])
+        counts[bucket[s['state']]] += 1
     # log_action() writes to audit_log, which is a tenant table and needs a
     # tenant; this read belongs to no tenant. The process log is the only place
     # it can be recorded, and the token's sub is the only identifier worth
     # recording — never an address out of the request.
     app.logger.info('platform admin overview read by %s', g.auth_claims.get('sub'))
     return jsonify({
-        'totals': dict(totals),
+        'totals': {**dict(totals), **counts},
         'organisations': [dict(r) for r in orgs],
-        'recent_users': [dict(r) for r in recent],
-        'generated_at': now,
+        'recent_users': [{**dict(r), 'billing_state': states.get(r['user_id'], (None, None))[0],
+                          'billing_mode': states.get(r['user_id'], (None, None))[1]} for r in recent],
+        'generated_at': now_stamp,
     })
+
+
+@app.route('/api/admin/users/<int:user_id>/billing_mode', methods=['PUT'])
+@platform_admin_required
+def admin_set_billing_mode(user_id):
+    mode = (request.get_json(silent=True) or {}).get('mode')
+    if mode not in billing_rules.MODES:
+        return jsonify({'error': 'mode must be default, comped or billed'}), 400
+    conn = get_db()
+    sub = g.auth_claims.get('sub')
+    row = conn.execute('SELECT billing_set_mode(%s, %s, %s) AS root_id', (user_id, mode, sub)).fetchone()
+    if not row or row['root_id'] is None:
+        return jsonify({'error': 'Not found'}), 404
+    # The audit row belongs to that account's tenant; the write itself went
+    # through the definer function and needed none.
+    set_tenant(conn, row['root_id'])
+    log_action('BILLING_COMP', f'user {user_id} billing_mode set to {mode} by the platform admin')
+    app.logger.info('platform admin %s set billing_mode=%s for user %s', sub, mode, user_id)
+    return jsonify({'user_id': user_id, 'billing_mode': mode})
 
 
 # ── User management ──
