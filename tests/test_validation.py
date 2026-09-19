@@ -55,6 +55,15 @@ CASES = [
     ('weapons_qual', '{"weapon":"M4"}'),          # JSON, but not a list
 
     ('address', '123 Main St, Apt 4'), ('section', 'S2'), ('flags', 'None'),
+
+    ('address_street', '123 Main St'), ('address_street2', 'Apt 4B'),
+    ('address_city', ''), ('address_city', 'Fort Walton Beach'),
+    ('address_city', "O'Fallon"), ('address_city', 'Winston-Salem'),
+    ('address_city', 'Apt 4'), ('address_city', '90210'),
+    ('address_state', ''), ('address_state', 'FL'), ('address_state', 'fl'),
+    ('address_state', 'AE'), ('address_state', 'XX'), ('address_state', 'Florida'),
+    ('address_zip', ''), ('address_zip', '32547'), ('address_zip', '32547-1234'),
+    ('address_zip', '325471234'), ('address_zip', '3254'), ('address_zip', 'ABCDE'),
     ('profile_notes', 'x' * 300),
     ('section', 'x' * 201),
 ]
@@ -68,6 +77,9 @@ EXPECTED_OK = {
     ('email', 'first.last@army.mil'), ('dod_id', '1234567890'), ('mos', '155E'),
     ('mos', '11b'), ('last', "O'Brien"), ('last', 'Walker-Leahy'), ('last', 'St. John'),
     ('clearance', 'TS/SCI'), ('dob', '1992-02-29'), ('ets_date', '2027-06-30'),
+    ('address_street', '123 Main St'), ('address_city', 'Fort Walton Beach'),
+    ('address_city', "O'Fallon"), ('address_state', 'FL'), ('address_state', 'AE'),
+    ('address_zip', '32547'), ('address_zip', '32547-1234'),
     ('weapons_qual', 'M4 qual 14MAR26'), ('profile_notes', 'x' * 300),
 }
 EXPECTED_BAD = {
@@ -80,6 +92,9 @@ EXPECTED_BAD = {
     ('clearance', 'secret'), ('clearance', 'Cosmic'),
     ('dob', '1990-02-30'), ('dob', '1990-13-01'), ('dob', '90-01-01'), ('dob', '1800-01-01'),
     ('medical_date', '2026-11-31'),
+    ('address_city', 'Apt 4'), ('address_city', '90210'),
+    ('address_state', 'XX'), ('address_state', 'Florida'),
+    ('address_zip', '3254'), ('address_zip', 'ABCDE'),
     ('weapons_qual', '[{"weapon":"Trebuchet","date":""}]'),
     ('weapons_qual', '[{"weapon":"M4","date":"2026-02-30"}]'),
     ('weapons_qual', '[{"weapon":"","date":""}]'),
@@ -100,12 +115,16 @@ def run_js(src):
         extract(src, r"const CLEARANCES = \[.*?\];", 'CLEARANCES'),
         extract(src, r"const WEAPONS = \[.*?\];", 'WEAPONS'),
         extract(src, r"const CLEARANCE_ALIASES = \{.*?\n\};", 'CLEARANCE_ALIASES'),
+        extract(src, r"const US_STATES = \[.*?\];", 'US_STATES'),
+        extract(src, r"const ADDRESS_FIELDS = \[.*?\];", 'ADDRESS_FIELDS'),
         extract(src, r"const NAME_FIELDS = \[.*?\];", 'NAME_FIELDS'),
         extract(src, r"const PROFILE_PHONE_IDS = \[.*?\];", 'PROFILE_PHONE_IDS'),
         extract(src, r"const PROFILE_DATE_IDS = \[.*?\];", 'PROFILE_DATE_IDS'),
         extract(src, r'const NAME_RE = .*?;', 'NAME_RE'),
         extract(src, r'const EMAIL_RE = .*?;', 'EMAIL_RE'),
         extract(src, r'const MOS_RE = .*?;', 'MOS_RE'),
+        extract(src, r'const CITY_RE = .*?;', 'CITY_RE'),
+        extract(src, r'const ZIP_RE = .*?;', 'ZIP_RE'),
         extract(src, r'const ISO_DATE_RE = .*?;', 'ISO_DATE_RE'),
         extract(src, r'const MAX_LEN = .*?;', 'MAX_LEN'),
         extract(src, r'function isRealDate\(s\) \{.*?\n\}', 'isRealDate'),
@@ -151,6 +170,8 @@ def main():
     assert validation.normalize_field('mos', '11b') == '11B'
     assert validation.normalize_field('dod_id', '123-456-7890') == '1234567890'
     # The spelling prod already had, and the ones people type instead.
+    assert validation.normalize_field('address_state', 'fl') == 'FL'
+    assert validation.normalize_field('address_zip', '325471234') == '32547-1234'
     assert validation.normalize_field('clearance', 'TS-SCI') == 'TS/SCI'
     assert validation.normalize_field('clearance', 'secret') == 'Secret'
     assert validation.normalize_field('clearance', '  TOP   SECRET  ') == 'Top Secret'
@@ -171,15 +192,25 @@ def main():
 
     # The two vocabularies have to be the same on both sides too, since the
     # dropdowns are built from the JS copy and enforced by the Python one.
+    server = open(os.path.join(ROOT, 'server.py'), encoding='utf-8').read()
     js_clear = json.loads(extract(src, r'const CLEARANCES = \[.*?\];', 'CLEARANCES')
                           .split('=', 1)[1].strip().rstrip(';').replace("'", '"'))
     js_weapons = json.loads(extract(src, r'const WEAPONS = \[.*?\];', 'WEAPONS')
                             .split('=', 1)[1].strip().rstrip(';').replace("'", '"'))
     assert tuple(js_clear) == validation.CLEARANCES, (js_clear, validation.CLEARANCES)
     assert tuple(js_weapons) == validation.WEAPONS, (js_weapons, validation.WEAPONS)
+    js_states = json.loads(extract(src, r'const US_STATES = \[.*?\];', 'US_STATES')
+                           .split('=', 1)[1].strip().rstrip(';').replace("'", '"'))
+    assert tuple(js_states) == validation.US_STATES, 'the state lists differ'
+
+    # The address columns the form writes must all be columns the route accepts,
+    # or a leader fills the form in and the city silently never leaves the page.
+    for field in validation.ADDRESS_FIELDS:
+        assert f"'{field}'" in server, f'{field} is not in server.py'
+    assert server.count("'address_street', 'address_street2', 'address_city',") >= 1
 
     # The server must actually call this, or none of the above is a boundary.
-    server = open(os.path.join(ROOT, 'server.py'), encoding='utf-8').read()
+
     assert 'validation.validate_profile(updates)' in server, 'the profile route does not validate'
     assert server.count('err = _name_errors(data)') == 2, 'add and edit must both check the name'
 

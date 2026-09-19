@@ -2570,6 +2570,15 @@
   .soldier-card .pf-invalid, .modal .pf-invalid { border-color: var(--cp-red, #c0392b); }
   .pf-invalid:focus { outline-color: var(--cp-red, #c0392b); }
 
+  /* ─── Home address ─── */
+  .addr-row { display: flex; gap: 6px; align-items: flex-start; }
+  .addr-city { flex: 1 1 52%; min-width: 0; }
+  .addr-state { flex: 0 0 5.5em; min-width: 0; }
+  .addr-zip { flex: 1 1 30%; min-width: 0; }
+  .addr-row input, .addr-row select { width: 100%; min-width: 0; box-sizing: border-box; }
+  /* An address is two lines on an envelope and reads as two lines here. */
+  .pd-value { white-space: pre-line; }
+
   /* ─── Weapons qualification rows ─── */
   .wq-list { margin-top: 4px; }
   .wq-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
@@ -5039,6 +5048,20 @@ const CLEARANCE_ALIASES = {
   'n/a': 'None', 'na': 'None', 'none': 'None'
 };
 
+// States, territories, and the three military "states" — AA/AE/AP are what an
+// APO or FPO address carries, and a roster that cannot record one is no use to
+// anybody stationed overseas.
+const US_STATES = ['', 'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI',
+  'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN',
+  'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH',
+  'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA',
+  'WV', 'WI', 'WY',
+  'AS', 'GU', 'MP', 'PR', 'VI',
+  'AA', 'AE', 'AP'];
+
+const ADDRESS_FIELDS = ['address_street', 'address_street2', 'address_city',
+                        'address_state', 'address_zip'];
+
 const NAME_FIELDS = ['last', 'first', 'emergency_name', 'spouse_dependents', 'next_of_kin'];
 const PROFILE_PHONE_IDS = ['phone', 'emergency_phone'];
 const PROFILE_DATE_IDS = ['dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date'];
@@ -5051,6 +5074,9 @@ const NAME_RE = /^[A-Za-z][A-Za-z .,'\-]*$/;
 // rejects every typo anybody actually makes and accepts every address.
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
 const MOS_RE = /^\d{2,3}[A-Za-z]$/;            // 11B, 35F, 155E, 153A
+// Winston-Salem, O'Fallon, Coeur d'Alene, Fort Walton Beach. No digits.
+const CITY_RE = /^[A-Za-z][A-Za-z .'\-]*$/;
+const ZIP_RE = /^\d{5}(-\d{4})?$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LEN = 200, MAX_LEN_LONG = 2000;
 
@@ -5108,6 +5134,9 @@ function validateField(name, value) {
   if (name === 'dod_id') return /^\d{10}$/.test(s) ? '' : 'DOD ID is exactly 10 digits.';
   if (name === 'mos') return MOS_RE.test(s) ? '' : 'MOS is 2-3 numbers then a letter, e.g. 11B or 155E.';
   if (NAME_FIELDS.includes(name)) return NAME_RE.test(s) ? '' : 'Letters, spaces, hyphens and apostrophes only.';
+  if (name === 'address_city') return CITY_RE.test(s) ? '' : 'Letters, spaces, hyphens and apostrophes only.';
+  if (name === 'address_state') return US_STATES.includes(s) ? '' : 'Choose a state from the list.';
+  if (name === 'address_zip') return ZIP_RE.test(s) ? '' : 'ZIP is 5 digits, or 5+4 as 12345-6789.';
   if (name === 'clearance') return CLEARANCES.includes(s) ? '' : 'Choose a clearance from the list.';
   if (PROFILE_DATE_IDS.includes(name)) return isRealDate(s) ? '' : 'Enter a valid date.';
   if (name === 'weapons_qual') {
@@ -5128,6 +5157,14 @@ function normalizeField(name, value) {
   if (PROFILE_PHONE_IDS.includes(name)) return formatPhone(s);
   if (name === 'mos') return s.toUpperCase();
   if (name === 'dod_id') return /^[\d\s-]+$/.test(s) ? s.replace(/\D/g, '') : s;
+  if (name === 'address_state') return s.length === 2 ? s.toUpperCase() : s;
+  if (name === 'address_zip') {
+    // A pasted ZIP+4 arrives as nine straight digits about as often as not.
+    const d = s.replace(/\D/g, '');
+    if (!/^[\d\s-]+$/.test(s)) return s;
+    if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`;
+    return d.length === 5 ? d : s;
+  }
   if (name === 'clearance') {
     const key = s.toLowerCase().split(/\s+/).join(' ');
     if (CLEARANCE_ALIASES[key]) return CLEARANCE_ALIASES[key];
@@ -6222,7 +6259,8 @@ async function openPersonDetails(id) {
       : detailRow('Next scheduled', ''));
   document.getElementById('personDetailsBody').innerHTML = status + PERSON_DETAIL_GROUPS.map(([title, fields]) =>
     `<h3>${title}</h3>` + fields.map(([key, label]) =>
-      detailRow(label, profile[key] || '', detailKind(key))).join('')
+      detailRow(label, key === 'address' ? addressText(profile) : (profile[key] || ''),
+                detailKind(key))).join('')
   ).join('');
 }
 
@@ -6306,7 +6344,11 @@ function renderDirectory() {
 
 // ─── Soldier Detail Page ───
 const PROFILE_FIELD_IDS = [
+  // 'address' is the pre-form free text. It has no input any more and is only
+  // written when the leader discards it; the loop below skips it for want of
+  // an element, which is what keeps it from being blanked on every save.
   'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
+  'address_street', 'address_street2', 'address_city', 'address_state', 'address_zip',
   'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
   'clearance', 'ets_date', 'section', 'profile_notes',
   'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'
@@ -6353,6 +6395,7 @@ function openSoldierPage(id, push = true) {
         clearFieldError('pf_' + f);
       });
       loadWeapons(profile.weapons_qual);
+      loadAddress(profile);
       syncPhoneActions();
     }
   });
@@ -6400,6 +6443,69 @@ function profileField(label, id, type = 'text', options = null) {
   }
   const actions = type === 'tel' ? `<span class="pf-actions" id="pfa_${id}"></span>` : '';
   return `<label class="pf-label" for="${el}">${label}${actions}</label>${control}${fieldErrorBox(el)}`;
+}
+
+// ─── Home address ───────────────────────────────────────────────────────────
+// Five fields instead of a textarea, so a city is a city and a ZIP is a ZIP.
+// The old free-text column is kept and shown back to be re-entered; a roster
+// that quietly lost everybody's address would be a poor trade for tidiness.
+let addressLegacy = '';
+let addressLegacyDiscarded = false;
+
+function addressInput(id, placeholder, autocomplete, extra = '') {
+  return `<input type="text" id="pf_${id}" placeholder="${placeholder}"` +
+         ` autocomplete="${autocomplete}"${extra} oninput="clearFieldError('pf_${id}')">` +
+         fieldErrorBox('pf_' + id);
+}
+
+function addressBlock() {
+  const states = US_STATES.map(st =>
+    `<option value="${st}">${st || '\u2014'}</option>`).join('');
+  return `
+    <label class="pf-label" for="pf_address_street">Home Address</label>
+    ${addressInput('address_street', 'Street address', 'address-line1')}
+    ${addressInput('address_street2', 'Apt, suite, unit (optional)', 'address-line2')}
+    <div class="addr-row">
+      <div class="addr-city">${addressInput('address_city', 'City', 'address-level2')}</div>
+      <div class="addr-state">
+        <select id="pf_address_state" aria-label="State" onchange="clearFieldError('pf_address_state')">${states}</select>
+        ${fieldErrorBox('pf_address_state')}
+      </div>
+      <div class="addr-zip">${addressInput('address_zip', 'ZIP', 'postal-code', ' inputmode="numeric"')}</div>
+    </div>
+    <div class="wq-legacy" id="addressLegacy" hidden></div>`;
+}
+
+function loadAddress(profile) {
+  addressLegacy = (profile.address || '').trim();
+  addressLegacyDiscarded = false;
+  // Once the structured fields hold something, the prose has been replaced and
+  // there is nothing left to warn about.
+  if (ADDRESS_FIELDS.some(f => (profile[f] || '').trim())) addressLegacy = '';
+  renderAddressLegacy();
+}
+
+function renderAddressLegacy() {
+  const box = document.getElementById('addressLegacy');
+  if (!box) return;
+  const show = !!addressLegacy && !addressLegacyDiscarded;
+  box.hidden = !show;
+  box.innerHTML = show
+    ? `Previously recorded as free text: <strong>${escapeHtml(addressLegacy)}</strong>. ` +
+      'Fill the fields above to replace it. ' +
+      '<button type="button" class="wq-discard" onclick="discardAddressLegacy()">Discard</button>'
+    : '';
+}
+
+function discardAddressLegacy() { addressLegacyDiscarded = true; renderAddressLegacy(); }
+
+// Two lines, the way an envelope reads. Falls back to the old prose until
+// somebody re-enters it.
+function addressText(p) {
+  const street = [p.address_street, p.address_street2].map(v => (v || '').trim()).filter(Boolean).join(', ');
+  const region = [p.address_state, p.address_zip].map(v => (v || '').trim()).filter(Boolean).join(' ');
+  const tail = [(p.address_city || '').trim(), region].filter(Boolean).join(', ');
+  return [street, tail].filter(Boolean).join('\n') || (p.address || '').trim();
 }
 
 // ─── Weapons qualification ──────────────────────────────────────────────────
@@ -6501,7 +6607,7 @@ function renderSoldierPage() {
           <h3>Contact</h3>
           ${profileField('Phone', 'phone', 'tel')}
           ${profileField('Email', 'email', 'email')}
-          ${profileField('Home Address', 'address', 'textarea')}
+          ${addressBlock()}
         </section>
         <section class="soldier-card">
           <h3>Emergency &amp; Family</h3>
@@ -6591,6 +6697,9 @@ async function saveProfile() {
     body[f] = el.value;
   });
   body.weapons_qual = weaponsValue();
+  // 'address' has no input of its own any more. It is only ever written to
+  // clear it, and only when the leader says so.
+  if (addressLegacyDiscarded) body.address = '';
 
   // The server checks the same rules and is the boundary; this pass is so the
   // leader finds out at the field rather than from a 400 that names one.

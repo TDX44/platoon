@@ -42,6 +42,22 @@ CLEARANCE_ALIASES = {
     'n/a': 'None', 'na': 'None', 'none': 'None',
 }
 
+# States, territories, and the three military "states" — AA/AE/AP are what an
+# APO or FPO address carries, and a roster that cannot record one is no use to
+# anybody stationed overseas.
+US_STATES = (
+    '', 'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI',
+    'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN',
+    'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH',
+    'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA',
+    'WV', 'WI', 'WY',
+    'AS', 'GU', 'MP', 'PR', 'VI',           # territories
+    'AA', 'AE', 'AP',                        # APO / FPO / DPO
+)
+
+ADDRESS_FIELDS = ('address_street', 'address_street2', 'address_city',
+                  'address_state', 'address_zip')
+
 NAME_FIELDS = ('last', 'first', 'emergency_name', 'spouse_dependents', 'next_of_kin')
 PHONE_FIELDS = ('phone', 'emergency_phone')
 DATE_FIELDS = ('dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date')
@@ -56,6 +72,9 @@ NAME_RE = re.compile(r"^[A-Za-z][A-Za-z .,'\-]*$")
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$')
 # 11B, 35F, 155E, 153A. Two or three digits and one letter.
 MOS_RE = re.compile(r'^\d{2,3}[A-Za-z]$')
+# Winston-Salem, O'Fallon, Coeur d'Alene, Fort Walton Beach. No digits.
+CITY_RE = re.compile(r"^[A-Za-z][A-Za-z .'\-]*$")
+ZIP_RE = re.compile(r'^\d{5}(-\d{4})?$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
 MAX_LEN = 200          # every short field
@@ -149,6 +168,15 @@ def validate_field(name, value):
     if name in NAME_FIELDS:
         return None if NAME_RE.match(s) else 'Letters, spaces, hyphens and apostrophes only.'
 
+    if name == 'address_city':
+        return None if CITY_RE.match(s) else 'Letters, spaces, hyphens and apostrophes only.'
+
+    if name == 'address_state':
+        return None if s in US_STATES else 'Choose a state from the list.'
+
+    if name == 'address_zip':
+        return None if ZIP_RE.match(s) else 'ZIP is 5 digits, or 5+4 as 12345-6789.'
+
     if name == 'clearance':
         return None if s in CLEARANCES else 'Choose a clearance from the list.'
 
@@ -180,6 +208,14 @@ def normalize_field(name, value):
         return s.upper()
     if name == 'dod_id':
         return re.sub(r'\D', '', s) if re.fullmatch(r'[\d\s-]+', s) else s
+    if name == 'address_state':
+        return s.upper() if len(s) == 2 else s
+    if name == 'address_zip':
+        # A pasted ZIP+4 arrives as nine straight digits about as often as not.
+        d = re.sub(r'\D', '', s)
+        if len(d) == 9 and re.fullmatch(r'[\d\s-]+', s):
+            return f'{d[:5]}-{d[5:]}'
+        return d if len(d) == 5 and re.fullmatch(r'[\d\s-]+', s) else s
     if name == 'clearance':
         key = ' '.join(s.lower().split())
         if key in CLEARANCE_ALIASES:

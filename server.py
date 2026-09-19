@@ -500,6 +500,11 @@ def init_db():
                 phone             TEXT DEFAULT '',
                 email             TEXT DEFAULT '',
                 address           TEXT DEFAULT '',
+                address_street    TEXT DEFAULT '',
+                address_street2   TEXT DEFAULT '',
+                address_city      TEXT DEFAULT '',
+                address_state     TEXT DEFAULT '',
+                address_zip       TEXT DEFAULT '',
                 emergency_name    TEXT DEFAULT '',
                 emergency_phone   TEXT DEFAULT '',
                 spouse_dependents TEXT DEFAULT '',
@@ -649,7 +654,12 @@ def init_db():
         )
 
         pcols = _columns(cur, 'personnel_profile')
-        for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'):
+        # 'address' stays: it holds whatever prose was typed before the address
+        # became five fields, and the soldier page shows it back to be
+        # re-entered rather than dropping it.
+        for col in ('flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob',
+                    'address_street', 'address_street2', 'address_city',
+                    'address_state', 'address_zip'):
             if pcols and col not in pcols:
                 cur.execute(f"ALTER TABLE personnel_profile ADD COLUMN {col} TEXT DEFAULT ''")
 
@@ -2573,6 +2583,7 @@ def _name_errors(data):
 
 PROFILE_FIELDS = (
     'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
+    'address_street', 'address_street2', 'address_city', 'address_state', 'address_zip',
     'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
     'clearance', 'ets_date', 'section', 'profile_notes',
     'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob',
