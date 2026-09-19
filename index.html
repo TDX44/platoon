@@ -253,6 +253,14 @@
   .rp-months { display: flex; gap: 34px; }
   .rp-month { flex: 1; min-width: 250px; }
   .rp-title { text-align: center; font-weight: 600; margin-bottom: 14px; }
+  /* Single-date mode: month and year are selects, because eighty years of
+     month arrows is not a way to enter a date of birth. */
+  .rp-sel {
+    font: inherit; font-weight: 600; color: inherit;
+    background: var(--cp-input, var(--cp-surface)); border: 1px solid var(--cp-border);
+    border-radius: 4px; padding: 3px 6px; margin: 0 3px; cursor: pointer;
+  }
+  .rp-pop.rp-single .rp-month { min-width: 262px; }
   .rp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
   .rp-dow { text-align: center; color: var(--cp-muted); padding: 4px 0 8px; font-weight: 500; }
   .rp-d {
@@ -2553,6 +2561,45 @@
     color: var(--cp-accent); text-decoration: none; font-weight: 600;
   }
   .pf-actions a:hover, .pf-actions a:focus-visible { text-decoration: underline; }
+  /* The message sits under the field it is about. An alert() loses your place
+     in a twenty-field form; this does not. */
+  .pf-error {
+    margin-top: 4px; font-size: 0.78em; line-height: 1.35;
+    color: var(--cp-red, #c0392b);
+  }
+  .soldier-card .pf-invalid, .modal .pf-invalid { border-color: var(--cp-red, #c0392b); }
+  .pf-invalid:focus { outline-color: var(--cp-red, #c0392b); }
+
+  /* ─── Weapons qualification rows ─── */
+  .wq-list { margin-top: 4px; }
+  .wq-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .wq-row select { flex: 1 1 42%; min-width: 0; }
+  .wq-row input[type="date"] { flex: 1 1 42%; min-width: 0; }
+  .wq-del {
+    flex: none; width: 2em; height: 2em; line-height: 1;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-sm, 4px);
+    background: none; color: var(--cp-muted); cursor: pointer; font-size: 0.9em;
+  }
+  .wq-del:hover { color: var(--cp-red, #c0392b); border-color: var(--cp-red, #c0392b); }
+  .wq-empty { color: var(--cp-faint); font-size: 0.85em; padding: 6px 0; }
+  .wq-add {
+    margin-top: 8px; border: 1px dashed var(--cp-border); background: none;
+    color: var(--cp-accent); font: inherit; font-size: 0.85em; font-weight: 600;
+    padding: 6px 12px; border-radius: var(--cp-radius-sm, 4px); cursor: pointer;
+  }
+  .wq-add:hover { border-color: var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+  .wq-legacy {
+    margin-top: 8px; padding: 8px 10px; font-size: 0.8em; line-height: 1.45;
+    border: 1px solid var(--cp-amber, #b7791f); border-radius: var(--cp-radius-sm, 4px);
+    background: var(--cp-amber-bg, rgba(183,121,31,0.10)); color: var(--cp-text);
+  }
+  .wq-discard { border: 0; background: none; color: var(--cp-accent); font: inherit; cursor: pointer; text-decoration: underline; }
+  /* On a phone the weapon and its date do not fit across one row. */
+  @media (max-width: 560px) {
+    .wq-row { flex-wrap: wrap; }
+    .wq-row select { flex: 1 1 100%; }
+    .wq-row input[type="date"] { flex: 1 1 auto; }
+  }
   .soldier-card input, .soldier-card textarea, .soldier-card select {
     width: 100%; min-width: 0; box-sizing: border-box; margin-top: 4px;
     background: var(--theme_surface-soft, var(--theme_surface));
@@ -3787,9 +3834,11 @@
       <option>LTC</option><option>COL</option>
     </select>
     <label>Last Name</label>
-    <input type="text" id="addLast" placeholder="e.g. Smith" />
+    <input type="text" id="addLast" placeholder="e.g. Smith" oninput="clearFieldError('addLast')" />
+    <div class="pf-error" id="err_addLast" hidden></div>
     <label>First Name</label>
-    <input type="text" id="addFirst" placeholder="e.g. John" />
+    <input type="text" id="addFirst" placeholder="e.g. John" oninput="clearFieldError('addFirst')" />
+    <div class="pf-error" id="err_addFirst" hidden></div>
     <!-- Only shown when the current unit has something beneath it to choose. -->
     <div id="addUnitRow" style="display:none">
       <label for="addUnitSelect">Unit</label>
@@ -3943,7 +3992,8 @@
     <div class="duty-form">
       <div>
         <label>Date</label>
-        <input type="date" id="dutyDate" onchange="loadDutyRoster()">
+        <input type="date" class="date-input rp-field" id="dutyDate" onchange="loadDutyRoster()"
+               onmousedown="rpOpen(event, 'dutyDate', null, 'single')">
       </div>
       <div>
         <label>Duty</label>
@@ -4921,6 +4971,158 @@ function phoneHtml(raw, withSms = false) {
     ? `${call} <a class="phone-sms" href="sms:+1${d}" onclick="event.stopPropagation()">Text</a>`
     : call;
 }
+
+// ─── Field rules ────────────────────────────────────────────────────────────
+// Every rule here exists twice: in validation.py, which is the boundary, and
+// here, which is what tells a leader what is wrong before they lose the
+// keystrokes. Two copies drift, so tests/test_validation.py lifts this half
+// out and runs both over the same cases. Edit them together or that test
+// fails, which is the point.
+const CLEARANCES = ['', 'None', 'Confidential', 'Interim Secret', 'Secret',
+                    'Interim Top Secret', 'Top Secret', 'TS/SCI'];
+
+// The ones a line unit actually qualifies on. Not the whole catalogue: a list
+// nobody can find their weapon in is worse than a list that is one short, so
+// add to it rather than opening it up to free text.
+const WEAPONS = ['M4', 'M4A1', 'M16A2', 'M16A4', 'M17', 'M18', 'M9', 'M11',
+                 'M249', 'M240B', 'M240L', 'M2', 'M2A1', 'MK19',
+                 'M320', 'M203', 'M136/AT4', 'M141', 'M72 LAW',
+                 'M107', 'M110', 'M24', 'M2010', 'M500', 'M590'];
+
+// What the field already holds, spelled the way people actually write it.
+// Prod had a row reading 'TS-SCI'; a dropdown that does not know that spelling
+// silently blanks the field on the next save, which is data loss disguised as
+// a UI improvement. Anything not here and not a case variant of a real option
+// is left alone and refused, so it is visible rather than guessed at.
+const CLEARANCE_ALIASES = {
+  'ts': 'Top Secret', 'tssci': 'TS/SCI', 'ts-sci': 'TS/SCI', 'ts sci': 'TS/SCI',
+  'ts/sci': 'TS/SCI', 'top secret/sci': 'TS/SCI', 'top secret sci': 'TS/SCI',
+  'sci': 'TS/SCI', 's': 'Secret', 'sec': 'Secret', 'c': 'Confidential',
+  'n/a': 'None', 'na': 'None', 'none': 'None'
+};
+
+const NAME_FIELDS = ['last', 'first', 'emergency_name', 'spouse_dependents', 'next_of_kin'];
+const PROFILE_PHONE_IDS = ['phone', 'emergency_phone'];
+const PROFILE_DATE_IDS = ['dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date'];
+
+// Letters, spaces, hyphens, apostrophes, periods and commas. No digits: a name
+// field holding "2 kids" is how "Spouse / dependents" stopped being a name and
+// started being prose nobody could search.
+const NAME_RE = /^[A-Za-z][A-Za-z .,'\-]*$/;
+// Deliberately not RFC 5322. One @, no spaces, a dot in the domain — that
+// rejects every typo anybody actually makes and accepts every address.
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
+const MOS_RE = /^\d{2,3}[A-Za-z]$/;            // 11B, 35F, 155E, 153A
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_LEN = 200, MAX_LEN_LONG = 2000;
+
+function isRealDate(s) {
+  if (!ISO_DATE_RE.test(s)) return false;
+  const y = +s.slice(0, 4), m = +s.slice(5, 7), d = +s.slice(8, 10);
+  if (m < 1 || m > 12 || d < 1 || y < 1900 || y > 2200) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  return d >= 1 && d <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+}
+
+// The stored weapons_qual as [{weapon, date}], or null when it is the old
+// single-line prose ("M4 qual 14MAR26"). null is not an error and the value is
+// never thrown away — the caller shows it back to be re-entered.
+function parseWeapons(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return [];
+  let parsed;
+  try { parsed = JSON.parse(s); } catch (e) { return null; }
+  if (!Array.isArray(parsed)) return null;
+  const out = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    out.push({ weapon: String(row.weapon || ''), date: String(row.date || '') });
+  }
+  return out;
+}
+
+function weaponsText(raw) {
+  const rows = parseWeapons(raw);
+  if (rows === null) return String(raw == null ? '' : raw);   // legacy prose
+  return rows.filter(r => r.weapon)
+    .map(r => r.date ? `${r.weapon} — ${formatDateWithYear(r.date)}` : r.weapon)
+    .join(', ');
+}
+
+// '' means the value is allowed. Everything accepts '': a roster is filled in
+// over weeks and a half-finished profile still has to save.
+function validateField(name, value) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s) return '';
+
+  const limit = (name === 'address' || name === 'profile_notes') ? MAX_LEN_LONG : MAX_LEN;
+  if (s.length > limit) return `Too long (max ${limit} characters).`;
+
+  if (PROFILE_PHONE_IDS.includes(name)) {
+    // A lettered value is a DSN or an extension and is taken as written; a
+    // plain number has to be a real one.
+    if (/[a-z]/i.test(s)) return '';
+    let d = s.replace(/\D/g, '');
+    if (d.length === 11 && d[0] === '1') d = d.slice(1);
+    return d.length === 10 ? '' : 'Enter a 10-digit phone number.';
+  }
+  if (name === 'email') return EMAIL_RE.test(s) ? '' : 'Enter a valid email address.';
+  if (name === 'dod_id') return /^\d{10}$/.test(s) ? '' : 'DOD ID is exactly 10 digits.';
+  if (name === 'mos') return MOS_RE.test(s) ? '' : 'MOS is 2-3 numbers then a letter, e.g. 11B or 155E.';
+  if (NAME_FIELDS.includes(name)) return NAME_RE.test(s) ? '' : 'Letters, spaces, hyphens and apostrophes only.';
+  if (name === 'clearance') return CLEARANCES.includes(s) ? '' : 'Choose a clearance from the list.';
+  if (PROFILE_DATE_IDS.includes(name)) return isRealDate(s) ? '' : 'Enter a valid date.';
+  if (name === 'weapons_qual') {
+    const rows = parseWeapons(s);
+    if (rows === null) return '';                              // legacy: left alone
+    for (const r of rows) {
+      if (!WEAPONS.includes(r.weapon)) return `${r.weapon || '(blank)'} is not on the weapons list.`;
+      if (r.date && !isRealDate(r.date)) return 'Enter a valid qualification date.';
+    }
+  }
+  return '';                    // address, section, flags, notes: free text
+}
+
+// The one spelling that gets stored. Runs before validateField().
+function normalizeField(name, value) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s) return '';
+  if (PROFILE_PHONE_IDS.includes(name)) return formatPhone(s);
+  if (name === 'mos') return s.toUpperCase();
+  if (name === 'dod_id') return /^[\d\s-]+$/.test(s) ? s.replace(/\D/g, '') : s;
+  if (name === 'clearance') {
+    const key = s.toLowerCase().split(/\s+/).join(' ');
+    if (CLEARANCE_ALIASES[key]) return CLEARANCE_ALIASES[key];
+    const hit = CLEARANCES.find(o => o && o.toLowerCase() === key);
+    return hit || s;
+  }
+  return s;
+}
+
+// A stored value the list has never heard of stays visible and stays refused,
+// rather than vanishing from a <select> that cannot show it.
+function ensureSelectValue(el, value) {
+  if (!el || !value) return;
+  if (![...el.options].some(o => o.value === value)) {
+    el.insertBefore(new Option(value + ' \u2014 not on the list', value), el.firstChild);
+  }
+  el.value = value;
+}
+
+// ─── Inline field errors ────────────────────────────────────────────────────
+// An alert() loses the leader's place in a twenty-field form. The message goes
+// under the field it is about, and clears the moment they touch it.
+function setFieldError(inputId, message) {
+  const box = document.getElementById('err_' + inputId);
+  const el = document.getElementById(inputId);
+  if (box) { box.textContent = message || ''; box.hidden = !message; }
+  if (el) el.classList.toggle('pf-invalid', !!message);
+  return !message;
+}
+
+function clearFieldError(inputId) { setFieldError(inputId, ''); }
+
+function fieldErrorBox(inputId) { return `<div class="pf-error" id="err_${inputId}" hidden></div>`; }
 
 // ─── Units (full page) ───────────────────────────────────────────────────
 // The subtree beneath the current unit, with the three things a leader does to
@@ -5940,12 +6142,22 @@ const PERSON_DETAIL_GROUPS = [
   ['Notes', [['profile_notes', 'Notes']]],
 ];
 const PERSON_DETAIL_DATES = new Set(['dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date']);
-const PERSON_DETAIL_PHONES = new Set(['phone', 'emergency_phone']);
+// Three fields render as something other than the stored string; everything
+// else is plain text. One lookup beats a boolean per kind at every call site.
+function detailKind(key) {
+  if (PERSON_DETAIL_DATES.has(key)) return 'date';
+  if (PROFILE_PHONE_IDS.includes(key)) return 'phone';
+  if (key === 'weapons_qual') return 'weapons';
+  return '';
+}
 
-function detailRow(label, value, isDate, isPhone) {
+function detailRow(label, value, kind) {
   const shown = (value || '').trim();
-  const text = shown && isDate ? formatDateWithYear(shown) : shown;
-  const html = isPhone ? phoneHtml(shown, true) : (text ? escapeHtml(text) : '');
+  let html;
+  if (kind === 'phone') html = phoneHtml(shown, true);
+  else if (kind === 'weapons') html = escapeHtml(weaponsText(shown));
+  else if (kind === 'date' && shown) html = escapeHtml(formatDateWithYear(shown));
+  else html = shown ? escapeHtml(shown) : '';
   return `<div class="pd-row"><div class="pd-label">${label}</div>` +
          `<div class="pd-value${html ? '' : ' empty'}">${html || 'Not recorded'}</div></div>`;
 }
@@ -5964,7 +6176,7 @@ async function openPersonDetails(id) {
   // The modal may have been closed, or another person opened, while this loaded.
   if (document.getElementById('personDetailsTitle').textContent !== name) return;
   const status = `<h3>Status</h3>${detailRow('Current', STATUS_LABELS[row.status] || row.status)}` +
-    detailRow('Return', row.to_date || '', true) +
+    detailRow('Return', row.to_date || '', 'date') +
     (row.next_absence
       ? detailRow('Next scheduled',
           `${STATUS_LABELS[row.next_absence.status] || row.next_absence.status} ` +
@@ -5972,7 +6184,7 @@ async function openPersonDetails(id) {
       : detailRow('Next scheduled', ''));
   document.getElementById('personDetailsBody').innerHTML = status + PERSON_DETAIL_GROUPS.map(([title, fields]) =>
     `<h3>${title}</h3>` + fields.map(([key, label]) =>
-      detailRow(label, profile[key] || '', PERSON_DETAIL_DATES.has(key), PERSON_DETAIL_PHONES.has(key))).join('')
+      detailRow(label, profile[key] || '', detailKind(key))).join('')
   ).join('');
 }
 
@@ -6061,7 +6273,6 @@ const PROFILE_FIELD_IDS = [
   'clearance', 'ets_date', 'section', 'profile_notes',
   'flags', 'medical_date', 'dental_date', 'weapons_qual', 'dob'
 ];
-const PROFILE_PHONE_IDS = ['phone', 'emergency_phone'];
 let currentSoldierId = null;
 let pendingSoldierId = null;
 let soldierTab = 'overview';
@@ -6096,8 +6307,14 @@ function openSoldierPage(id, push = true) {
     if (profile && !profile.error && currentSoldierId === id) {
       PROFILE_FIELD_IDS.forEach(f => {
         const el = document.getElementById('pf_' + f);
-        if (el) el.value = PROFILE_PHONE_IDS.includes(f) ? formatPhone(profile[f]) : (profile[f] || '');
+        // weapons_qual has no single input any more; loadWeapons() owns it.
+        if (!el) return;
+        const value = normalizeField(f, profile[f]);
+        if (el.tagName === 'SELECT') ensureSelectValue(el, value);
+        else el.value = value;
+        clearFieldError('pf_' + f);
       });
+      loadWeapons(profile.weapons_qual);
       syncPhoneActions();
     }
   });
@@ -6123,12 +6340,81 @@ function soldierInitials(p) {
   return (((p.first || '').charAt(0)) + ((p.last || '').charAt(0))).toUpperCase() || '?';
 }
 
-function profileField(label, id, type = 'text') {
-  const control = type === 'textarea'
-    ? `<textarea id="pf_${id}" rows="2"></textarea>`
-    : `<input type="${type}" id="pf_${id}"${type === 'tel' ? ' oninput="syncPhoneActions()"' : ''}>`;
+function profileField(label, id, type = 'text', options = null) {
+  const el = 'pf_' + id;
+  const clear = `clearFieldError('${el}')`;
+  let control;
+  if (type === 'textarea') {
+    control = `<textarea id="${el}" rows="2" oninput="${clear}"></textarea>`;
+  } else if (type === 'select') {
+    control = `<select id="${el}" onchange="${clear}">` +
+      options.map(o => `<option value="${escapeHtml(o)}">${o ? escapeHtml(o) : '\u2014 not recorded \u2014'}</option>`).join('') +
+      '</select>';
+  } else if (type === 'date') {
+    // Same picker the absence range uses, in its one-date mode.
+    control = `<input type="date" class="date-input rp-field" id="${el}" onchange="${clear}"` +
+              ` onmousedown="rpOpen(event, '${el}', null, 'single')">`;
+  } else {
+    const extra = type === 'tel' ? 'syncPhoneActions();' : '';
+    control = `<input type="${type}" id="${el}" oninput="${extra}${clear}">`;
+  }
   const actions = type === 'tel' ? `<span class="pf-actions" id="pfa_${id}"></span>` : '';
-  return `<label class="pf-label" for="pf_${id}">${label}${actions}</label>${control}`;
+  return `<label class="pf-label" for="${el}">${label}${actions}</label>${control}${fieldErrorBox(el)}`;
+}
+
+// ─── Weapons qualification ──────────────────────────────────────────────────
+// One weapon and one date per row, as many rows as the soldier has quals.
+// It rides in the existing weapons_qual TEXT column as JSON rather than in a
+// new table: a handful of rows per soldier, never queried across people, and a
+// migration is a worse trade than json.loads().
+let weaponRows = [];
+let weaponsLegacy = '';      // the old one-line prose, if that is what was stored
+
+function loadWeapons(raw) {
+  const rows = parseWeapons(raw);
+  weaponsLegacy = rows === null ? String(raw == null ? '' : raw) : '';
+  weaponRows = rows === null ? [] : rows;
+  renderWeapons();
+}
+
+function renderWeapons() {
+  const list = document.getElementById('weaponsList');
+  if (!list) return;
+  list.innerHTML = weaponRows.map((r, i) => `
+    <div class="wq-row">
+      <select aria-label="Weapon" onchange="weaponRows[${i}].weapon = this.value; clearFieldError('pf_weapons_qual')">
+        <option value="">&mdash; weapon &mdash;</option>
+        ${WEAPONS.map(w => `<option value="${w}"${w === r.weapon ? ' selected' : ''}>${w}</option>`).join('')}
+      </select>
+      <input type="date" class="date-input rp-field" id="wq_date_${i}" aria-label="Qualification date"
+             value="${escapeHtml(r.date || '')}"
+             onchange="weaponRows[${i}].date = this.value; clearFieldError('pf_weapons_qual')"
+             onmousedown="rpOpen(event, 'wq_date_${i}', null, 'single')">
+      <button type="button" class="wq-del" onclick="removeWeaponRow(${i})"
+              aria-label="Remove weapon ${i + 1}">&#10005;</button>
+    </div>`).join('') || '<div class="wq-empty">No weapons recorded.</div>';
+
+  const legacy = document.getElementById('weaponsLegacy');
+  if (legacy) {
+    legacy.hidden = !weaponsLegacy;
+    legacy.innerHTML = weaponsLegacy
+      ? `Previously recorded as free text: <strong>${escapeHtml(weaponsLegacy)}</strong>. ` +
+        'Add the rows above to replace it. ' +
+        '<button type="button" class="wq-discard" onclick="discardWeaponsLegacy()">Discard</button>'
+      : '';
+  }
+}
+
+function addWeaponRow() { weaponRows.push({ weapon: '', date: '' }); renderWeapons(); }
+function removeWeaponRow(i) { weaponRows.splice(i, 1); renderWeapons(); }
+function discardWeaponsLegacy() { weaponsLegacy = ''; renderWeapons(); }
+
+function weaponsValue() {
+  const rows = weaponRows.filter(r => r.weapon);
+  if (rows.length) return JSON.stringify(rows);
+  // Nothing structured entered: saving an unrelated field must not wipe prose
+  // somebody typed before this control existed.
+  return weaponsLegacy || '';
 }
 
 // The Contact card is a form, so the number itself lives in an input and
@@ -6190,7 +6476,7 @@ function renderSoldierPage() {
           ${profileField('Date of Birth', 'dob', 'date')}
           ${profileField('Date of Rank', 'date_of_rank', 'date')}
           ${profileField('MOS', 'mos')}
-          ${profileField('Security Clearance', 'clearance')}
+          ${profileField('Security Clearance', 'clearance', 'select', CLEARANCES)}
           ${profileField('ETS Date', 'ets_date', 'date')}
           ${profileField('Section / Team', 'section')}
         </section>
@@ -6199,7 +6485,11 @@ function renderSoldierPage() {
           ${profileField('Flags', 'flags')}
           ${profileField('Medical Readiness Date', 'medical_date', 'date')}
           ${profileField('Dental Readiness Date', 'dental_date', 'date')}
-          ${profileField('Weapons Qual (weapon / date)', 'weapons_qual')}
+          <label class="pf-label">Weapons Qualification</label>
+          <div class="wq-list" id="weaponsList"></div>
+          <div class="wq-legacy" id="weaponsLegacy" hidden></div>
+          <button type="button" class="wq-add" onclick="addWeaponRow()">+ Add weapon</button>
+          ${fieldErrorBox('pf_weapons_qual')}
         </section>
       </div>
     </div>
@@ -6257,12 +6547,30 @@ async function saveProfile() {
     if (!el) return;
     // Normalising in the field, not just in the body, so the leader sees the
     // one spelling that was stored rather than the one they typed.
-    if (PROFILE_PHONE_IDS.includes(f)) el.value = formatPhone(el.value);
+    el.value = normalizeField(f, el.value);
     body[f] = el.value;
   });
+  body.weapons_qual = weaponsValue();
+
+  // The server checks the same rules and is the boundary; this pass is so the
+  // leader finds out at the field rather than from a 400 that names one.
+  let firstBad = '';
+  Object.keys(body).forEach(f => {
+    if (!setFieldError('pf_' + f, validateField(f, body[f])) && !firstBad) firstBad = f;
+  });
+  if (firstBad) {
+    const el = document.getElementById('pf_' + firstBad) || document.getElementById('err_pf_' + firstBad);
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus(); }
+    return;
+  }
   const btn = document.querySelector('#soldierView .soldier-hero-actions .dash-btn-primary');
   const res = await api('PUT', `/personnel/${currentSoldierId}/profile`, body);
-  if (res && res.error) { alert(res.error); return; }
+  if (res && res.error) {
+    // The server names the field it rejected; put the message where it belongs.
+    if (res.field) setFieldError('pf_' + res.field, res.error);
+    else alert(res.error);
+    return;
+  }
   if (btn) {
     const original = btn.textContent;
     btn.textContent = 'Saved ✓';
@@ -6707,6 +7015,11 @@ async function deleteFromEditModal() {
 // ─── Two-month range picker ───────────────────────────────────────────────
 // Drives the existing <input type="date"> pairs: values stay ISO, change events
 // still fire, so every caller of .value keeps working unchanged.
+//
+// Single-date fields (every profile date, the duty-roster date, a weapons qual)
+// pass toId = null and get the same picker with one month, one click to pick,
+// and month/year selects in place of the title — a date of birth is eighty
+// years of month arrows away otherwise.
 const RP_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const RP_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 let rp = null;
@@ -6741,18 +7054,22 @@ function rpOpen(event, fromId, toId, which) {
   if (!RP_TOUCH) input.focus(); // focusing a date input in a tap gesture opens iOS's picker
   rpClose();
   const fromEl = document.getElementById(fromId);
-  const toEl = document.getElementById(toId);
+  const toEl = toId ? document.getElementById(toId) : null;
+  const single = !toEl;
   const anchor = input.closest('.date-pick-row') || input;
   const start = rpParse(fromEl.value) || new Date();
   rp = {
-    fromEl, toEl, anchor,
+    fromEl, toEl, single, anchor,
     view: new Date(start.getFullYear(), start.getMonth(), 1),
-    next: which === 'to' && fromEl.value ? 'to' : 'from',
+    next: !single && which === 'to' && fromEl.value ? 'to' : 'from',
     pop: document.createElement('div')
   };
-  rp.pop.className = RP_TOUCH ? 'rp-pop rp-sheet' : 'rp-pop';
-  rp.pop.addEventListener('mousedown', e => e.preventDefault());
+  rp.pop.className = (RP_TOUCH ? 'rp-pop rp-sheet' : 'rp-pop') + (single ? ' rp-single' : '');
+  // preventDefault keeps the field from losing focus behind the popover, but
+  // doing it over a <select> stops the native dropdown from ever opening.
+  rp.pop.addEventListener('mousedown', e => { if (!e.target.closest('select')) e.preventDefault(); });
   rp.pop.addEventListener('click', rpOnClick);
+  rp.pop.addEventListener('change', rpOnChange);
   document.body.appendChild(rp.pop);
   rpRender();
   document.addEventListener('mousedown', rpOutside, true);
@@ -6778,9 +7095,24 @@ function rpOutside(e) {
   if (rp && !rp.pop.contains(e.target)) rpClose();
 }
 
+// The title is plain text in range mode and a month/year pair in single mode.
+function rpTitleHTML(view) {
+  if (!rp.single) return `${RP_MON[view.getMonth()]} ${view.getFullYear()}`;
+  const now = new Date().getFullYear();
+  const months = RP_MON.map((m, i) =>
+    `<option value="${i}"${i === view.getMonth() ? ' selected' : ''}>${m}</option>`).join('');
+  let years = '';
+  // Back far enough for a date of birth, forward far enough for an ETS.
+  for (let y = now + 15; y >= now - 80; y--) {
+    years += `<option value="${y}"${y === view.getFullYear() ? ' selected' : ''}>${y}</option>`;
+  }
+  return `<select class="rp-sel" data-act="month">${months}</select>` +
+         `<select class="rp-sel" data-act="year">${years}</select>`;
+}
+
 function rpMonthHTML(base, offset) {
   const view = new Date(base.getFullYear(), base.getMonth() + offset, 1);
-  const from = rp.fromEl.value, to = rp.toEl.value, today = rpISO(new Date());
+  const from = rp.fromEl.value, to = rp.toEl ? rp.toEl.value : '', today = rpISO(new Date());
   const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < view.getDay(); i++) cells.push('<div class="rp-d empty"></div>');
@@ -6793,7 +7125,7 @@ function rpMonthHTML(base, offset) {
     cells.push(`<button type="button" class="${cls.join(' ')}" data-d="${iso}">${d}</button>`);
   }
   return `<div class="rp-month">
-    <div class="rp-title">${RP_MON[view.getMonth()]} ${view.getFullYear()}</div>
+    <div class="rp-title">${rpTitleHTML(view)}</div>
     <div class="rp-grid">
       ${RP_DOW.map(d => `<div class="rp-dow">${d}</div>`).join('')}
       ${cells.join('')}
@@ -6805,9 +7137,9 @@ function rpRender() {
   rp.pop.innerHTML = `
     <button type="button" class="rp-nav prev" data-act="prev" aria-label="Previous month">&#8249;</button>
     <button type="button" class="rp-nav next" data-act="next" aria-label="Next month">&#8250;</button>
-    <div class="rp-months">${rpMonthHTML(rp.view, 0)}${rpMonthHTML(rp.view, 1)}</div>
+    <div class="rp-months">${rpMonthHTML(rp.view, 0)}${rp.single ? '' : rpMonthHTML(rp.view, 1)}</div>
     <div class="rp-foot">
-      <button type="button" class="rp-reset" data-act="reset">Reset Dates</button>
+      <button type="button" class="rp-reset" data-act="reset">${rp.single ? 'Clear Date' : 'Reset Dates'}</button>
       <button type="button" class="rp-done" data-act="done">Done</button>
     </div>`;
   rpPosition();
@@ -6828,6 +7160,14 @@ function rpSet(el, value) {
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+function rpOnChange(e) {
+  const sel = e.target.closest('select[data-act]');
+  if (!sel) return;
+  if (sel.dataset.act === 'month') rp.view.setMonth(+sel.value);
+  else rp.view.setFullYear(+sel.value);
+  rpRender();
+}
+
 function rpOnClick(e) {
   const btn = e.target.closest('[data-act], [data-d]');
   if (!btn) return;
@@ -6838,13 +7178,18 @@ function rpOnClick(e) {
   }
   if (act === 'reset') {
     rpSet(rp.fromEl, '');
-    rpSet(rp.toEl, '');
+    if (rp.toEl) rpSet(rp.toEl, '');
     rp.next = 'from';
-    return rpRender();
+    return rp.single ? rpClose() : rpRender();
   }
   if (act === 'done') return rpClose();
 
   const iso = btn.dataset.d;
+  // One date, one click: there is no second half of a range to wait for.
+  if (rp.single) {
+    rpSet(rp.fromEl, iso);
+    return rpClose();
+  }
   if (rp.next === 'to' && rp.fromEl.value && iso >= rp.fromEl.value) {
     rpSet(rp.toEl, iso);
     rp.next = 'from';
@@ -7238,6 +7583,8 @@ function openAddModal() {
   document.getElementById('addRank').value = 'CW2';
   document.getElementById('addLast').value = '';
   document.getElementById('addFirst').value = '';
+  clearFieldError('addLast');
+  clearFieldError('addFirst');
   document.getElementById('addNotes').value = '';
   document.getElementById('addNotes').disabled = false;
   document.getElementById('addNotesLabel').textContent = 'Notes (optional)';
@@ -7256,6 +7603,8 @@ function openEditModal(i) {
   document.getElementById('addRank').value = p.rank;
   document.getElementById('addLast').value = p.last;
   document.getElementById('addFirst').value = p.first;
+  clearFieldError('addLast');
+  clearFieldError('addFirst');
   const notesEl = document.getElementById('addNotes');
   const notesLbl = document.getElementById('addNotesLabel');
   if (p.status === 'present') {
@@ -7288,7 +7637,14 @@ async function savePerson() {
   const rank = document.getElementById('addRank').value;
   const last = document.getElementById('addLast').value.trim();
   const first = document.getElementById('addFirst').value.trim();
-  if (!last || !first) { alert('Please enter both first and last name.'); return; }
+  // Same rule the server applies; this half just says which field and why
+  // without throwing away what is already typed into the other twenty.
+  let bad = '';
+  [['addLast', 'last', last], ['addFirst', 'first', first]].forEach(([el, field, value]) => {
+    const msg = value ? validateField(field, value) : 'Required.';
+    if (!setFieldError(el, msg) && !bad) bad = el;
+  });
+  if (bad) { document.getElementById(bad).focus(); return; }
   const notes = document.getElementById('addNotes').value.trim();
   if (editIndex >= 0) {
     const p = personnel[editIndex];
@@ -7326,15 +7682,27 @@ function closeImportModal() {
   document.getElementById('importModal').classList.remove('active');
 }
 
+// A line the server would refuse is not a parsed line. Without this the
+// import posted it anyway, got a 400, and stopped halfway through the list
+// with no idea which name it choked on.
+function importRow(rank, last, first) {
+  if (!RANK_ORDER.includes(rank)) return null;
+  if (validateField('last', last) || validateField('first', first)) return null;
+  return { rank, last, first };
+}
+
 function parseImportLine(line) {
   line = line.trim();
   if (!line) return null;
   // RANK Last, First
   let m = line.match(/^([A-Z0-9]+)\s+([^,]+),\s*(.+)$/);
-  if (m && RANK_ORDER.includes(m[1].trim())) return { rank: m[1].trim(), last: m[2].trim(), first: m[3].trim() };
+  if (m) {
+    const row = importRow(m[1].trim(), m[2].trim(), m[3].trim());
+    if (row) return row;
+  }
   // RANK Last First
   m = line.match(/^([A-Z0-9]+)\s+(\S+)\s+(.+)$/);
-  if (m && RANK_ORDER.includes(m[1].trim())) return { rank: m[1].trim(), last: m[2].trim(), first: m[3].trim() };
+  if (m) return importRow(m[1].trim(), m[2].trim(), m[3].trim());
   return null;
 }
 
@@ -7374,7 +7742,14 @@ async function confirmImport() {
   // Add sequentially to preserve order
   for (const r of adds) {
     const newPerson = await api('POST', '/personnel', { rank: r.rank, last: r.last, first: r.first, unit_id: currentUnit.id });
-    if (!newPerson || !newPerson.id) break;
+    if (!newPerson || !newPerson.id) {
+      // Stopping is right — the rest of the list is unverified — but stopping
+      // without saying so is how half an import looked like a whole one.
+      alert(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
+            `${(newPerson && newPerson.error) || 'the server refused it.'} ` +
+            'Everyone before this was added.');
+      break;
+    }
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       unit_id: newPerson.unit_id, status: newPerson.status, notes: '', from: '', to: '', present_date: '',

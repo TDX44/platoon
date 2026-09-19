@@ -16,6 +16,7 @@ from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 from flask import Flask, Response, request, jsonify, redirect, send_from_directory, session, g, has_request_context
+import validation
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
@@ -2487,10 +2488,14 @@ def add_person():
     unit_id = data.get('unit_id')
     if not can_access(unit_id):
         return jsonify({'error': 'Forbidden'}), 403
+    err = _name_errors(data)
+    if err:
+        return jsonify(err), 400
     conn = get_db()
     cur = conn.execute(
         'INSERT INTO personnel (rank, last, first, unit_id, root_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-        (data.get('rank', ''), data.get('last', ''), data.get('first', ''), int(unit_id), _root())
+        (data.get('rank', '').strip(), data.get('last', '').strip(), data.get('first', '').strip(),
+         int(unit_id), _root())
     )
     new_id = cur.fetchone()['id']
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (new_id,)).fetchone()
@@ -2502,6 +2507,9 @@ def add_person():
 @attached_required
 def update_person(person_id):
     data = request.get_json() or {}
+    err = _name_errors(data)
+    if err:
+        return jsonify(err), 400
     fields, values = [], []
     for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date'):
         if col in data:
@@ -2543,6 +2551,26 @@ def update_person(person_id):
     return jsonify(dict(row))
 
 
+def _name_errors(data):
+    """A soldier's own name, checked on create and on edit.
+
+    Both routes take the same three columns off the same modal, so the check
+    belongs in one place rather than in whichever route somebody remembered.
+    A name is required here, unlike a profile field, because a roster row with
+    no name is not a person anybody can account for.
+    """
+    for col in ('last', 'first'):
+        if col not in data:
+            continue
+        value = (data.get(col) or '').strip()
+        if not value:
+            return {'error': 'First and last name are required.', 'field': col}
+        msg = validation.validate_field(col, value)
+        if msg:
+            return {'error': msg, 'field': col}
+    return None
+
+
 PROFILE_FIELDS = (
     'phone', 'email', 'address', 'emergency_name', 'emergency_phone',
     'spouse_dependents', 'next_of_kin', 'dod_id', 'date_of_rank', 'mos',
@@ -2579,6 +2607,15 @@ def update_profile(person_id):
     updates = {f: data[f] for f in PROFILE_FIELDS if f in data}
     if not updates:
         return jsonify({'error': 'No fields to update'}), 400
+
+    # The client checks the same rules and will not normally send anything
+    # that fails them, but the client is not the boundary — curl is. This
+    # normalizes in place (one phone spelling, upper-case MOS) and then
+    # refuses the whole write rather than storing part of it.
+    errors = validation.validate_profile(updates)
+    if errors:
+        field, message = errors[0]
+        return jsonify({'error': message, 'field': field}), 400
 
     # Ensure a row exists, then update only the provided columns. The tenant
     # comes from the soldier, never from the request.

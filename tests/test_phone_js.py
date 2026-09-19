@@ -36,7 +36,10 @@ def main():
     # The directory cell and the details modal must go through phoneHtml, not
     # print the raw column — that was the whole point.
     assert "phoneHtml(r.phone) || dash" in src, 'the directory column no longer renders through phoneHtml'
-    assert "PERSON_DETAIL_PHONES" in src, 'the details modal no longer knows which rows are phones'
+    assert "if (kind === 'phone') html = phoneHtml(shown, true);" in src, \
+        'the details modal no longer renders phone rows as links'
+    assert "if (PROFILE_PHONE_IDS.includes(key)) return 'phone';" in src, \
+        'detailKind() no longer recognises the phone fields'
     assert "escapeHtml(r.phone" not in src, 'the directory column still prints the raw phone'
 
     js = '\n'.join([
