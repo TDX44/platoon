@@ -2576,7 +2576,10 @@
   .wq-row select { flex: 1 1 42%; min-width: 0; }
   .wq-row input[type="date"] { flex: 1 1 42%; min-width: 0; }
   .wq-del {
-    flex: none; width: 2em; height: 2em; line-height: 1;
+    /* Sized to the field beside it, not to the glyph: it deletes a row, and a
+       29px target next to a date input is a mis-tap waiting to happen. */
+    flex: none; min-width: 36px; min-height: 36px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--cp-border); border-radius: var(--cp-radius-sm, 4px);
     background: none; color: var(--cp-muted); cursor: pointer; font-size: 0.9em;
   }
