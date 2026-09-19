@@ -21,6 +21,13 @@ CASES = [
     ('phone', '555-1234'), ('phone', '212-555-0143 x204'),
     ('phone', 'DSN 312-555-0100'), ('phone', '21255501431'),
     ('emergency_phone', '3105550147'), ('emergency_phone', '310555014'),
+    # A '+' declares a country; a bare value is the NANP, which is what every
+    # row written before the country picker existed is.
+    ('phone', '+49 30 12345678'), ('phone', '+49 3012345678'),
+    ('phone', '+44 20 7946 0958'), ('phone', '+1 212 555 0143'),
+    ('phone', '+49 12'), ('phone', '+351 912 345 678'),
+    ('phone', '+61 2 9374 4000'), ('phone', '+999 123 4567'),
+    ('phone', '+49 1234567890123456'), ('emergency_phone', '+82 2 7914 4000'),
 
     ('email', ''), ('email', 'a@b.co'), ('email', 'first.last@army.mil'),
     ('email', 'nope'), ('email', 'a@b'), ('email', 'a b@c.com'), ('email', 'a@@b.com'),
@@ -81,9 +88,16 @@ EXPECTED_OK = {
     ('address_city', "O'Fallon"), ('address_state', 'FL'), ('address_state', 'AE'),
     ('address_zip', '32547'), ('address_zip', '32547-1234'),
     ('weapons_qual', 'M4 qual 14MAR26'), ('profile_notes', 'x' * 300),
+    ('phone', '+49 30 12345678'), ('phone', '+44 20 7946 0958'),
+    ('phone', '+1 212 555 0143'), ('phone', '+351 912 345 678'),
+    ('emergency_phone', '+82 2 7914 4000'),
 }
 EXPECTED_BAD = {
     ('phone', '555-1234'), ('phone', '21255501431'),
+    ('phone', '+49 12'),                       # too short for any plan
+    ('phone', '+999 123 4567'),                # not a dial code we know at all
+    ('phone', '+49 1234567890123456'),         # past E.164's 15
+
     ('emergency_phone', '310555014'),
     ('email', 'nope'), ('email', 'a@b'), ('email', 'a b@c.com'),
     ('dod_id', '123456789'), ('dod_id', '12345678901'), ('dod_id', '12345678ab'),
@@ -110,8 +124,16 @@ def extract(src, pattern, what):
 
 def run_js(src):
     js = '\n'.join([
-        extract(src, r'function phoneDigits\(raw\) \{.*?\n\}', 'phoneDigits'),
-        extract(src, r'function formatPhone\(raw\) \{.*?\n\}', 'formatPhone'),
+        extract(src, r'const PHONE_COUNTRIES = \[.*?\n\];', 'PHONE_COUNTRIES'),
+        extract(src, r'const DIAL_CODES = .*?;\n', 'DIAL_CODES'),
+        extract(src, r'const NANP_DIGITS = .*?;', 'NANP_DIGITS'),
+        extract(src, r'const E164_MAX = .*?;', 'E164_MAX'),
+        extract(src, r'function hasLetters\(value\) \{.*?\n\}', 'hasLetters'),
+        extract(src, r'function phoneSplit\(value\) \{.*?\n\}', 'phoneSplit'),
+        extract(src, r'function phoneJoin\(dial, national\) \{.*?\n\}', 'phoneJoin'),
+        extract(src, r'function maxNationalDigits\(dial\) \{.*?\n\}', 'maxNationalDigits'),
+        extract(src, r'function nationalDigits\(dial, national\) \{.*?\n\}', 'nationalDigits'),
+        extract(src, r'function formatPhone\(value\) \{.*?\n\}', 'formatPhone'),
         extract(src, r"const CLEARANCES = \[.*?\];", 'CLEARANCES'),
         extract(src, r"const WEAPONS = \[.*?\];", 'WEAPONS'),
         extract(src, r"const CLEARANCE_ALIASES = \{.*?\n\};", 'CLEARANCE_ALIASES'),
@@ -202,6 +224,27 @@ def main():
     js_states = json.loads(extract(src, r'const US_STATES = \[.*?\];', 'US_STATES')
                            .split('=', 1)[1].strip().rstrip(';').replace("'", '"'))
     assert tuple(js_states) == validation.US_STATES, 'the state lists differ'
+    js_countries = json.loads(extract(src, r'const PHONE_COUNTRIES = \[.*?\n\];', 'PHONE_COUNTRIES')
+                              .split('=', 1)[1].strip().rstrip(';').replace("'", '"'))
+    assert [tuple(c) for c in js_countries] == list(validation.PHONE_COUNTRIES), \
+        'the country lists differ'
+    # A dial code that appears twice under different digits would make phone_split
+    # ambiguous; duplicates under the SAME country code are fine (US/Canada).
+    for name, iso, dial in validation.PHONE_COUNTRIES:
+        assert dial.isdigit() and 1 <= len(dial) <= 3, (name, dial)
+        assert len(iso) == 2 and iso.isupper(), (name, iso)
+
+    # Splitting and rejoining is a fixed point, or a save would walk the value.
+    for raw in ('(212) 555-0143', '+49 30 12345678', '+44 20 7946 0958', '', 'DSN 1'):
+        dial, national = validation.phone_split(raw)
+        assert validation.phone_split(validation.phone_join(dial, national)) == (dial, national), raw
+    # Ten is a hard stop for +1 and only for +1.
+    assert validation.max_national_digits('1') == 10
+    assert validation.max_national_digits('49') == 13
+    assert validation.max_national_digits('351') == 12
+    assert validation.phone_e164('+49 30 12345678') == '+493012345678'
+    assert validation.phone_e164('(212) 555-0143') == '+12125550143'
+    assert validation.phone_e164('21255501431') == '', 'an 11-digit +1 number is not dialable'
 
     # The address columns the form writes must all be columns the route accepts,
     # or a leader fills the form in and the city silently never leaves the page.

@@ -35,8 +35,8 @@ TYPED = ['', '2', '21', '212', '2125', '21255', '212555', '2125550',
 
 EXPECTED_MASK = ['', '2', '21', '212', '(212) 5', '(212) 55', '(212) 555',
                  '(212) 555-0', '(212) 555-01', '(212) 555-014', '(212) 555-0143',
-                 '(212) 555-0143', '(212) 555-0143', '(212) 555-014', '(212) 555-01',
-                 '212', '212', '21255501431',
+                 '+1 212 555 0143', '(212) 555-0143', '(212) 555-014', '(212) 555-01',
+                 '212', '212', '(212) 555-0143',
                  'DSN 312-555-0100', '212-555-0143 x2', '+44 20 7946 0958']
 
 
@@ -59,10 +59,19 @@ def main():
 
     js = '\n'.join([
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml'),
-        extract(src, r'function phoneDigits\(raw\) \{.*?\n\}', 'phoneDigits'),
-        extract(src, r'function formatPhone\(raw\) \{.*?\n\}', 'formatPhone'),
+        extract(src, r'const PHONE_COUNTRIES = \[.*?\n\];', 'PHONE_COUNTRIES'),
+        extract(src, r'const DIAL_CODES = .*?;\n', 'DIAL_CODES'),
+        extract(src, r'const NANP_DIGITS = .*?;', 'NANP_DIGITS'),
+        extract(src, r'const E164_MAX = .*?;', 'E164_MAX'),
+        extract(src, r'function hasLetters\(value\) \{.*?\n\}', 'hasLetters'),
+        extract(src, r'function phoneSplit\(value\) \{.*?\n\}', 'phoneSplit'),
+        extract(src, r'function phoneJoin\(dial, national\) \{.*?\n\}', 'phoneJoin'),
+        extract(src, r'function maxNationalDigits\(dial\) \{.*?\n\}', 'maxNationalDigits'),
+        extract(src, r'function nationalDigits\(dial, national\) \{.*?\n\}', 'nationalDigits'),
+        extract(src, r'function formatPhone\(value\) \{.*?\n\}', 'formatPhone'),
+        extract(src, r'function phoneE164\(value\) \{.*?\n\}', 'phoneE164'),
         extract(src, r'function phoneHtml\(raw, withSms = false\) \{.*?\n\}', 'phoneHtml'),
-        extract(src, r'function phoneMask\(raw\) \{.*?\n\}', 'phoneMask'),
+        extract(src, r"function phoneMask\(national, dial = '1'\) \{.*?\n\}", 'phoneMask'),
         'const RAW = ' + json.dumps(RAW) + ';',
         'const TYPED = ' + json.dumps(TYPED) + ';',
         'console.log(JSON.stringify({',
@@ -71,8 +80,13 @@ def main():
         '  sms: phoneHtml("3105550147", true),',
         '  twice: formatPhone(formatPhone("+1 310 555 0147")),',
         '  xss: phoneHtml("<script>alert(1)</script>"),',
-        '  mask: TYPED.map(phoneMask),',
+        '  mask: TYPED.map(v => phoneMask(v)),',
         '  maskTwice: TYPED.map(v => phoneMask(phoneMask(v))),',
+        '  capUS: phoneMask("21255501439999", "1"),',
+        '  capDE: phoneMask("30123456789999999", "49"),',
+        '  maskDE: phoneMask("30 1234 5678", "49"),',
+        '  intl: phoneHtml("+49 30 12345678", true),',
+        '  unknown: phoneHtml("+999 123 4567"),',
         '}));',
     ])
     path = os.path.join(tempfile.mkdtemp(), 'phone.js')
@@ -108,10 +122,26 @@ def main():
     # Re-masking an already-masked value must not shuffle it, or every keystroke
     # after the tenth digit would walk the caret.
     assert out['maskTwice'] == out['mask'], list(zip(out['mask'], out['maskTwice']))
-    # More digits than a US number has is left alone rather than truncated: a
-    # pasted UK number must not become a plausible-looking US one.
-    assert out['mask'][TYPED.index('21255501431')] == '21255501431'
+    # THE HARD STOP: at +1 the field takes ten digits and refuses an eleventh,
+    # however many are typed or pasted at it.
+    assert out['capUS'] == '(212) 555-0143', out['capUS']
+    assert out['mask'][TYPED.index('21255501431')] == '(212) 555-0143', out['mask']
+    # A value still carrying its own '+' is never read under the selected
+    # country; onPhoneInput() adopts the country it names instead.
     assert out['mask'][TYPED.index('+44 20 7946 0958')] == '+44 20 7946 0958'
+    assert out['mask'][TYPED.index('+1 212 555 0143')] == '+1 212 555 0143'
+    # ...and once the country has been adopted, the national part masks normally.
+    assert out['mask'][TYPED.index('1-212-555-0143')] == '(212) 555-0143'
+    # Another country gets its own ceiling — E.164's 15 less the dial code —
+    # and no invented grouping, because we do not know its numbering plan.
+    assert out['capDE'] == '3012345678999', out['capDE']
+    assert out['maskDE'] == '3012345678', out['maskDE']
+
+    # A complete foreign number is as dialable as a domestic one.
+    assert 'href="tel:+493012345678"' in out['intl'], out['intl']
+    assert 'href="sms:+493012345678"' in out['intl'], out['intl']
+    # A country code we do not know is never guessed into a link.
+    assert '<a' not in out['unknown'], out['unknown']
     # A lettered value is left exactly alone, mid-type included.
     assert out['mask'][TYPED.index('DSN 312-555-0100')] == 'DSN 312-555-0100'
     # Once it is complete the mask and the stored spelling are the same string,
@@ -119,6 +149,8 @@ def main():
     assert out['mask'][TYPED.index('2125550143')] == '(212) 555-0143'
 
     assert 'oninput="onPhoneInput(this)"' in src, 'the phone fields do not format while typing'
+    assert 'function phoneControl(' in src, 'there is no country control beside the number'
+    assert 'flagOf(iso)' in src, 'the country options carry no flag'
     print('ok')
 
 

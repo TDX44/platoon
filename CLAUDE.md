@@ -664,6 +664,58 @@ ceiling rather than NULL: `_billing_row`'s backfill only fires on a NULL
 it as a trial with `TRIAL_DAYS` left, for ever. `extended_at` comes back as it
 stands; it only ever removes an entitlement.
 
+### Input validation
+
+**`validation.py`** is the boundary for everything a leader types into a
+soldier: pure, no Flask, no DB, no clock, like `billing_rules.py`. `PUT
+/api/personnel/<id>/profile` normalises through it (`validate_profile()`
+rewrites the dict in place) and then refuses the **whole** write rather than
+storing part of it, answering `{'error', 'field'}` so the client can put the
+message under the field it is about. A soldier's own name goes through
+`_name_errors()` on **both** `POST /api/personnel` and `PUT
+/api/personnel/<id>`, because both take it off the same modal.
+
+**Every rule exists twice** — here and inline in `index.html` as
+`validateField()` / `normalizeField()` — because there is no build step to
+share a module with. `tests/test_validation.py` lifts the JS out, runs both
+over one table of cases, and fails the moment they disagree; it also compares
+the four vocabularies (`CLEARANCES`, `WEAPONS`, `US_STATES`,
+`PHONE_COUNTRIES`) list-for-list. Change a rule in one and that test names the
+other.
+
+Two fields outgrew their column and are **JSON in the TEXT column they already
+had** rather than new tables: `weapons_qual` (a list of `{weapon, date}`) and
+nothing else. `address` instead got five new columns beside it
+(`address_street`, `address_street2`, `address_city`, `address_state`,
+`address_zip`) — the old free-text column is **kept**, shown back on the
+soldier page to be re-entered, and only written when the leader presses
+Discard. `parse_weapons()` returning `None` means "this is the old shape",
+which is never an error and never thrown away.
+
+**Phones carry a country.** The stored string is the whole number;
+`phone_split()` reads a leading `+<dial>` against `DIAL_CODES` (longest first,
+so `+35` never shadows `+351`) and a value with no `+` is the NANP, which is
+what every row written before the picker existed is. `+1` is stored with **no
+prefix** — it is the default and implied — so those rows keep meaning what
+they meant. `+1` is exactly 10 digits and the field refuses an eleventh;
+anything else is capped at E.164's 15 less the dial code. A `+` whose country
+code is not on the list resolves to dial `''` and is **refused**, never read
+as `+1` — otherwise "+999 123 4567" would have found ten digits and built a
+`tel:` link that calls a stranger. A value containing a letter is a DSN or an
+extension and is stored exactly as typed. `PHONE_COUNTRIES` is curated, not
+exhaustive, and only ever extended by hand: a wrong dial code is worse than a
+missing one.
+
+Every single date — profile dates, the duty-roster date, a weapons qual —
+opens the same two-month range picker the absence modal uses, in its
+single-date mode (`rpOpen(event, id, null, 'single')`): one month, one click,
+and month/year `<select>`s in place of the title. Those selects carry
+**`data-sel`, never `data-act`** — `rpOnClick()` matches `[data-act]` on day
+buttons, and a select carrying it was read as a click on a day, wrote
+`undefined` to the field and closed the picker. `tests/test_date_picker_js.py`
+and `tests/test_phone_control_js.py` drive Chromium, because both of those are
+click and keystroke behaviour a DOM-string test cannot see.
+
 ### Design system
 
 All styling flows from a single `--cp-*` token set defined at `:root`

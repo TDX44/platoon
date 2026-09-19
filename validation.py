@@ -58,6 +58,63 @@ US_STATES = (
 ADDRESS_FIELDS = ('address_street', 'address_street2', 'address_city',
                   'address_state', 'address_zip')
 
+# (name, ISO 3166-1 alpha-2, dial code). The alpha-2 is only there so the
+# frontend can build the flag from it; nothing here needs it.
+#
+# Curated, not exhaustive: every NATO member, every place US forces are
+# stationed in numbers, and the large countries people marry into. A wrong
+# dial code is worse than a missing one — it makes a tel: link that quietly
+# calls a stranger — so this list is only ever extended by hand.
+#
+# +1 is shared by the US and Canada and the NANP is identical either way, so a
+# stored +1 number always reads back as the United States. Nothing is lost:
+# the dial code and the ten-digit rule are the whole of what the value means.
+PHONE_COUNTRIES = (
+    ('United States', 'US', '1'), ('Canada', 'CA', '1'), ('Mexico', 'MX', '52'),
+    ('United Kingdom', 'GB', '44'), ('Germany', 'DE', '49'), ('Italy', 'IT', '39'),
+    ('Spain', 'ES', '34'), ('France', 'FR', '33'), ('Poland', 'PL', '48'),
+    ('Netherlands', 'NL', '31'), ('Belgium', 'BE', '32'), ('Portugal', 'PT', '351'),
+    ('Greece', 'GR', '30'), ('Turkey', 'TR', '90'), ('Romania', 'RO', '40'),
+    ('Bulgaria', 'BG', '359'), ('Hungary', 'HU', '36'), ('Czechia', 'CZ', '420'),
+    ('Slovakia', 'SK', '421'), ('Austria', 'AT', '43'), ('Switzerland', 'CH', '41'),
+    ('Sweden', 'SE', '46'), ('Norway', 'NO', '47'), ('Denmark', 'DK', '45'),
+    ('Finland', 'FI', '358'), ('Iceland', 'IS', '354'), ('Ireland', 'IE', '353'),
+    ('Lithuania', 'LT', '370'), ('Latvia', 'LV', '371'), ('Estonia', 'EE', '372'),
+    ('Ukraine', 'UA', '380'), ('Croatia', 'HR', '385'), ('Slovenia', 'SI', '386'),
+    ('Serbia', 'RS', '381'), ('Albania', 'AL', '355'), ('North Macedonia', 'MK', '389'),
+    ('Montenegro', 'ME', '382'), ('Bosnia and Herzegovina', 'BA', '387'),
+    ('Luxembourg', 'LU', '352'), ('Malta', 'MT', '356'), ('Cyprus', 'CY', '357'),
+    ('Moldova', 'MD', '373'), ('Georgia', 'GE', '995'), ('Armenia', 'AM', '374'),
+    ('Azerbaijan', 'AZ', '994'),
+    ('South Korea', 'KR', '82'), ('Japan', 'JP', '81'), ('China', 'CN', '86'),
+    ('Taiwan', 'TW', '886'), ('Philippines', 'PH', '63'), ('Thailand', 'TH', '66'),
+    ('Vietnam', 'VN', '84'), ('Singapore', 'SG', '65'), ('Malaysia', 'MY', '60'),
+    ('Indonesia', 'ID', '62'), ('India', 'IN', '91'), ('Pakistan', 'PK', '92'),
+    ('Bangladesh', 'BD', '880'), ('Sri Lanka', 'LK', '94'), ('Nepal', 'NP', '977'),
+    ('Australia', 'AU', '61'), ('New Zealand', 'NZ', '64'),
+    ('Kuwait', 'KW', '965'), ('Qatar', 'QA', '974'), ('Bahrain', 'BH', '973'),
+    ('United Arab Emirates', 'AE', '971'), ('Saudi Arabia', 'SA', '966'),
+    ('Oman', 'OM', '968'), ('Jordan', 'JO', '962'), ('Israel', 'IL', '972'),
+    ('Iraq', 'IQ', '964'), ('Lebanon', 'LB', '961'), ('Egypt', 'EG', '20'),
+    ('Djibouti', 'DJ', '253'),
+    ('South Africa', 'ZA', '27'), ('Nigeria', 'NG', '234'), ('Kenya', 'KE', '254'),
+    ('Ghana', 'GH', '233'), ('Ethiopia', 'ET', '251'), ('Morocco', 'MA', '212'),
+    ('Tunisia', 'TN', '216'),
+    ('Brazil', 'BR', '55'), ('Argentina', 'AR', '54'), ('Chile', 'CL', '56'),
+    ('Colombia', 'CO', '57'), ('Peru', 'PE', '51'), ('Ecuador', 'EC', '593'),
+    ('Venezuela', 'VE', '58'), ('Panama', 'PA', '507'), ('Costa Rica', 'CR', '506'),
+    ('Guatemala', 'GT', '502'), ('Honduras', 'HN', '504'), ('El Salvador', 'SV', '503'),
+    ('Nicaragua', 'NI', '505'),
+)
+
+# Longest first, so +35 never shadows +351 when a value is split.
+DIAL_CODES = tuple(sorted({d for _, _, d in PHONE_COUNTRIES}, key=lambda d: (-len(d), d)))
+
+# E.164 caps a whole number at 15 digits including the country code. The NANP
+# is exactly 10 and the user asked for that to be a hard stop.
+NANP_DIGITS = 10
+E164_MAX = 15
+
 NAME_FIELDS = ('last', 'first', 'emergency_name', 'spouse_dependents', 'next_of_kin')
 PHONE_FIELDS = ('phone', 'emergency_phone')
 DATE_FIELDS = ('dob', 'date_of_rank', 'ets_date', 'medical_date', 'dental_date')
@@ -81,24 +138,85 @@ MAX_LEN = 200          # every short field
 MAX_LEN_LONG = 2000    # address, notes
 
 
-def digits_of(value):
-    """The dialable digits of a phone, or '' when the field is not just a number.
+def has_letters(value):
+    """A DSN, an extension, a note. Such a value is stored exactly as typed."""
+    return bool(re.search(r'[A-Za-z]', '' if value is None else str(value)))
 
-    A letter anywhere means the field carries more than a number — "DSN
-    312-555-0100", "x204" — and such a value is stored exactly as typed rather
-    than reformatted into something a phone would cheerfully dial.
+
+def phone_split(value):
+    """(dial, national). A value with no '+' is a NANP number, which is the default.
+
+    Only a leading '+' declares a country. Everything already in the column
+    predates the country picker and is a bare US number, so treating a bare
+    value as +1 is what keeps those rows meaning what they meant.
     """
-    s = '' if value is None else str(value)
-    if re.search(r'[A-Za-z]', s):
-        return ''
-    d = re.sub(r'\D', '', s)
-    return d[1:] if len(d) == 11 and d.startswith('1') else d
+    s = ('' if value is None else str(value)).strip()
+    if not s.startswith('+'):
+        return '1', s
+    rest = s[1:]
+    digits = re.sub(r'\D', '', rest)
+    dial = next((d for d in DIAL_CODES if digits.startswith(d)), None)
+    if dial is None:
+        # A '+' with a country code that is not on the list. Reading it as +1
+        # would take "+999 123 4567", find ten digits and build a tel: link
+        # that calls a stranger. '' means "declared a country, and not one we
+        # know" — which is a thing to refuse, not to guess at.
+        return '', s
+    taken = i = 0
+    while i < len(rest) and taken < len(dial):
+        if rest[i].isdigit():
+            taken += 1
+        i += 1
+    return dial, rest[i:].strip()
+
+
+def phone_join(dial, national):
+    """The stored spelling. +1 carries no prefix: it is the default and implied."""
+    national = (national or '').strip()
+    if not national or not dial:
+        return national          # unknown country: the '+' is still in there
+    return national if dial == '1' else f'+{dial} {national}'
+
+
+def max_national_digits(dial):
+    return NANP_DIGITS if dial == '1' else E164_MAX - len(dial)
+
+
+def national_digits(dial, national):
+    """The national digits, with a NANP trunk '1' dropped."""
+    d = re.sub(r'\D', '', national or '')
+    if dial == '1' and len(d) == 11 and d.startswith('1'):
+        d = d[1:]
+    return d
 
 
 def format_phone(value):
     s = ('' if value is None else str(value)).strip()
-    d = digits_of(s)
-    return f'({d[0:3]}) {d[3:6]}-{d[6:]}' if len(d) == 10 else s
+    if not s or has_letters(s):
+        return s
+    dial, national = phone_split(s)
+    if not dial:
+        return s
+    d = national_digits(dial, national)
+    if dial == '1':
+        return phone_join('1', f'({d[0:3]}) {d[3:6]}-{d[6:]}') if len(d) == NANP_DIGITS else s
+    # No invented grouping for a numbering plan we do not know; just one space
+    # between whatever groups the person typed.
+    return phone_join(dial, ' '.join(national.split()))
+
+
+def phone_e164(value):
+    """'+<dial><digits>' for a tel: link, or '' when the value cannot be dialled."""
+    s = ('' if value is None else str(value)).strip()
+    if not s or has_letters(s):
+        return ''
+    dial, national = phone_split(s)
+    if not dial:
+        return ''
+    d = national_digits(dial, national)
+    if dial == '1':
+        return f'+1{d}' if len(d) == NANP_DIGITS else ''
+    return f'+{dial}{d}' if 4 <= len(d) <= max_national_digits(dial) else ''
 
 
 def _is_real_date(s):
@@ -148,13 +266,19 @@ def validate_field(name, value):
 
     if name in PHONE_FIELDS:
         # A lettered value is a DSN or an extension and is taken as written;
-        # a plain number has to be a real one.
-        if re.search(r'[A-Za-z]', s):
+        # a plain number has to be a real one for the country it declares.
+        if has_letters(s):
             return None
-        d = re.sub(r'\D', '', s)
-        if len(d) == 11 and d.startswith('1'):
-            d = d[1:]
-        return None if len(d) == 10 else 'Enter a 10-digit phone number.'
+        dial, national = phone_split(s)
+        if not dial:
+            return 'Pick the country code from the list.'
+        d = national_digits(dial, national)
+        if dial == '1':
+            return None if len(d) == NANP_DIGITS else 'A +1 number is exactly 10 digits.'
+        limit = max_national_digits(dial)
+        if len(d) < 4:
+            return f'Enter at least 4 digits after +{dial}.'
+        return None if len(d) <= limit else f'At most {limit} digits after +{dial}.'
 
     if name == 'email':
         return None if EMAIL_RE.match(s) else 'Enter a valid email address.'
