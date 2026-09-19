@@ -4957,6 +4957,41 @@ function formatPhone(raw) {
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : s;
 }
 
+// formatPhone() only commits to a number once all ten digits are there, which
+// is right for storing and wrong for typing — a field that sits as bare digits
+// and then rearranges itself on blur reads as if it ignored you. This is the
+// same shape, built as far as the digits go.
+function phoneMask(raw) {
+  const s = String(raw == null ? '' : raw);
+  if (/[a-z]/i.test(s)) return s;     // DSN or an extension: not ours to touch
+  let d = s.replace(/\D/g, '');
+  if (d.length === 11 && d[0] === '1') d = d.slice(1);
+  // More digits than a US number has: an international one, or a slip while
+  // correcting the middle of a full one. Truncating would turn a pasted UK
+  // number into a plausible-looking US one, so it is left alone and
+  // validateField() gets to say what is wrong with it.
+  if (d.length > 10) return s;
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+// Only reformats when the caret is at the end, which is what typing and
+// pasting both look like. Someone correcting a digit in the middle keeps
+// their caret where they put it, and blur tidies up after them.
+function onPhoneInput(el) {
+  const end = el.value.length;
+  if (el.selectionStart === end && el.selectionEnd === end) {
+    const masked = phoneMask(el.value);
+    if (masked !== el.value) {
+      el.value = masked;
+      el.setSelectionRange(masked.length, masked.length);
+    }
+  }
+  syncPhoneActions();
+  clearFieldError(el.id);
+}
+
 // ponytail: 10 digits means a US number and nothing else is assumed. An
 // extension, a DSN, a note in the field — anything that is not ten digits
 // stays plain text rather than becoming a link that dials nothing.
@@ -6358,8 +6393,10 @@ function profileField(label, id, type = 'text', options = null) {
     control = `<input type="date" class="date-input rp-field" id="${el}" onchange="${clear}"` +
               ` onmousedown="rpOpen(event, '${el}', null, 'single')">`;
   } else {
-    const extra = type === 'tel' ? 'syncPhoneActions();' : '';
-    control = `<input type="${type}" id="${el}" oninput="${extra}${clear}">`;
+    control = type === 'tel'
+      ? `<input type="tel" id="${el}" inputmode="tel" autocomplete="tel"` +
+        ` oninput="onPhoneInput(this)" onblur="this.value = phoneMask(this.value)">`
+      : `<input type="${type}" id="${el}"${type === 'text' && id === 'dod_id' ? ' inputmode="numeric"' : ''} oninput="${clear}">`;
   }
   const actions = type === 'tel' ? `<span class="pf-actions" id="pfa_${id}"></span>` : '';
   return `<label class="pf-label" for="${el}">${label}${actions}</label>${control}${fieldErrorBox(el)}`;
@@ -7109,8 +7146,11 @@ function rpTitleHTML(view) {
   for (let y = now + 15; y >= now - 80; y--) {
     years += `<option value="${y}"${y === view.getFullYear() ? ' selected' : ''}>${y}</option>`;
   }
-  return `<select class="rp-sel" data-act="month">${months}</select>` +
-         `<select class="rp-sel" data-act="year">${years}</select>`;
+  // data-sel, NOT data-act: rpOnClick() matches [data-act] and would have
+  // treated a click on the year as a click on a day, set the date to
+  // undefined and closed the picker.
+  return `<select class="rp-sel" data-sel="month">${months}</select>` +
+         `<select class="rp-sel" data-sel="year">${years}</select>`;
 }
 
 function rpMonthHTML(base, offset) {
@@ -7164,14 +7204,17 @@ function rpSet(el, value) {
 }
 
 function rpOnChange(e) {
-  const sel = e.target.closest('select[data-act]');
+  const sel = e.target.closest('select[data-sel]');
   if (!sel) return;
-  if (sel.dataset.act === 'month') rp.view.setMonth(+sel.value);
+  // setMonth first would roll a 31-day view into the next month on a short
+  // one; the view is always the 1st, so neither can overflow.
+  if (sel.dataset.sel === 'month') rp.view.setMonth(+sel.value);
   else rp.view.setFullYear(+sel.value);
   rpRender();
 }
 
 function rpOnClick(e) {
+  if (e.target.closest('select')) return;   // the month/year pair, not a day
   const btn = e.target.closest('[data-act], [data-d]');
   if (!btn) return;
   const act = btn.dataset.act;

@@ -25,6 +25,21 @@ RAW = [
 ]
 
 
+# One keystroke at a time, the way the field actually fills up, plus the two
+# things that are not typing: a paste and a backspace back down again.
+TYPED = ['', '2', '21', '212', '2125', '21255', '212555', '2125550',
+         '21255501', '212555014', '2125550143',
+         '+1 212 555 0143', '1-212-555-0143', '(212) 555-014', '(212) 555-01',
+         '(212) ', '(212', '21255501431', 'DSN 312-555-0100', '212-555-0143 x2',
+         '+44 20 7946 0958']
+
+EXPECTED_MASK = ['', '2', '21', '212', '(212) 5', '(212) 55', '(212) 555',
+                 '(212) 555-0', '(212) 555-01', '(212) 555-014', '(212) 555-0143',
+                 '(212) 555-0143', '(212) 555-0143', '(212) 555-014', '(212) 555-01',
+                 '212', '212', '21255501431',
+                 'DSN 312-555-0100', '212-555-0143 x2', '+44 20 7946 0958']
+
+
 def extract(src, pattern, what):
     m = re.search(pattern, src, re.S)
     assert m, f'could not find {what} in index.html'
@@ -47,13 +62,17 @@ def main():
         extract(src, r'function phoneDigits\(raw\) \{.*?\n\}', 'phoneDigits'),
         extract(src, r'function formatPhone\(raw\) \{.*?\n\}', 'formatPhone'),
         extract(src, r'function phoneHtml\(raw, withSms = false\) \{.*?\n\}', 'phoneHtml'),
+        extract(src, r'function phoneMask\(raw\) \{.*?\n\}', 'phoneMask'),
         'const RAW = ' + json.dumps(RAW) + ';',
+        'const TYPED = ' + json.dumps(TYPED) + ';',
         'console.log(JSON.stringify({',
         '  fmt: RAW.map(formatPhone),',
         '  plain: RAW.map(v => phoneHtml(v)),',
         '  sms: phoneHtml("3105550147", true),',
         '  twice: formatPhone(formatPhone("+1 310 555 0147")),',
         '  xss: phoneHtml("<script>alert(1)</script>"),',
+        '  mask: TYPED.map(phoneMask),',
+        '  maskTwice: TYPED.map(v => phoneMask(phoneMask(v))),',
         '}));',
     ])
     path = os.path.join(tempfile.mkdtemp(), 'phone.js')
@@ -82,6 +101,24 @@ def main():
 
     assert 'href="sms:+13105550147"' in out['sms'] and '>Text<' in out['sms'], out['sms']
     assert '<script>' not in out['xss'] and '&lt;script&gt;' in out['xss'], out['xss']
+
+    # Typing: the shape builds up as the digits do, rather than sitting as bare
+    # digits and rearranging itself on blur.
+    assert out['mask'] == EXPECTED_MASK, list(zip(TYPED, out['mask'], EXPECTED_MASK))
+    # Re-masking an already-masked value must not shuffle it, or every keystroke
+    # after the tenth digit would walk the caret.
+    assert out['maskTwice'] == out['mask'], list(zip(out['mask'], out['maskTwice']))
+    # More digits than a US number has is left alone rather than truncated: a
+    # pasted UK number must not become a plausible-looking US one.
+    assert out['mask'][TYPED.index('21255501431')] == '21255501431'
+    assert out['mask'][TYPED.index('+44 20 7946 0958')] == '+44 20 7946 0958'
+    # A lettered value is left exactly alone, mid-type included.
+    assert out['mask'][TYPED.index('DSN 312-555-0100')] == 'DSN 312-555-0100'
+    # Once it is complete the mask and the stored spelling are the same string,
+    # so saving never moves what the leader is looking at.
+    assert out['mask'][TYPED.index('2125550143')] == '(212) 555-0143'
+
+    assert 'oninput="onPhoneInput(this)"' in src, 'the phone fields do not format while typing'
     print('ok')
 
 
