@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-from flask import Flask, Response, request, jsonify, redirect, send_from_directory, session, g, has_request_context
+from flask import Flask, Response, abort, request, jsonify, redirect, send_from_directory, session, g, has_request_context
 import validation
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -1474,6 +1474,23 @@ PUBLIC_PAGES = {
     '/legal/privacy': 'privacy.html',
     '/terms': 'terms.html',
     '/legal/terms': 'terms.html',
+    '/blog': 'blog.html',
+}
+
+# The guides. A separate map so the route below can answer /blog/<slug> from a
+# literal lookup: the slug never becomes part of a filename, so a crafted slug
+# cannot walk out of public/blog/.
+BLOG_POSTS = {
+    'accountability-formation': 'Accountability formation: what to do when the roster is already wrong',
+    'tracking-leave-pass-tdy': 'Leave, pass and TDY: keeping the roster right when people are gone',
+    'duty-roster-conflicts': 'Duty rosters, fairness and the conflict nobody caught',
+    'first-30-days-with-the-roster': 'Your first 30 days holding the roster',
+    'soldier-data-in-a-civilian-app': 'Can you put soldier names in a civilian app?',
+    'accountability-spreadsheet': 'The accountability spreadsheet works until it does not',
+    'perstat-personnel-status-report': 'PERSTAT: getting the personnel status report right the first time',
+    'who-is-available': 'Who is actually available on the 14th?',
+    'accountability-from-your-phone': 'Taking accountability from your phone',
+    'what-accountability-software-should-cost': 'What should a company accountability tool cost?',
 }
 
 
@@ -1533,8 +1550,29 @@ def app_entry():
     return redirect(APP_URL if _is_marketing_host() else '/', code=302)
 
 
+@app.route('/blog/<slug>')
+def blog_post(slug):
+    """One guide. The slug is looked up in BLOG_POSTS and never concatenated into
+    a path, so an unknown or hostile slug is a 404 here rather than a file read.
+
+    Served on every host, not just the marketing one: the pages are public, and a
+    404 on a link somebody shared is worse than a guide showing up on the app
+    subdomain."""
+    if slug not in BLOG_POSTS:
+        abort(404)
+    return send_from_directory('public/blog', f'{slug}.html')
+
+
+@app.route('/robots.txt')
+@app.route('/sitemap.xml')
+def seo_file():
+    """Crawlers ask for these at the root, so they cannot live under /public."""
+    return send_from_directory('public', request.path.lstrip('/'))
+
+
 @app.route('/welcome')
 @app.route('/home')
+@app.route('/blog')
 @app.route('/privacy')
 @app.route('/terms')
 @app.route('/legal/privacy')

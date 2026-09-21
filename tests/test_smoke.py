@@ -117,6 +117,39 @@ def check_public_pages(client):
         assert marker in body, f'{path} did not render its own page'
         assert '<script' not in body.lower(), f'{path} must render with no JS at all'
 
+    # The guides are public pages too, and they carry one <script> on purpose:
+    # application/ld+json is structured data for search engines, which the
+    # browser never executes. Everything else is still banned, so the check is
+    # "no executable script" rather than "no script tag".
+    for slug in server.BLOG_POSTS:
+        r = client.get(f'/blog/{slug}')
+        assert r.status_code == 200, f'/blog/{slug} should render, got {r.status_code}'
+        body = r.get_data(as_text=True)
+        assert server.BLOG_POSTS[slug][:30] in body, f'/blog/{slug} did not render its own page'
+        assert 'application/ld+json' in body, f'/blog/{slug} lost its structured data'
+        for tag in re.findall(r'<script[^>]*>', body, re.I):
+            assert 'application/ld+json' in tag.lower(), f'/blog/{slug} has executable JS: {tag}'
+    index = client.get('/blog')
+    assert index.status_code == 200 and 'Guides' in index.get_data(as_text=True)
+    assert '<script' not in index.get_data(as_text=True).lower(), '/blog must render with no JS'
+    # An unknown slug is a 404, not the app shell and not a file read. The
+    # traversal attempts normalise to /server.py before they ever reach the
+    # route, so what matters is the answer never contains the source -- the
+    # same property spa_fallback's allowlist exists to hold.
+    assert client.get('/blog/not-a-real-guide').status_code == 404
+    for probe in ('/blog/../server.py', '/blog/%2e%2e/server.py', '/blog/..%2fserver.py'):
+        body = client.get(probe).get_data(as_text=True)
+        assert 'MIGRATION_DATABASE_URL' not in body and 'def spa_fallback' not in body, \
+            f'{probe} served the source'
+
+    # Crawlers ask for these at the root.
+    robots = client.get('/robots.txt')
+    assert robots.status_code == 200 and 'Sitemap:' in robots.get_data(as_text=True)
+    sitemap = client.get('/sitemap.xml')
+    assert sitemap.status_code == 200 and '<urlset' in sitemap.get_data(as_text=True)
+    for slug in server.BLOG_POSTS:
+        assert slug in sitemap.get_data(as_text=True), f'{slug} is missing from the sitemap'
+
     # /legal/* is the URL shape people actually reach for. Before these aliases
     # existed it fell through to spa_fallback and served the app shell with a
     # 200, which looks like the page is simply missing.
