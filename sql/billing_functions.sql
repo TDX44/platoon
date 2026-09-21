@@ -59,7 +59,11 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
      -- ...and a failed invoice never downgrades a locked status back into an
      -- open one. past_due is OPEN, so without this a late or one-off
      -- invoice.payment_failed would re-open a cancelled account.
-     AND NOT (p_status = 'past_due' AND s.stripe_status IN ('canceled', 'unpaid', 'incomplete_expired'))
+     -- COALESCE, not a bare column: s.stripe_status is NULL until the first
+     -- subscription event lands, and `NULL IN (...)` is NULL, so `NOT NULL`
+     -- is NULL and the row silently fails to match -- a payment failure that
+     -- beat customer.subscription.created was dropped without a trace.
+     AND NOT (p_status = 'past_due' AND COALESCE(s.stripe_status, '') IN ('canceled', 'unpaid', 'incomplete_expired'))
   RETURNING s.user_id;
 $$;
 

@@ -731,11 +731,11 @@ root and render visibly smaller than the rest of the UI.
 
 ## Deployment
 
-No CI/CD. Deploys are manual. Production runs on `prodsrv02` (`10.10.50.200`),
+No CI/CD. Deploys are manual. Production runs on `prodsrv02` (`10.10.60.2`),
 user `tdx44`, at `/opt/homelab/platoon`:
 
 ```bash
-ssh tdx44@10.10.50.200 'cd /opt/homelab/platoon && git pull && docker compose up -d --build'
+ssh prodsrv02 'cd /opt/homelab/platoon && git pull && docker compose up -d --build'
 ```
 
 **The A1 (unit-tree) release is the one exception: deploy it ONLY via

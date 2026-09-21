@@ -16,3 +16,7 @@ docker-compose.override.yml
 
 # Secrets (SECRET_KEY, Clerk keys, TUNNEL_TOKEN, DB passwords) - never commit
 .env
+# ...and editor backups/copies of it (nano .env.save, .env.bak, .env.local).
+# A secret in a sibling file is still a secret, and `.env` alone does not cover them.
+.env.*
+!.env.example
