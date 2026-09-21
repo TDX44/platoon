@@ -129,6 +129,13 @@ def check_public_pages(client):
         assert 'application/ld+json' in body, f'/blog/{slug} lost its structured data'
         for tag in re.findall(r'<script[^>]*>', body, re.I):
             assert 'application/ld+json' in tag.lower(), f'/blog/{slug} has executable JS: {tag}'
+    # Every public page points at the guides. A page nobody links to is a page
+    # crawlers reach late and readers never reach at all, and the links are easy
+    # to lose the next time the footer is edited.
+    for path in ('/home', '/privacy', '/terms'):
+        body = client.get(path).get_data(as_text=True)
+        assert 'href="/blog"' in body, f'{path} does not link to the guides'
+
     index = client.get('/blog')
     assert index.status_code == 200 and 'Guides' in index.get_data(as_text=True)
     assert '<script' not in index.get_data(as_text=True).lower(), '/blog must render with no JS'
