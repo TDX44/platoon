@@ -16,6 +16,7 @@ import json
 import os
 import re
 import struct
+import xml.etree.ElementTree as ET
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -162,6 +163,37 @@ def test_nothing_still_reaches_for_the_retired_duck_art():
                 if art in body:
                     hits.append(f'{rel} still names {art}')
     assert not hits, 'the retired art is still referenced:\n  ' + '\n  '.join(hits)
+
+
+def test_every_guide_has_a_hero_and_a_social_image_that_exist():
+    """Same failure mode as a missing favicon, one step louder: a guide whose
+    hero 404s shows a broken image, and an og:image that 404s means every link
+    anyone shares previews as a blank card. Both are silent until someone looks.
+
+    The social image must be a real raster at 1200x630 -- an SVG og:image is
+    ignored by every major platform, which is the trap this check exists for.
+    """
+    blog = os.path.join(ROOT, 'public', 'blog')
+    guides = sorted(f for f in os.listdir(blog) if f.endswith('.html'))
+    assert guides, 'no guides found; did public/blog move?'
+    for name in guides:
+        slug = name[:-5]
+        page = read(os.path.join('public', 'blog', name))
+
+        hero = os.path.join(ROOT, 'images', 'blog', f'{slug}.svg')
+        assert f'/images/blog/{slug}.svg' in page, f'{name} does not show its hero'
+        assert os.path.exists(hero), f'{name} references a hero that does not exist'
+        ET.parse(hero)          # raises on malformed SVG
+
+        og = os.path.join(ROOT, 'images', 'blog', f'{slug}-og.png')
+        assert f'/images/blog/{slug}-og.png' in page, f'{name} has no og:image'
+        assert os.path.exists(og), f'{name} references an og:image that does not exist'
+        assert png_size(og) == (1200, 630), f'{slug}-og.png is {png_size(og)}, not 1200x630'
+
+    index = read(os.path.join('public', 'blog.html'))
+    for name in guides:
+        slug = name[:-5]
+        assert f'/images/blog/{slug}.svg' in index, f'{slug} has no thumbnail on /blog'
 
 
 if __name__ == '__main__':

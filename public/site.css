@@ -583,6 +583,26 @@ h1, h2, h3 {
 .legal-body ul { margin: 0 0 0.8em; padding-left: 1.3em; }
 .legal-body li { margin-bottom: 0.45em; }
 
+/* Guide hero and index thumbnails. The art is SVG at 1200x400, so it is given
+   an explicit aspect-ratio and never reflows the text under it while loading. */
+.post-hero-wrap { max-width: 56em; margin-top: 1.6em; }
+.post-hero {
+  display: block; width: 100%; height: auto; aspect-ratio: 3 / 1;
+  border: 1px solid var(--pm-hairline, #e3e8ee); border-radius: var(--pm-r-card, 10px);
+  background: var(--pm-tint-soft, #f4f9fe);
+}
+.post-card-shot { display: block; margin-bottom: 0.9em; }
+.post-card-shot img {
+  display: block; width: 100%; height: auto; aspect-ratio: 3 / 1;
+  border: 1px solid var(--pm-hairline, #e3e8ee); border-radius: var(--pm-r-card, 10px);
+  background: var(--pm-tint-soft, #f4f9fe);
+}
+.post-card-shot:hover img { border-color: var(--pm-blue, #146bc5); }
+.post-card h2 { margin-bottom: 0.35em; }
+.post-card h2 a { text-decoration: none; }
+.post-card h2 a:hover { text-decoration: underline; }
+
+
 /* Kept for the older marketing markup and any page still using it. */
 .features { padding-block: 3em; }
 .grid {
