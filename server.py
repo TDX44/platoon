@@ -1899,7 +1899,9 @@ def admin_overview():
     now_stamp = app_stamp()
     totals = conn.execute('SELECT * FROM admin_totals(%s)', (now_stamp,)).fetchone()
     orgs = conn.execute('SELECT * FROM admin_organizations(%s)', (now_stamp,)).fetchall()
-    recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (25,)).fetchall()
+    # 500, not 25: the dashboard is a directory now and filters client side.
+    # admin_recent_users caps itself at 2000, so this is the real limit.
+    recent = conn.execute('SELECT * FROM admin_recent_users(%s)', (500,)).fetchall()
     # Billing per account, computed here with the same pure rule the gate
     # uses. For this display an account whose stored email is the operator's
     # counts as comped; the real verdict is still Clerk's, on the gate.
@@ -1908,12 +1910,54 @@ def admin_overview():
     counts = {'billing_trial': 0, 'billing_grace': 0, 'billing_locked': 0, 'billing_active': 0, 'billing_comped': 0}
     bucket = {'TRIAL': 'billing_trial', 'GRACE': 'billing_grace', 'LOCKED': 'billing_locked',
               'ACTIVE': 'billing_active', 'PAST_DUE': 'billing_active', 'COMPED': 'billing_comped'}
-    for b in conn.execute('SELECT * FROM admin_billing_rows()').fetchall():
+    # The same three passes over one read: the instance-wide counts, the same
+    # counts again per organization, and the paying accounts per plan.
+    per_org = {}
+    plan_counts = {k: 0 for k in PRICE_LOOKUP_KEYS}
+    watch = {'past_due': [], 'cancelling': [], 'trial_ending': [], 'locked': []}
+    billing_rows = conn.execute('SELECT * FROM admin_billing_rows()').fetchall()
+    for b in billing_rows:
         admin = (b['email'] or '').strip().lower() in PLATFORM_ADMIN_EMAILS
         s = billing_rules.billing_state(dict(b), now, default_on=BILLING_DEFAULT_ON, platform_admin=admin,
                                         enabled=STRIPE_ENABLED)
         states[b['user_id']] = (s['state'], b['billing_mode'])
         counts[bucket[s['state']]] += 1
+        org = per_org.setdefault(b['root_id'], dict.fromkeys(counts, 0))
+        org[bucket[s['state']]] += 1
+        # Only a genuinely paying account counts toward revenue: COMPED and
+        # TRIAL can both carry a stale lookup key from a cancelled run.
+        if s['subscribed'] and b['stripe_price_lookup_key'] in plan_counts:
+            plan_counts[b['stripe_price_lookup_key']] += 1
+        # The operator's four "look at this" buckets. Email only — the same
+        # field the users table already shows.
+        if b['stripe_status'] == 'past_due':
+            watch['past_due'].append(b['email'])
+        if b['cancel_at_period_end']:
+            watch['cancelling'].append(b['email'])
+        if s['state'] == 'LOCKED':
+            watch['locked'].append(b['email'])
+        if s['state'] in ('TRIAL', 'GRACE') and (s['days_left'] or 99) <= 3:
+            watch['trial_ending'].append(b['email'])
+    # Monthly recurring revenue in cents, from whatever Stripe says the prices
+    # are right now -- no amount is stored here either (see admin_functions.sql).
+    # An annual plan contributes a twelfth of its price per month.
+    by_key = {p['lookup_key']: p for p in _prices_cached()}
+    mrr_cents = 0
+    for key, n in plan_counts.items():
+        price = by_key.get(key)
+        if not price:
+            continue
+        monthly = price['amount'] / 12 if price['interval'] == 'year' else price['amount']
+        mrr_cents += monthly * n
+    revenue = {
+        'mrr_cents': round(mrr_cents), 'arr_cents': round(mrr_cents * 12),
+        'currency': (next(iter(by_key.values()))['currency'] if by_key else 'usd'),
+        'plans': [{'lookup_key': k, 'subscribers': plan_counts[k],
+                   'amount': (by_key.get(k) or {}).get('amount'),
+                   'interval': (by_key.get(k) or {}).get('interval')}
+                  for k in PRICE_LOOKUP_KEYS],
+        'prices_available': len(by_key) == len(PRICE_LOOKUP_KEYS),
+    }
     # log_action() writes to audit_log, which is a tenant table and needs a
     # tenant; this read belongs to no tenant. The process log is the only place
     # it can be recorded, and the token's sub is the only identifier worth
@@ -1921,11 +1965,60 @@ def admin_overview():
     app.logger.info('platform admin overview read by %s', g.auth_claims.get('sub'))
     return jsonify({
         'totals': {**dict(totals), **counts},
-        'organizations': [dict(r) for r in orgs],
+        'revenue': revenue,
+        'watchlist': {k: sorted(v) for k, v in watch.items()},
+        'organizations': [{**dict(r), 'billing': per_org.get(r['org_id'], dict.fromkeys(counts, 0))}
+                          for r in orgs],
         'recent_users': [{**dict(r), 'billing_state': states.get(r['user_id'], (None, None))[0],
                           'billing_mode': states.get(r['user_id'], (None, None))[1]} for r in recent],
         'generated_at': now_stamp,
     })
+
+
+@app.route('/api/admin/organizations/<int:org_id>', methods=['GET'])
+@platform_admin_required
+def admin_organization_detail(org_id):
+    """One organization's structure and accounts, for the drill-down.
+
+    Fetched on demand rather than folded into /api/admin/overview: the unit
+    tree of every tenant in one payload is a cross-tenant structure dump that
+    an operator looking at one organization never asked for, and it grows with
+    the instance while the overview has to stay one screen.
+
+    Still structure and accounts only -- the unit rows carry a personnel COUNT
+    and never a personnel row. See the rule at the top of sql/admin_functions.sql.
+    """
+    conn = get_db()
+    units = conn.execute('SELECT * FROM admin_org_units(%s)', (org_id,)).fetchall()
+    if not units:
+        # No root unit with that id. 404 rather than an empty page: an id that
+        # names nothing and an id that names a child unit are the same mistake.
+        return jsonify({'error': 'Not found'}), 404
+    now = billing_rules.utcnow()
+    rows = conn.execute('SELECT * FROM admin_billing_rows()').fetchall()
+    people = []
+    for b in rows:
+        if b['root_id'] != org_id:
+            continue
+        admin = (b['email'] or '').strip().lower() in PLATFORM_ADMIN_EMAILS
+        s = billing_rules.billing_state(dict(b), now, default_on=BILLING_DEFAULT_ON,
+                                        platform_admin=admin, enabled=STRIPE_ENABLED)
+        people.append({
+            'user_id': b['user_id'], 'email': b['email'], 'billing_mode': b['billing_mode'],
+            'billing_state': s['state'], 'days_left': s['days_left'],
+            'subscribed': s['subscribed'], 'plan': b['stripe_price_lookup_key'],
+            # 'status', not 'stripe_status': the STATUS WORD is allowed here
+            # (see sql/admin_functions.sql) but the literal string "stripe"
+            # never appears in an admin payload, which is what
+            # test_admin_overview_counts_and_labels_billing asserts as a blunt
+            # tripwire against an id slipping in. Keep the payload passing it.
+            'status': b['stripe_status'],
+            'cancel_at_period_end': b['cancel_at_period_end'],
+            'trial_ends_at': s['trial_ends_at'], 'current_period_end': s['current_period_end'],
+        })
+    people.sort(key=lambda r: (r['email'] or '').lower())
+    app.logger.info('platform admin read organization %s by %s', org_id, g.auth_claims.get('sub'))
+    return jsonify({'org_id': org_id, 'units': [dict(u) for u in units], 'accounts': people})
 
 
 @app.route('/api/admin/users/<int:user_id>/billing_mode', methods=['PUT'])

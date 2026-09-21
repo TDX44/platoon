@@ -424,6 +424,49 @@ def test_the_overview_counts_two_tenants(fx):
     assert attached['role'] == 'owner' and attached['signed_in'] is True, attached
 
 
+def test_the_drill_down_returns_one_organizations_structure(fx):
+    client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
+    body = client.get(f'/api/admin/organizations/{fx["a"]["root"]}').get_json()
+    assert body['org_id'] == fx['a']['root'], body
+    units = body['units']
+    assert len(units) == 2, f'Alpha has a root and one child: {units}'
+    root = [u for u in units if u['parent_id'] is None][0]
+    child = [u for u in units if u['parent_id'] is not None][0]
+    assert root['depth'] == 0 and child['depth'] == 1, units
+    assert child['parent_id'] == root['unit_id'], units
+    # Alpha's three soldiers all hang off the child unit.
+    assert child['personnel_count'] == 3 and root['personnel_count'] == 0, units
+    assert root['unit_name'] == 'Alpha Co' and root['unit_slug'] == 'alpha-co', units
+    emails = {a['email'] for a in body['accounts']}
+    assert 'alpha-owner@example.com' in emails and 'alpha-leader@example.com' in emails, body
+    assert 'bravo-owner@example.com' not in emails, 'another tenant leaked into the drill-down'
+
+
+def test_the_drill_down_404s_unless_it_names_a_root(fx):
+    client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
+    # A child unit is not an organization, and neither is an id that is nothing.
+    assert client.get(f'/api/admin/organizations/{fx["a"]["child"]}').status_code == 404
+    assert client.get('/api/admin/organizations/999999').status_code == 404
+
+
+def test_the_drill_down_is_gated_like_everything_else(fx):
+    assert install(Clerk({}), session_sub=None).get(
+        f'/api/admin/organizations/{fx["a"]["root"]}').status_code == 401
+    assert install(Clerk({'clerk_rando': 'someone@example.com'}), session_sub='clerk_rando').get(
+        f'/api/admin/organizations/{fx["a"]["root"]}').status_code == 404
+
+
+def test_the_drill_down_names_no_soldier(fx):
+    """The likeliest place to break the rule at the top of admin_functions.sql:
+    a unit row carries a personnel COUNT, never a personnel row."""
+    client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
+    raw = json.dumps(client.get(f'/api/admin/organizations/{fx["a"]["root"]}').get_json())
+    for secret in ('Anderson', 'Ashby', SECRET_INVITE_TOKEN, SECRET_AUDIT_DETAIL,
+                   'clerk_alpha-owner', 'data:image/png'):
+        assert secret not in raw, f'{secret!r} is in the drill-down payload'
+    assert 'stripe' not in raw.lower(), 'a Stripe id reached the drill-down payload'
+
+
 def test_the_payload_carries_no_secrets(fx):
     """Read-only is not the same as harmless. The dashboard shows shape and
     size, never contents: no soldier is named in it, no invite token is in it,
@@ -634,6 +677,10 @@ def main():
         # The counts are exactly the fixture's, so they run before anything
         # that adds a user or a unit of its own.
         test_the_overview_counts_two_tenants(fx)
+        test_the_drill_down_returns_one_organizations_structure(fx)
+        test_the_drill_down_404s_unless_it_names_a_root(fx)
+        test_the_drill_down_is_gated_like_everything_else(fx)
+        test_the_drill_down_names_no_soldier(fx)
         test_the_payload_carries_no_secrets(fx)
         test_an_unverified_admin_email_is_404()
         test_a_different_email_is_404()

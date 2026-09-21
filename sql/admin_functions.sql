@@ -44,6 +44,7 @@ DROP FUNCTION IF EXISTS admin_organizations(text);
 DROP FUNCTION IF EXISTS admin_organisations(text);
 DROP FUNCTION IF EXISTS admin_recent_users(int);
 DROP FUNCTION IF EXISTS admin_billing_rows();
+DROP FUNCTION IF EXISTS admin_org_units(int);
 
 CREATE OR REPLACE FUNCTION admin_totals(p_now text)
 RETURNS TABLE (organizations bigint, unit_count bigint, personnel_count bigint,
@@ -67,7 +68,7 @@ CREATE OR REPLACE FUNCTION admin_organizations(p_now text)
 RETURNS TABLE (org_id int, org_name text, org_slug text, org_kind text, created_stamp text,
                unit_count bigint, personnel_count bigint, user_count bigint,
                owner_emails text, pending_invites bigint, has_logo boolean,
-               last_activity text, audit_7d bigint)
+               last_activity text, audit_7d bigint, org_timezone text)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
   SELECT r.id, r.name, r.slug, r.kind, r.created_at,
          (SELECT count(*) FROM units u WHERE u.root_id = r.id),
@@ -81,7 +82,12 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
          (SELECT max(a."timestamp") FROM audit_log a WHERE a.root_id = r.id),
          (SELECT count(*) FROM audit_log a WHERE a.root_id = r.id
             AND a."timestamp" >= to_char(p_now::timestamp - interval '7 days',
-                                         'YYYY-MM-DD HH24:MI:SS'))
+                                         'YYYY-MM-DD HH24:MI:SS')),
+         -- The org's duty day. Scoped (root_id, NULL, 'org_timezone') exactly
+         -- as app_today() reads it; NULL here means the row has never been set
+         -- and that tenant is still running on PLATOON_TZ.
+         (SELECT s.value FROM settings s
+           WHERE s.root_id = r.id AND s.unit_id IS NULL AND s.key = 'org_timezone')
     FROM units r
    WHERE r.parent_id IS NULL
    ORDER BY r.name;
@@ -89,36 +95,71 @@ $$;
 
 CREATE OR REPLACE FUNCTION admin_recent_users(p_limit int)
 RETURNS TABLE (user_id int, email text, full_name text, role text,
-               org_name text, signed_in boolean)
+               org_name text, root_id int, signed_in boolean)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
   -- `users` has no created_at, so the identity sequence is the arrival order.
   SELECT u.id, u.email, u.full_name, u.role,
          (SELECT r.name FROM units r WHERE r.id = u.root_id),
+         u.root_id,
          (u.clerk_user_id <> '')
     FROM users u
    ORDER BY u.id DESC
-   LIMIT greatest(0, least(p_limit, 200));
+   -- 2000, raised from 200 when the dashboard became a directory rather
+   -- than a "25 most recent" list. Still a hard cap: the payload is one
+   -- JSON response and an operator page, not an export endpoint.
+   LIMIT greatest(0, least(p_limit, 2000));
 $$;
 
 -- Every attached account's billing columns, for the overview's Billing
 -- column and its five counts. The state itself is computed in Python by
 -- billing_rules.billing_state() so the rule lives in one place.
 CREATE OR REPLACE FUNCTION admin_billing_rows()
-RETURNS TABLE (user_id int, email text, billing_mode text, trial_ends_at timestamptz,
-               extended_at timestamptz, stripe_status text, cancel_at_period_end boolean,
-               current_period_end timestamptz)
+RETURNS TABLE (user_id int, email text, root_id int, billing_mode text,
+               trial_ends_at timestamptz, extended_at timestamptz, stripe_status text,
+               cancel_at_period_end boolean, current_period_end timestamptz,
+               stripe_price_lookup_key text)
 LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
-  SELECT u.id, u.email, COALESCE(s.billing_mode, 'default'), s.trial_ends_at, s.extended_at,
-         s.stripe_status, COALESCE(s.cancel_at_period_end, false), s.current_period_end
+  SELECT u.id, u.email, u.root_id, COALESCE(s.billing_mode, 'default'),
+         s.trial_ends_at, s.extended_at,
+         s.stripe_status, COALESCE(s.cancel_at_period_end, false), s.current_period_end,
+         -- The PLAN, not the price id: a lookup key is a name we chose
+         -- ('platoon_leader_monthly'), not a Stripe object id, so it stays
+         -- inside the rule at the top of this file. The amount is never stored
+         -- -- the dashboard multiplies by whatever Stripe says the price is
+         -- today, the same figure the pricing screen shows.
+         s.stripe_price_lookup_key
     FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id
    WHERE u.unit_id IS NOT NULL;
+$$;
+
+-- One organization's unit tree, for the drill-down. Structure only: a unit's
+-- name, slug, kind, parent and how many personnel rows hang off it. NOT the
+-- personnel themselves -- the rule at the top of this file still holds, and a
+-- drill-down is exactly where someone would be tempted to break it.
+CREATE OR REPLACE FUNCTION admin_org_units(p_org_id int)
+RETURNS TABLE (unit_id int, unit_name text, unit_slug text, unit_kind text,
+               parent_id int, depth int, personnel_count bigint, user_count bigint)
+LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+  WITH RECURSIVE tree AS (
+    SELECT u.id, u.name, u.slug, u.kind, u.parent_id, 0 AS depth
+      FROM units u WHERE u.id = p_org_id AND u.parent_id IS NULL
+    UNION ALL
+    SELECT c.id, c.name, c.slug, c.kind, c.parent_id, t.depth + 1
+      FROM units c JOIN tree t ON c.parent_id = t.id
+  )
+  SELECT t.id, t.name, t.slug, t.kind, t.parent_id, t.depth,
+         (SELECT count(*) FROM personnel p WHERE p.unit_id = t.id),
+         (SELECT count(*) FROM users us WHERE us.unit_id = t.id)
+    FROM tree t
+   ORDER BY t.depth, t.name;
 $$;
 
 DO $$
 DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY[
-    'admin_totals(text)', 'admin_organizations(text)', 'admin_recent_users(int)', 'admin_billing_rows()']
+    'admin_totals(text)', 'admin_organizations(text)', 'admin_recent_users(int)',
+    'admin_billing_rows()', 'admin_org_units(int)']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO platoon_app', f);

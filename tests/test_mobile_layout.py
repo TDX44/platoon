@@ -186,8 +186,10 @@ USER_FIXTURE = {
 }
 
 # What GET /api/admin/overview returns. Deliberately wide content — long
-# organization names, long owner emails, nine columns — because the admin
-# tables are the widest thing the app draws on a 320px phone.
+# organization names, long owner emails, fourteen columns — because the admin
+# tables are the widest thing the app draws on a 320px phone. It carries the
+# revenue, watchlist and per-org billing blocks too: without them those
+# sections render empty and this test measures nothing.
 ADMIN_FIXTURE = {
     'generated_at': TODAY.isoformat() + ' 06:30:00',
     'totals': {'organizations': 3, 'unit_count': 1284, 'personnel_count': 9876,
@@ -200,13 +202,30 @@ ADMIN_FIXTURE = {
          'org_slug': 'headhunter-company', 'org_kind': 'company',
          'created_stamp': '2026-01-02 03:04:05', 'unit_count': 5, 'personnel_count': 42,
          'user_count': 7, 'owner_emails': 'ada.fixtureton-placeholder@example.invalid',
-         'pending_invites': 2, 'has_logo': True,
-         'last_activity': TODAY.isoformat() + ' 06:00:00', 'audit_7d': 173},
+         'pending_invites': 2, 'has_logo': True, 'org_timezone': 'America/Chicago',
+         'last_activity': TODAY.isoformat() + ' 06:00:00', 'audit_7d': 173,
+         'billing': {'billing_trial': 10, 'billing_grace': 2, 'billing_locked': 3,
+                     'billing_active': 115, 'billing_comped': 4}},
         {'org_id': 2, 'org_name': 'Second Placeholder Battalion', 'org_slug': 'second-placeholder',
          'org_kind': 'company', 'created_stamp': '2026-02-02 03:04:05', 'unit_count': 2,
          'personnel_count': 8, 'user_count': 1, 'owner_emails': None, 'pending_invites': 0,
-         'has_logo': False, 'last_activity': None, 'audit_7d': 0},
+         'has_logo': False, 'last_activity': None, 'audit_7d': 0,
+         'org_timezone': None,
+         'billing': {'billing_trial': 2, 'billing_grace': 1, 'billing_locked': 1,
+                     'billing_active': 3, 'billing_comped': 1}},
     ],
+    'revenue': {'mrr_cents': 3652100, 'arr_cents': 43825200, 'currency': 'usd',
+                'prices_available': True,
+                'plans': [{'lookup_key': 'platoon_leader_monthly', 'subscribers': 104,
+                           'amount': 299, 'interval': 'month'},
+                          {'lookup_key': 'platoon_leader_annual', 'subscribers': 14,
+                           'amount': 1999, 'interval': 'year'}]},
+    'watchlist': {
+        'past_due': ['ada.fixtureton-placeholder@example.invalid'],
+        'locked': ['brand.new.signup@example.invalid', 'another.long.placeholder@example.invalid'],
+        'trial_ending': ['third.placeholder.address@example.invalid'],
+        'cancelling': [],
+    },
     'recent_users': [
         {'user_id': 9, 'email': 'brand.new.signup@example.invalid', 'full_name': 'PFC Brand Newsignup',
          'role': 'leader', 'org_name': None, 'signed_in': True,
@@ -803,6 +822,12 @@ def run_checks(page, base_url):
             f'admin @ {width}px: the dashboard tables did not render — fixture is stale')
         check_no_horizontal_overflow(page, width, 'admin')
         check_nothing_clips_inside(page, width, '.admin-total', 'admin totals')
+        # The revenue tiles and the watchlist cards are new surfaces with the
+        # same failure mode as the totals strip: a long money string or an
+        # email that will not wrap pushes the card past its own edge.
+        assert page.evaluate("document.querySelectorAll('#adminScreen .admin-watch').length >= 3"), (
+            f'admin @ {width}px: the watchlist did not render — fixture is stale')
+        check_nothing_clips_inside(page, width, '.admin-watch', 'admin watchlist')
         if width < 900:
             check_tap_targets(page, width, '#adminScreen button', 'admin')
 

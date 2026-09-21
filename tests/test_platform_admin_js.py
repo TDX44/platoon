@@ -35,12 +35,26 @@ PAYLOAD = {
         {'org_id': 1, 'org_name': 'Alpha Co', 'org_slug': 'alpha-co', 'org_kind': 'company',
          'created_stamp': '2026-01-02 03:04:05', 'unit_count': 4, 'personnel_count': 12345,
          'user_count': 5, 'owner_emails': 'boss@example.com', 'pending_invites': 2,
-         'has_logo': True, 'last_activity': '2026-09-17 06:00:00', 'audit_7d': 17},
+         'has_logo': True, 'last_activity': '2026-09-17 06:00:00', 'audit_7d': 17,
+         'org_timezone': 'America/Chicago',
+         'billing': {'billing_trial': 2, 'billing_grace': 0, 'billing_locked': 0,
+                     'billing_active': 2, 'billing_comped': 1}},
         {'org_id': 2, 'org_name': HOSTILE_NAME, 'org_slug': 'ghost', 'org_kind': 'platoon',
          'created_stamp': '', 'unit_count': 1, 'personnel_count': 2,
          'user_count': 1, 'owner_emails': None, 'pending_invites': 0,
-         'has_logo': False, 'last_activity': None, 'audit_7d': 0},
+         'has_logo': False, 'last_activity': None, 'audit_7d': 0,
+         'org_timezone': HOSTILE_NAME,
+         'billing': {'billing_trial': 0, 'billing_grace': 0, 'billing_locked': 1,
+                     'billing_active': 0, 'billing_comped': 0}},
     ],
+    'revenue': {'mrr_cents': 46658, 'arr_cents': 559900, 'currency': 'usd',
+                'prices_available': True,
+                'plans': [{'lookup_key': HOSTILE_NAME, 'subscribers': 3,
+                           'amount': 299, 'interval': 'month'},
+                          {'lookup_key': 'platoon_leader_annual', 'subscribers': 1,
+                           'amount': 1999, 'interval': 'year'}]},
+    'watchlist': {'past_due': [HOSTILE_EMAIL], 'cancelling': [], 'locked': ['x@example.com'],
+                  'trial_ending': []},
     'recent_users': [
         {'user_id': 9, 'email': HOSTILE_EMAIL, 'full_name': HOSTILE_NAME, 'role': 'leader',
          'org_name': None, 'signed_in': True},
@@ -52,9 +66,26 @@ PAYLOAD = {
 EMPTY = {'generated_at': '2026-09-17 06:30:00', 'totals': {},
          'organizations': [], 'recent_users': []}
 
+DETAIL = {
+    'org_id': 2, 'org_name': HOSTILE_NAME,
+    'units': [
+        {'unit_id': 1, 'unit_name': 'Root', 'unit_slug': 'root', 'unit_kind': 'company',
+         'parent_id': None, 'depth': 0, 'personnel_count': 0, 'user_count': 1},
+        {'unit_id': 2, 'unit_name': HOSTILE_NAME, 'unit_slug': 'ghost', 'unit_kind': 'platoon',
+         'parent_id': 1, 'depth': 1, 'personnel_count': 12, 'user_count': 2},
+    ],
+    'accounts': [
+        {'user_id': 7, 'email': HOSTILE_EMAIL, 'billing_mode': 'default',
+         'billing_state': 'ACTIVE', 'days_left': None, 'subscribed': True,
+         'plan': HOSTILE_NAME, 'status': 'active', 'cancel_at_period_end': True,
+         'trial_ends_at': None, 'current_period_end': '2026-10-01 00:00:00'},
+    ],
+}
+
 DRIVER = r'''
 const PAYLOAD = ''' + json.dumps(PAYLOAD) + r''';
 const EMPTY = ''' + json.dumps(EMPTY) + r''';
+const DETAIL = ''' + json.dumps(DETAIL) + r''';
 const orgSort = { key: 'personnel_count', dir: -1 };
 const userSort = { key: 'user_id', dir: -1 };
 console.log(JSON.stringify({
@@ -62,13 +93,26 @@ console.log(JSON.stringify({
   empty: adminOverviewHtml(EMPTY, orgSort, userSort),
   loading: adminOverviewHtml(null, orgSort, userSort),
   byName: adminOverviewHtml(PAYLOAD, { key: 'org_name', dir: 1 }, userSort),
+  byPaying: adminOverviewHtml(PAYLOAD, { key: 'billing_active', dir: -1 }, userSort),
+  detail: adminOrgDetailHtml(DETAIL),
+  detailLoading: adminOrgDetailHtml(null),
+  filtered: (() => {
+    adminUserFilter = 'boss';
+    const html = adminOverviewHtml(PAYLOAD, orgSort, userSort);
+    adminUserFilter = '';
+    return html;
+  })(),
+  money: [adminMoney(0, 'usd'), adminMoney(46658, 'usd'), adminMoney(199, 'NOTACURRENCY')],
   bytes: [adminBytes(0), adminBytes(999), adminBytes(86423219), adminBytes(5 * 1024 ** 3)],
   nums: [adminNum(0), adminNum(1234), adminNum(9876543)],
   cleared: (() => {
     adminData = { organizations: [{ org_name: 'Alpha Co', owner_emails: 'boss@example.com' }] };
     adminScreenEl.innerHTML = '<td>Alpha Co</td><td>boss@example.com</td>';
+    adminOrgDetail = { org_name: 'Alpha Co' };
+    adminUserFilter = 'boss';
     clearPlatformAdmin();
-    return { data: adminData, html: adminScreenEl.innerHTML, removed: removedClasses };
+    return { data: adminData, html: adminScreenEl.innerHTML, removed: removedClasses,
+             detail: adminOrgDetail, filter: adminUserFilter };
   })(),
 }));
 '''
@@ -76,6 +120,8 @@ console.log(JSON.stringify({
 # The three things clearPlatformAdmin() touches, stubbed so it can run headless.
 FAKE_DOM = r'''
 let adminData = null;
+let adminOrgDetail = null;
+let adminUserFilter = '';
 const adminScreenEl = { innerHTML: '' };
 const removedClasses = [];
 const document = {
@@ -99,11 +145,19 @@ def render(src, node):
         extract(src, r'function sortRows\(.*?\n\}', 'sortRows()'),
         extract(src, r'const ADMIN_ORG_COLUMNS = \[.*?\n\];', 'ADMIN_ORG_COLUMNS'),
         extract(src, r'const ADMIN_USER_COLUMNS = \[.*?\n\];', 'ADMIN_USER_COLUMNS'),
+        extract(src, r'const ADMIN_UNIT_COLUMNS = \[.*?\n\];', 'ADMIN_UNIT_COLUMNS'),
+        extract(src, r'const ADMIN_ACCOUNT_COLUMNS = \[.*?\n\];', 'ADMIN_ACCOUNT_COLUMNS'),
+        extract(src, r'const ADMIN_WATCH = \[.*?\n\];', 'ADMIN_WATCH'),
         extract(src, r'function adminNum\(.*?\n\}', 'adminNum()'),
         extract(src, r'function adminBytes\(.*?\n\}', 'adminBytes()'),
         extract(src, r'function adminCell\(.*?\n\}', 'adminCell()'),
         extract(src, r'function adminSortValue\(.*?\n\}', 'adminSortValue()'),
         extract(src, r'function adminCompToggle\(.*?\n\}', 'adminCompToggle()'),
+        extract(src, r'function adminMoney\(.*?\n\}', 'adminMoney()'),
+        extract(src, r'function adminRevenueHtml\(.*?\n\}', 'adminRevenueHtml()'),
+        extract(src, r'function adminWatchlistHtml\(.*?\n\}', 'adminWatchlistHtml()'),
+        extract(src, r'function adminOrgLink\(.*?\n\}', 'adminOrgLink()'),
+        extract(src, r'function adminOrgDetailHtml\(.*?\n\}', 'adminOrgDetailHtml()'),
         extract(src, r'function adminOverviewHtml\(.*?\n\}', 'adminOverviewHtml()'),
         extract(src, r'function clearPlatformAdmin\(\) \{.*?\n\}', 'clearPlatformAdmin()'),
         DRIVER,
@@ -125,16 +179,25 @@ def test_a_hostile_organization_name_is_never_markup(out):
     assert '&lt;script&gt;alert(2)&lt;/script&gt;' in html, 'the email is not escaped'
     # The only tags on this page are the ones the function writes itself.
     tags = set(re.findall(r'<(/?[a-zA-Z][\w-]*)', html))
+    # ul/li are the watchlist cards and `input` is the user filter; both were
+    # added with the revenue/watchlist/drill-down work. Widen this set only
+    # when the FUNCTION grows a tag, never to make a failure go away -- an
+    # unexpected tag here means a string off the wire became markup.
     assert tags <= {'div', '/div', 'span', '/span', 'section', '/section', 'h1', '/h1',
                     'h2', '/h2', 'button', '/button', 'table', '/table', 'thead', '/thead',
-                    'tbody', '/tbody', 'tr', '/tr', 'th', '/th', 'td', '/td'}, \
+                    'tbody', '/tbody', 'tr', '/tr', 'th', '/th', 'td', '/td',
+                    'ul', '/ul', 'li', '/li', 'input'}, \
         f'a server string opened a tag of its own: {sorted(tags)}'
 
 
 def test_no_handler_carries_anything_but_a_literal(out):
-    for key in ('page', 'empty', 'loading'):
+    for key in ('page', 'empty', 'loading', 'detail', 'filtered', 'byPaying'):
         for call in re.findall(r'onclick="([^"]*)"', out[key]):
-            assert re.fullmatch(r"(closeAdmin|refreshAdmin)\(\)|sortAdmin(Orgs|Users)\('\w+'\)", call), \
+            assert re.fullmatch(
+                r"(closeAdmin|refreshAdmin|closeAdminOrg)\(\)"
+                r"|sortAdmin(Orgs|Users)\('\w+'\)"
+                r"|openAdminOrg\(\d+\)"                 # an integer, checked by adminOrgLink()
+                r"|setBillingMode\(\d+, '(comped|default)'\)", call), \
                 f'{key}: an inline handler carries more than a literal: {call!r}'
 
 
@@ -160,9 +223,16 @@ def test_missing_values_read_as_missing_not_as_null(out):
     assert '>yes<' in html and '>no<' in html, 'has_logo / signed_in are not rendered'
 
 
-def test_both_tables_sort_through_the_shared_helpers(out):
+def column_keys(src, const):
+    block = extract(src, rf'const {const} = \[.*?\n\];', const)
+    return re.findall(r"key: '(\w+)'", block)
+
+
+def test_both_tables_sort_through_the_shared_helpers(out, src):
     def org_names(html):
-        return re.findall(r'<td class="admin-strong">([^<]*)', html)
+        # The name is inside the drill-down button now, so target that rather
+        # than the cell -- the users table uses admin-strong for emails too.
+        return re.findall(r'<button type="button" class="admin-link"[^>]*>([^<]*)', html)
     by_size = org_names(out['page'])
     by_name = org_names(out['byName'])
     assert by_size[0] == 'Alpha Co', by_size
@@ -170,7 +240,61 @@ def test_both_tables_sort_through_the_shared_helpers(out):
     assert by_name[0].startswith('&lt;img'), f'name-ascending puts the escaped name first: {by_name}'
     # Sorted headers are marked by the shared helper, not by hand.
     assert 'class="sortable sorted"' in out['page'], 'the sorted column is not marked'
-    assert out['page'].count('sort-caret') == 15, 'every column must carry a caret'
+    expected = len(column_keys(src, 'ADMIN_ORG_COLUMNS')) + len(column_keys(src, 'ADMIN_USER_COLUMNS'))
+    assert out['page'].count('sort-caret') == expected, \
+        f'every column must carry a caret: expected {expected}'
+
+
+def test_revenue_is_money_not_a_raw_number(out):
+    html = out['page']
+    assert '$466.58' in html, f'MRR is not formatted as money: {html[:400]}'
+    assert '$5,599.00' in html, 'ARR is not formatted as money'
+    assert '46658' not in html, 'the raw cent count reached the page'
+    # An unknown currency must degrade, not throw.
+    assert out['money'][0] == '$0.00' and '1.99' in out['money'][2], out['money']
+
+
+def test_a_hostile_plan_name_and_watchlist_email_are_escaped(out):
+    html = out['page']
+    assert '&lt;img src=x' in html, 'the hostile plan/timezone string is not escaped'
+    assert '<img src=x' not in html, 'a plan name or watch email reached the page as markup'
+    assert 'Payment failed' in html and 'Locked out' in html, 'the watchlist is not drawn'
+    assert 'Cancelling at period end' not in html, 'an empty watch bucket drew a card anyway'
+
+
+def test_the_org_table_shows_the_billing_rollup(out):
+    html = out['page']
+    assert '>Paying<' in html and '>Comped<' in html and '>Timezone<' in html, 'rollup columns missing'
+    assert 'America/Chicago' in html, 'the org timezone is not shown'
+    # Sorting by a rollup key only works because the billing dict is spread
+    # onto the row; without that the column sorts as all-undefined and the
+    # header is never marked.
+    assert 'Paying' in out['byPaying'], 'the Paying column is missing'
+    assert out['byPaying'].count('class="sortable sorted"') == 1, \
+        'exactly one column should be marked sorted'
+
+
+def test_the_user_filter_narrows_the_table(out):
+    # Scoped to the users section: the watchlist above it legitimately still
+    # names the hostile account, because a filter on the directory is not a
+    # filter on "who needs attention".
+    users_section = out['filtered'].split('<h2>Users')[-1]
+    assert 'boss@example.com' in users_section, users_section[:300]
+    assert '&lt;script&gt;alert(2)&lt;/script&gt;' not in users_section, \
+        'the filter did not exclude the non-matching user'
+    assert 'value="boss"' in users_section, 'the filter box does not keep what was typed'
+    assert '&lt;script&gt;alert(2)&lt;/script&gt;' in out['page'].split('<h2>Users')[-1], \
+        'the unfiltered table should still show everyone'
+
+
+def test_the_drill_down_escapes_and_indents(out):
+    html = out['detail']
+    assert '<img src=x' not in html, 'a unit or plan name reached the drill-down as markup'
+    assert '&lt;img src=x' in html, 'the hostile unit name is not escaped'
+    assert 'padding-left:1.2em' in html, 'the unit tree is not indented by depth'
+    assert '>Units<' in html and '>Accounts<' in html, 'the drill-down sections are missing'
+    assert 'All organizations' in html, 'there is no way back out of the drill-down'
+    assert 'Loading' in out['detailLoading'] and '<table' not in out['detailLoading']
 
 
 def test_the_empty_and_loading_states_say_so(out):
@@ -250,7 +374,12 @@ def main():
     test_no_handler_carries_anything_but_a_literal(out)
     test_numbers_go_through_the_page_formatter(out)
     test_missing_values_read_as_missing_not_as_null(out)
-    test_both_tables_sort_through_the_shared_helpers(out)
+    test_both_tables_sort_through_the_shared_helpers(out, src)
+    test_revenue_is_money_not_a_raw_number(out)
+    test_a_hostile_plan_name_and_watchlist_email_are_escaped(out)
+    test_the_org_table_shows_the_billing_rollup(out)
+    test_the_user_filter_narrows_the_table(out)
+    test_the_drill_down_escapes_and_indents(out)
     test_the_empty_and_loading_states_say_so(out)
     test_the_menu_entries_are_gated_on_the_flag(src)
     test_signing_out_takes_every_tenants_data_with_it(out, src)

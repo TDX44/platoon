@@ -2421,6 +2421,10 @@
     font-size: 1.5em; font-weight: 700; color: var(--cp-text-strong);
     font-variant-numeric: tabular-nums; line-height: 1.1;
   }
+  /* Money is a much longer string than a headcount ("$438,252.00" against
+     "142"), and at 360px the tile is ~147px wide. Smaller, and allowed to
+     wrap, so the figure stays inside its own box. */
+  .admin-total-n.admin-total-money { font-size: 1.05em; overflow-wrap: anywhere; }
   .admin-total-label {
     margin-top: 2px; font-size: 0.72em; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.04em; color: var(--cp-muted);
@@ -2456,6 +2460,52 @@
   .admin-table .admin-strong { font-weight: 600; color: var(--cp-text-strong); }
   .admin-table .admin-muted { color: var(--cp-muted); }
   .admin-yes { color: var(--cp-green); font-weight: 600; }
+
+  /* The organization name as a drill-down control. A button, not an anchor:
+     there is no URL behind it (the drill-down is drawn in place), and a bare
+     href="#" would put a junk entry in the operator's history. */
+  .admin-link {
+    background: none; border: none; font: inherit; font-weight: 600;
+    color: var(--cp-accent); cursor: pointer; text-align: left;
+    /* A real tap target, not just coloured text: tests/test_mobile_layout.py
+       holds every control to 28px at 320px, and a bare button around one line
+       of text is 15px. inline-flex so the min-height is actually applied. */
+    display: inline-flex; align-items: center; min-height: 28px; padding: 2px 0;
+  }
+  .admin-link:hover { text-decoration: underline; }
+  .admin-link:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; border-radius: 3px; }
+
+  .admin-filter {
+    width: 100%; max-width: 26em; margin: 0 0 8px; padding: 8px 10px;
+    font: inherit; font-size: 0.84em; color: var(--cp-text);
+    background: var(--cp-surface); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius);
+  }
+  .admin-filter:focus { outline: none; border-color: var(--cp-accent); }
+
+  .admin-watch-grid {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(15em, 1fr));
+  }
+  .admin-watch {
+    background: var(--cp-surface); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius-lg); padding: 12px 14px; min-width: 0;
+  }
+  .admin-watch-head {
+    font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--cp-muted);
+  }
+  .admin-watch-n {
+    color: var(--cp-text-strong); font-variant-numeric: tabular-nums;
+    margin-left: 4px; font-size: 1.1em;
+  }
+  .admin-watch-list {
+    margin: 6px 0 0; padding: 0; list-style: none;
+    font-size: 0.84em; color: var(--cp-text);
+  }
+  /* An email is one long unbreakable token; let it wrap rather than push the
+     card wide and give the grid a horizontal scrollbar. */
+  .admin-watch-list li { padding: 2px 0; overflow-wrap: anywhere; }
 
   /* Status as a colored dot + plain text, not a pill */
   .status-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
@@ -8804,8 +8854,13 @@ const ADMIN_ORG_COLUMNS = [
   { key: 'unit_count',       label: 'Units' },
   { key: 'personnel_count',  label: 'Personnel' },
   { key: 'user_count',       label: 'Users' },
+  { key: 'billing_active',   label: 'Paying' },
+  { key: 'billing_trial',    label: 'Trial' },
+  { key: 'billing_comped',   label: 'Comped' },
+  { key: 'billing_locked',   label: 'Locked' },
   { key: 'pending_invites',  label: 'Invites' },
   { key: 'has_logo',         label: 'Logo' },
+  { key: 'org_timezone',     label: 'Timezone' },
   { key: 'audit_7d',         label: '7-day activity' },
   { key: 'last_activity',    label: 'Last activity' },
   { key: 'created_stamp',    label: 'Created' },
@@ -8818,9 +8873,35 @@ const ADMIN_USER_COLUMNS = [
   { key: 'signed_in', label: 'Signed in' },
   { key: 'billing_state', label: 'Billing' },
 ];
+const ADMIN_UNIT_COLUMNS = [
+  { key: 'unit_name',       label: 'Unit' },
+  { key: 'unit_kind',       label: 'Kind' },
+  { key: 'personnel_count', label: 'Personnel' },
+  { key: 'user_count',      label: 'Users' },
+];
+const ADMIN_ACCOUNT_COLUMNS = [
+  { key: 'email',         label: 'Email' },
+  { key: 'billing_state', label: 'Billing' },
+  { key: 'plan',          label: 'Plan' },
+  { key: 'status',        label: 'Stripe' },
+  { key: 'renews',        label: 'Renews / ends' },
+];
+// The four buckets an operator actually acts on, in the order they matter.
+const ADMIN_WATCH = [
+  { key: 'past_due',      label: 'Payment failed' },
+  { key: 'locked',        label: 'Locked out' },
+  { key: 'trial_ending',  label: 'Trial ending (3 days)' },
+  { key: 'cancelling',    label: 'Cancelling at period end' },
+];
 let adminData = null;
 let adminOrgSort = { key: 'personnel_count', dir: -1 };
 let adminUserSort = { key: 'user_id', dir: -1 };
+// The drill-down is drawn in place of the overview rather than as its own
+// route. ponytail: an operator page with a Back button, not a second screen
+// with its own history entry -- browser Back leaves /admin entirely, which is
+// where that button goes anyway.
+let adminOrgDetail = null;
+let adminUserFilter = '';
 
 // Pinned to en-US rather than the viewer's locale: this page is one person's,
 // and a fixed grouping separator is what makes the numbers line up in the
@@ -8851,6 +8932,100 @@ function adminSortValue(row, key) {
   return v;
 }
 
+// Cents to money. Pinned to en-US for the same reason adminNum() is, and
+// tolerant of a missing currency because the revenue block is drawn even when
+// Stripe could not be reached and there is nothing to price with.
+function adminMoney(cents, currency) {
+  const n = Number(cents || 0) / 100;
+  const code = String(currency || 'usd').toUpperCase();
+  try {
+    return n.toLocaleString('en-US', { style: 'currency', currency: code });
+  } catch (e) {
+    // An unknown currency code from the wire must not take the page down.
+    return `${n.toFixed(2)} ${escapeHtml(code)}`;
+  }
+}
+
+function adminRevenueHtml(rev) {
+  if (!rev) return '';
+  // Prices come from Stripe at request time, so "unavailable" is a real state
+  // and saying $0.00 would be a lie, not a zero.
+  const money = rev.prices_available
+    ? `<div class="admin-total"><div class="admin-total-n admin-total-money">${escapeHtml(adminMoney(rev.mrr_cents, rev.currency))}</div><div class="admin-total-label">MRR</div></div>
+       <div class="admin-total"><div class="admin-total-n admin-total-money">${escapeHtml(adminMoney(rev.arr_cents, rev.currency))}</div><div class="admin-total-label">ARR</div></div>`
+    : `<div class="admin-total"><div class="admin-total-n admin-muted">—</div><div class="admin-total-label">MRR (prices unavailable)</div></div>`;
+  const plans = (rev.plans || []).map(p => `<div class="admin-total">
+        <div class="admin-total-n">${adminCell(p.subscribers)}</div>
+        <div class="admin-total-label">${adminCell(p.lookup_key)}${p.amount == null ? '' : ` · ${escapeHtml(adminMoney(p.amount, rev.currency))}/${adminCell(p.interval)}`}</div>
+      </div>`).join('');
+  return `<section class="admin-section">
+      <h2>Revenue</h2>
+      <div class="admin-totals">${money}${plans}</div>
+    </section>`;
+}
+
+function adminWatchlistHtml(watch) {
+  if (!watch) return '';
+  const cards = ADMIN_WATCH.map(({ key, label }) => {
+    const list = watch[key] || [];
+    if (!list.length) return '';
+    return `<div class="admin-watch">
+        <div class="admin-watch-head">${label} <span class="admin-watch-n">${adminCell(list.length)}</span></div>
+        <ul class="admin-watch-list">${list.map(e => `<li>${adminCell(e)}</li>`).join('')}</ul>
+      </div>`;
+  }).join('');
+  if (!cards) return '';
+  return `<section class="admin-section">
+      <h2>Needs attention</h2>
+      <div class="admin-watch-grid">${cards}</div>
+    </section>`;
+}
+
+// One organization: its unit tree and every account in it. Pure like the
+// overview, and fed by /api/admin/organizations/<id>.
+function adminOrgDetailHtml(detail) {
+  if (!detail) return '<div class="dash-section-empty">Loading…</div>';
+  const units = (detail.units || []).map(u => `<tr>
+      <td class="admin-strong"><span style="padding-left:${Math.min(Number(u.depth) || 0, 6) * 1.2}em">${adminCell(u.unit_name)}</span>
+        <div class="admin-muted">${adminCell(u.unit_slug)}</div></td>
+      <td>${adminCell(u.unit_kind)}</td>
+      <td>${adminCell(u.personnel_count)}</td>
+      <td>${adminCell(u.user_count)}</td>
+    </tr>`).join('');
+  const accounts = (detail.accounts || []).map(a => `<tr>
+      <td class="admin-strong">${adminCell(a.email)}</td>
+      <td>${adminCell(a.billing_state)} ${adminCompToggle(a)}</td>
+      <td>${adminCell(a.plan)}</td>
+      <td>${adminCell(a.status)}</td>
+      <td>${adminCell(a.current_period_end || a.trial_ends_at)}${a.cancel_at_period_end ? ' <span class="admin-muted">(ending)</span>' : ''}</td>
+    </tr>`).join('');
+  return `
+    <div class="admin-head">
+      <h1>${adminCell(detail.org_name)}</h1>
+      <span class="admin-actions">
+        <button type="button" class="admin-btn admin-btn-ghost" onclick="closeAdminOrg()">&larr; All organizations</button>
+      </span>
+    </div>
+    <section class="admin-section">
+      <h2>Units</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr>${ADMIN_UNIT_COLUMNS.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>
+          <tbody>${units || `<tr><td colspan="${ADMIN_UNIT_COLUMNS.length}" class="admin-muted">No units.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="admin-section">
+      <h2>Accounts</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr>${ADMIN_ACCOUNT_COLUMNS.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>
+          <tbody>${accounts || `<tr><td colspan="${ADMIN_ACCOUNT_COLUMNS.length}" class="admin-muted">No accounts.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
 // The whole page, from one payload. Pure, so tests/test_platform_admin_js.py
 // can run it under node and prove no server string ever becomes markup.
 function adminOverviewHtml(data, orgSort, userSort) {
@@ -8874,21 +9049,35 @@ function adminOverviewHtml(data, orgSort, userSort) {
         <div class="admin-total-label">${label}</div>
       </div>`).join('');
 
-  const orgs = sortRows(data.organizations || [], orgSort, adminSortValue);
+  // The rollup is spread onto the row so sortRows/adminSortValue can reach
+  // billing_active by key like every other column, rather than growing a
+  // nested-key path only this table would use.
+  const orgs = sortRows((data.organizations || []).map(o => ({ ...o, ...(o.billing || {}) })),
+                        orgSort, adminSortValue);
   const orgRows = orgs.map(o => `<tr>
-      <td class="admin-strong">${adminCell(o.org_name)}<div class="admin-muted">${adminCell(o.org_slug)} · ${adminCell(o.org_kind)}</div>
+      <td class="admin-strong">${adminOrgLink(o)}<div class="admin-muted">${adminCell(o.org_slug)} · ${adminCell(o.org_kind)}</div>
         <div class="admin-muted">${adminCell(o.owner_emails)}</div></td>
       <td>${adminCell(o.unit_count)}</td>
       <td>${adminCell(o.personnel_count)}</td>
       <td>${adminCell(o.user_count)}</td>
+      <td>${adminCell(o.billing_active)}</td>
+      <td>${adminCell(o.billing_trial)}</td>
+      <td>${adminCell(o.billing_comped)}</td>
+      <td>${adminCell(o.billing_locked)}</td>
       <td>${adminCell(o.pending_invites)}</td>
       <td>${adminCell(o.has_logo)}</td>
+      <td>${adminCell(o.org_timezone)}</td>
       <td>${adminCell(o.audit_7d)}</td>
       <td>${adminCell(o.last_activity)}</td>
       <td>${adminCell(o.created_stamp)}</td>
     </tr>`).join('');
 
-  const users = sortRows(data.recent_users || [], userSort, adminSortValue);
+  // Filtered here, not on the server: the whole directory is already in this
+  // payload, so a round trip per keystroke would buy nothing.
+  const needle = (adminUserFilter || '').trim().toLowerCase();
+  const matching = (data.recent_users || []).filter(u => !needle || ADMIN_USER_COLUMNS
+    .some(c => String(u[c.key] === null || u[c.key] === undefined ? '' : u[c.key]).toLowerCase().includes(needle)));
+  const users = sortRows(matching, userSort, adminSortValue);
   const userRows = users.map(u => `<tr>
       <td class="admin-strong">${adminCell(u.email)}</td>
       <td>${adminCell(u.full_name)}</td>
@@ -8908,6 +9097,8 @@ function adminOverviewHtml(data, orgSort, userSort) {
       </span>
     </div>
     <div class="admin-totals">${totals}</div>
+    ${adminRevenueHtml(data.revenue)}
+    ${adminWatchlistHtml(data.watchlist)}
     <section class="admin-section">
       <h2>Organizations</h2>
       <div class="admin-table-wrap">
@@ -8918,7 +9109,9 @@ function adminOverviewHtml(data, orgSort, userSort) {
       </div>
     </section>
     <section class="admin-section">
-      <h2>Recent users</h2>
+      <h2>Users <span class="admin-muted">${adminCell(users.length)} of ${adminCell((data.recent_users || []).length)}</span></h2>
+      <input type="search" class="admin-filter" placeholder="Filter by email, name, role, organization…"
+             value="${escapeHtml(adminUserFilter || '')}" oninput="filterAdminUsers(this.value)">
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>${sortHeaders(ADMIN_USER_COLUMNS, userSort, 'sortAdminUsers')}</tr></thead>
@@ -8928,9 +9121,58 @@ function adminOverviewHtml(data, orgSort, userSort) {
     </section>`;
 }
 
+// The org name as a drill-down button. The id goes into an inline handler, so
+// it is validated as an integer first and never interpolated from the wire --
+// the same rule adminCompToggle() follows.
+function adminOrgLink(o) {
+  const id = Number(o && o.org_id);
+  if (!Number.isInteger(id)) return adminCell(o && o.org_name);
+  return `<button type="button" class="admin-link" onclick="openAdminOrg(${id})">${adminCell(o.org_name)}</button>`;
+}
+
 function renderAdmin() {
   const view = document.getElementById('adminScreen');
-  if (view) view.innerHTML = adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
+  if (!view) return;
+  // Redrawing the page replaces the filter input, which takes the caret with
+  // it -- so remember whether it had focus and give it back. Without this the
+  // box drops focus on the first keystroke and the operator types one letter
+  // at a time into nothing.
+  const active = document.activeElement;
+  const refocus = !!(active && active.classList && active.classList.contains('admin-filter'));
+  view.innerHTML = adminOrgDetail
+    ? adminOrgDetailHtml(adminOrgDetail)
+    : adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
+  if (refocus) {
+    const box = view.querySelector('.admin-filter');
+    if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }
+}
+
+function filterAdminUsers(value) {
+  adminUserFilter = value;
+  renderAdmin();
+}
+
+async function openAdminOrg(orgId) {
+  const id = Number(orgId);
+  if (!Number.isInteger(id)) return;
+  const org = (adminData && adminData.organizations || []).find(o => Number(o.org_id) === id);
+  adminOrgDetail = null;
+  renderAdmin();
+  const detail = await api('GET', `/admin/organizations/${id}`);
+  if (!detail || detail.error) { adminOrgDetail = null; renderAdmin(); return; }
+  // The name is not in the drill-down payload -- it is already on the row that
+  // was clicked, and asking the server to repeat it would be a second source
+  // of truth for the same string.
+  adminOrgDetail = { ...detail, org_name: org ? org.org_name : '' };
+  renderAdmin();
+  window.scrollTo({ top: 0 });
+}
+
+function closeAdminOrg() {
+  adminOrgDetail = null;
+  renderAdmin();
+  window.scrollTo({ top: 0 });
 }
 
 // Every other organization's name, size and owner email, sitting in a global
@@ -8940,6 +9182,8 @@ function renderAdmin() {
 // and api()'s 401 all end there.
 function clearPlatformAdmin() {
   adminData = null;
+  adminOrgDetail = null;
+  adminUserFilter = '';
   const view = document.getElementById('adminScreen');
   if (view) view.innerHTML = '';
   document.body.classList.remove('admin-active');
@@ -8949,6 +9193,7 @@ function sortAdminOrgs(key) { toggleSort(adminOrgSort, key); renderAdmin(); }
 function sortAdminUsers(key) { toggleSort(adminUserSort, key); renderAdmin(); }
 
 async function refreshAdmin() {
+  adminOrgDetail = null;
   const data = await api('GET', '/admin/overview');
   // A non-admin who typed the URL gets a 404 here; api() has already reported
   // it, and there is nothing to draw, so leave the screen alone and go home.

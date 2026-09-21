@@ -984,6 +984,74 @@ def test_admin_overview_counts_and_labels_billing(fx):
     assert 'stripe' not in json.dumps(body).lower(), 'a Stripe id reached the admin payload'
 
 
+def test_admin_overview_reports_revenue_from_the_live_prices(fx):
+    """MRR is counted from the prices Stripe returns now, never a stored
+    amount: an annual subscriber is a twelfth of the annual price per month.
+    Only a genuinely subscribed account counts -- a comped account carrying a
+    stale lookup key from a cancelled run must not be billed for twice."""
+    leader, a_owner, b_owner = fx['a_leader'], fx['a_owner'], fx['b_owner']
+    set_sub(leader['id'], billing_mode='default', stripe_status='active',
+            stripe_price_lookup_key='platoon_leader_monthly')
+    set_sub(b_owner['id'], billing_mode='default', stripe_status='active',
+            stripe_price_lookup_key='platoon_leader_annual')
+    set_sub(a_owner['id'], billing_mode='comped', stripe_status='canceled',
+            stripe_price_lookup_key='platoon_leader_monthly')
+    Stripe().install()          # BOTH_PRICES: 299/month and 1999/year
+    try:
+        body = admin_client().get('/api/admin/overview').get_json()
+    finally:
+        server._verify_clerk_session_token = _real_verify
+        server._PRICES_CACHE = (0.0, [])
+    rev = body['revenue']
+    assert rev['prices_available'] is True, rev
+    plans = {p['lookup_key']: p for p in rev['plans']}
+    assert plans['platoon_leader_monthly']['subscribers'] == 1, plans
+    assert plans['platoon_leader_annual']['subscribers'] == 1, \
+        f'the comped account is being counted as a subscriber: {plans}'
+    # 299 + 1999/12 = 465.58... -> 466
+    assert rev['mrr_cents'] == round(299 + 1999 / 12), rev
+    # ARR is derived from the UNROUNDED monthly figure, so it is what the two
+    # accounts actually pay in a year: 299*12 + 1999. Deriving it from the
+    # rounded MRR instead would give 5592 -- a rounding artifact, not money.
+    assert rev['arr_cents'] == 299 * 12 + 1999, rev
+    assert rev['currency'] == 'usd', rev
+
+
+def test_admin_overview_rolls_billing_up_per_organization(fx):
+    leader, a_owner, b_owner = fx['a_leader'], fx['a_owner'], fx['b_owner']
+    set_sub(leader['id'], billing_mode='default', stripe_status=None, trial_ends_at=utcnow() + 5 * DAY)
+    set_sub(a_owner['id'], billing_mode='comped')
+    set_sub(b_owner['id'], billing_mode='default', stripe_status='active')
+    try:
+        body = admin_client().get('/api/admin/overview').get_json()
+    finally:
+        server._verify_clerk_session_token = _real_verify
+    orgs = {o['org_name']: o['billing'] for o in body['organizations']}
+    assert orgs['Alpha Co']['billing_trial'] == 1, orgs
+    assert orgs['Alpha Co']['billing_comped'] == 1, orgs
+    assert orgs['Alpha Co']['billing_active'] == 0, orgs
+    assert orgs['Bravo Co']['billing_active'] == 1, orgs
+    assert orgs['Bravo Co']['billing_trial'] == 0, orgs
+    assert sum(orgs['Alpha Co'].values()) == 2 and sum(orgs['Bravo Co'].values()) == 1, orgs
+
+
+def test_admin_overview_watchlist_picks_up_the_four_states(fx):
+    leader, a_owner, b_owner = fx['a_leader'], fx['a_owner'], fx['b_owner']
+    set_sub(leader['id'], billing_mode='default', stripe_status='past_due')
+    set_sub(a_owner['id'], billing_mode='default', stripe_status='active', cancel_at_period_end=True)
+    # Trial with two days left: inside the three-day window.
+    set_sub(b_owner['id'], billing_mode='default', stripe_status=None, trial_ends_at=utcnow() + 2 * DAY)
+    try:
+        body = admin_client().get('/api/admin/overview').get_json()
+    finally:
+        server._verify_clerk_session_token = _real_verify
+    w = body['watchlist']
+    assert 'alpha-leader@example.com' in w['past_due'], w
+    assert 'alpha-owner@example.com' in w['cancelling'], w
+    assert 'bravo-owner@example.com' in w['trial_ending'], w
+    assert w['locked'] == [], w
+
+
 def test_admin_comp_toggle(fx):
     leader = fx['a_leader']
     try:
@@ -1063,6 +1131,9 @@ def main():
         test_a_restored_backup_cannot_comp_an_account(fx)
         test_a_restored_row_always_has_a_trial_end(fx)
         test_admin_overview_counts_and_labels_billing(fx)
+        test_admin_overview_reports_revenue_from_the_live_prices(fx)
+        test_admin_overview_rolls_billing_up_per_organization(fx)
+        test_admin_overview_watchlist_picks_up_the_four_states(fx)
         test_admin_comp_toggle(fx)
         test_webhook_functions_are_only_called_from_the_webhook()
         print('ok')
