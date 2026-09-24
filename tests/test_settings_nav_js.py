@@ -37,7 +37,7 @@ const PEOPLE = ''' + json.dumps(PEOPLE) + r''';
 const UNITS = ''' + json.dumps(UNITS) + r''';
 const HOSTILE = ''' + json.dumps(HOSTILE) + r''';
 const out = {};
-out.navUser = settingsNavHtml('billing', { admin: false });
+out.navUser = settingsNavHtml('data', { admin: false });
 out.navAdmin = settingsNavHtml('general', { admin: true });
 out.tabsUser = settingsTabsHtml('units', { admin: false });
 out.tabsAdmin = settingsTabsHtml('schools', { admin: true });
@@ -116,16 +116,15 @@ def keys(html):
     return re.findall(r'data-settings="(\w+)"', html)
 
 
-def test_the_nav_has_both_halves_and_one_lit_entry(out):
+def test_the_nav_is_organization_only_with_one_lit_entry(out):
     nav = out['navUser']
-    assert 'Personal' in nav and 'Organization' in nav, 'the nav is not split into its two halves'
-    assert keys(nav) == ['profile', 'preferences', 'billing', 'general', 'people', 'units', 'schools',
-                         'locations', 'data', 'audit'], keys(nav)
-    assert nav.count(' active"') == 1 and 'data-settings="billing" aria-current="page"' in nav, nav
+    assert 'Organization' in nav and 'Personal' not in nav, \
+        'personal settings live in the account menu, not the settings sidebar'
+    assert keys(nav) == ['general', 'people', 'units', 'schools', 'locations', 'data', 'audit'], keys(nav)
+    assert nav.count(' active"') == 1 and 'data-settings="data" aria-current="page"' in nav, nav
     assert 'dashGoAccountability()' in nav, 'there is no way back out of settings'
     assert "onclick=\"openUnits()\"" in nav and "onclick=\"openAuditLog()\"" in nav, \
         'full pages keep their own open*()'
-    assert "onclick=\"openBillingPage()\"" in nav
 
 
 def test_the_operator_entry_needs_the_flag(out):
@@ -188,6 +187,12 @@ def test_the_wiring(src):
     assert 'placeTopbar(screen)' in show, 'showAppScreen() does not move the top bar'
     assert "classList.remove('settings-mode')" in show, 'leaving the dashboard leaves the settings nav up'
     assert src.count('id="appTopbar"') == 1, 'there must be exactly one top bar'
+    menu = extract(src, r'<div class="user-menu" id="userMenu".*?\n          </div>', 'the account menu')
+    for section in ('profile', 'preferences', 'billing'):
+        assert f'data-personal="{section}"' in menu, f'the account menu has no {section} entry'
+    active_key = extract(src, r'function activeSettingsKey\(\) \{.*?\n\}', 'activeSettingsKey()')
+    assert 'PERSONAL_SECTIONS.includes(settingsSection) ? null' in active_key, \
+        'a personal page would bring up the organization settings sidebar'
     assert 'hamburger' not in re.sub(r'<style>.*?</style>', '', src, flags=re.S), \
         'the home-screen hamburger menu is back'
     open_settings = extract(src, r'function openSettings\(push = true, section = null\) \{.*?\n\}', 'openSettings()')
@@ -200,7 +205,7 @@ def test_the_wiring(src):
 def main():
     out = render()
     src = open(INDEX, encoding='utf-8').read()
-    test_the_nav_has_both_halves_and_one_lit_entry(out)
+    test_the_nav_is_organization_only_with_one_lit_entry(out)
     test_the_operator_entry_needs_the_flag(out)
     test_the_tabs_are_the_same_nav(out)
     test_search_finds_people_units_and_pages(out)

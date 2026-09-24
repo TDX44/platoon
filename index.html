@@ -2119,12 +2119,14 @@
     margin-left: auto; min-width: 0; text-align: right; overflow-wrap: anywhere;
     color: var(--cp-text); font-size: 0.9em;
   }
-  body.settings-mode .dash-header { display: none; }
+  body.settings-mode .dash-header, body.settings-active .dash-header { display: none; }
 
   /* ── Settings nav: replaces the main nav while a settings page is open ── */
-  .settings-nav { display: none; }
+  /* .dash-nav.settings-nav, not .settings-nav: .dash-nav's display:flex comes
+     later in this sheet and would win a tie, showing both navs at once. */
+  .dash-nav.settings-nav { display: none; }
   body.settings-mode #mainNav { display: none; }
-  body.settings-mode .settings-nav { display: flex; overflow-y: auto; min-height: 0; }
+  body.settings-mode .dash-nav.settings-nav { display: flex; overflow-y: auto; min-height: 0; }
   body.settings-mode .dash-brand > img { max-width: 72px; }
   .settings-nav-back {
     display: flex; align-items: center; gap: 8px; width: 100%;
@@ -3307,6 +3309,7 @@
   }
   .user-menu button:hover, .user-menu button:focus-visible { background: var(--cp-hover); outline: none; }
   .user-menu .user-menu-danger { color: var(--cp-red); }
+  .user-menu button.active { color: var(--cp-accent); font-weight: 600; }
   .user-menu-sep { height: 1px; background: var(--cp-hairline); margin: 6px 0; }
   @media (max-width: 900px) {
     .app-topbar { gap: 8px; min-height: 0; padding: calc(8px + var(--safe-top)) 14px 8px; }
@@ -3864,12 +3867,12 @@
               <span class="user-menu-role" id="userMenuRole"></span>
             </div>
             <div class="user-menu-label">Personal</div>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('profile')">Profile &amp; account</button>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('preferences')">Preferences</button>
-            <button type="button" role="menuitem" onclick="closeUserMenu();openBillingPage()">Billing</button>
+            <button type="button" role="menuitem" data-personal="profile" onclick="closeUserMenu();goToSettings('profile')">Profile &amp; account</button>
+            <button type="button" role="menuitem" data-personal="preferences" onclick="closeUserMenu();goToSettings('preferences')">Preferences</button>
+            <button type="button" role="menuitem" data-personal="billing" onclick="closeUserMenu();openBillingPage()">Billing</button>
             <div class="user-menu-label">Organization</div>
+            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('people')">Access</button>
             <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('general')">Organization settings</button>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('people')">People &amp; invites</button>
             <!-- Shown only to the operator of this instance (currentUser.platform_admin,
                  which /api/me only returns after Clerk has confirmed the address). -->
             <button id="adminMenuItem" type="button" role="menuitem" onclick="closeUserMenu();openAdmin()" style="display:none">Platform admin</button>
@@ -4926,21 +4929,25 @@ function clearDashFilters() {
   render();
 }
 // ─── Settings (full page) ───────────────────────────────────────────────────
-// One settings area, two halves: Personal (your account, your preferences,
-// your billing) and Organization (this unit and the tree under it). While any
-// of it is open the sidebar swaps the main nav for the settings nav
-// (body.settings-mode, set by syncNavActive()), so Units, Schools, Locations
-// and the Audit log — full pages of their own — read as settings pages too.
-// /<unit>/settings is General; /<unit>/settings/<section> is the rest.
+// Two kinds of settings. Personal ones (your account, your preferences, your
+// billing) are reached from the account menu in the top bar and open as plain
+// pages under the main nav. Organization ones (this unit and the tree under
+// it) have the sidebar: while one is open the main nav is swapped for the
+// settings nav (body.settings-mode, set by syncNavActive()), so Units,
+// Schools, Locations and the Audit log — full pages of their own — read as
+// settings pages too. /<unit>/settings is General; /<unit>/settings/<section>
+// is the rest, personal sections included.
 const SETTINGS_SECTIONS = {
   profile:     { title: 'Profile & account', lead: 'Who you are signed in as, and how you sign in.' },
   preferences: { title: 'Preferences', lead: 'How Platoon Manager looks on this device.' },
   billing:     { title: 'Billing', lead: 'Your plan, payment method and invoices.' },
   general:     { title: 'General', lead: 'The unit’s logo and the organization’s duty day.' },
-  people:      { title: 'People & invites', lead: 'Who leads which unit, and the links that bring new leaders in.' },
+  people:      { title: 'Access', lead: 'Who leads which unit, and the links that bring new leaders in.' },
   data:        { title: 'Data & backup', lead: 'Records, exports, backups and the daily reset.' },
 };
 let settingsSection = 'general';
+// Sections that belong to the account menu, not to the settings sidebar.
+const PERSONAL_SECTIONS = ['profile', 'preferences', 'billing'];
 
 function openSettings(push = true, section = null) {
   closeSoldierPage(false);
@@ -4981,17 +4988,10 @@ function goToSettings(section) {
 // operator's entry. Sections of the settings page carry their key; the rest
 // are full pages with their own open*() and keep them.
 const SETTINGS_NAV = [
-  { group: 'Personal' },
-  { key: 'profile', label: 'Profile', open: "openSettings(true,'profile')",
-    icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>' },
-  { key: 'preferences', label: 'Preferences', open: "openSettings(true,'preferences')",
-    icon: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>' },
-  { key: 'billing', label: 'Billing', open: 'openBillingPage()',
-    icon: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/>' },
   { group: 'Organization' },
   { key: 'general', label: 'General', open: "openSettings(true,'general')",
     icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>' },
-  { key: 'people', label: 'People & invites', open: "openSettings(true,'people')",
+  { key: 'people', label: 'Access', open: "openSettings(true,'people')",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M18 14a6.5 6.5 0 013.5 6"/>' },
   { key: 'units', label: 'Units', open: 'openUnits()',
     icon: '<path d="M12 7v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/>' },
@@ -5026,10 +5026,11 @@ function settingsTabsHtml(active, opts) {
     `<button type="button" role="tab" class="settings-tab${it.key === active ? ' active' : ''}" aria-selected="${it.key === active}" data-settings="${it.key}" onclick="${it.open}">${escapeHtml(it.label)}</button>`).join('')}</div>`;
 }
 
-// The settings page that is open, as a SETTINGS_NAV key, or null outside settings.
+// The organization settings page that is open, as a SETTINGS_NAV key; null
+// outside settings and on a personal page (which has no sidebar of its own).
 function activeSettingsKey() {
   const c = document.body.classList;
-  if (c.contains('settings-active')) return settingsSection;
+  if (c.contains('settings-active')) return PERSONAL_SECTIONS.includes(settingsSection) ? null : settingsSection;
   if (c.contains('units-active')) return 'units';
   if (c.contains('lists-active')) return listsKind;
   if (c.contains('audit-active')) return 'audit';
@@ -5039,7 +5040,10 @@ function activeSettingsKey() {
 function renderSettingsNav() {
   const key = activeSettingsKey();
   document.body.classList.toggle('settings-mode', key !== null);
-  if (key === null) return;
+  if (key === null) {
+    ['settingsNav', 'settingsTabs'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    return;
+  }
   const opts = { admin: !!(currentUser && currentUser.platform_admin) };
   const nav = document.getElementById('settingsNav');
   if (nav) nav.innerHTML = settingsNavHtml(key, opts);
@@ -5186,7 +5190,7 @@ function renderSettings() {
   const isOwner = !!(currentUser && currentUser.role === 'owner');
   const isDark = document.body.classList.contains('dark-mode');
   const meta = SETTINGS_SECTIONS[settingsSection] || SETTINGS_SECTIONS.general;
-  const personal = ['profile', 'preferences', 'billing'].includes(settingsSection);
+  const personal = PERSONAL_SECTIONS.includes(settingsSection);
   const scope = personal ? 'Personal' : `Organization &middot; ${escapeHtml(unitLabel(currentUnit))}`;
   let body;
   if (settingsSection === 'profile') {
@@ -5262,13 +5266,21 @@ function renderSettings() {
 // Settings entry, which is what the mobile bottom nav's More falls back to.
 function syncNavActive() {
   const c = document.body.classList;
+  const personal = c.contains('settings-active') && PERSONAL_SECTIONS.includes(settingsSection)
+    ? settingsSection : null;
   const current =
-      activeSettingsKey() !== null  ? 'settings'
+      personal                      ? null
+    : activeSettingsKey() !== null  ? 'settings'
     : c.contains('availability-active') ? 'availability'
     : c.contains('directory-active') ? 'directory'
     : 'accountability';
   document.querySelectorAll('.dash-nav-item[data-nav], .dash-bottomnav button[data-nav]').forEach(el =>
     el.classList.toggle('active', el.dataset.nav === current));
+  document.querySelectorAll('#userMenu [data-personal]').forEach(el => {
+    el.classList.toggle('active', el.dataset.personal === personal);
+    if (el.dataset.personal === personal) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
+  });
   renderSettingsNav();
 }
 
@@ -8787,11 +8799,11 @@ const SEARCH_PAGES = [
   { label: 'Directory', hint: 'Page', words: 'people contacts phone', run: () => goToPage('directory') },
   { label: 'Availability', hint: 'Page', words: 'who is free available planning', run: () => goToPage('availability') },
   { label: 'Formation mode', hint: 'Page', words: 'formation count', run: () => goToPage('formation') },
-  { label: 'Profile & account', hint: 'Personal settings', words: 'name email password two-factor 2fa sign out clerk', run: () => goToSettings('profile') },
-  { label: 'Preferences', hint: 'Personal settings', words: 'dark mode light theme appearance', run: () => goToSettings('preferences') },
-  { label: 'Billing', hint: 'Personal settings', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
+  { label: 'Profile & account', hint: 'Account menu', words: 'name email password two-factor 2fa sign out clerk', run: () => goToSettings('profile') },
+  { label: 'Preferences', hint: 'Account menu', words: 'dark mode light theme appearance', run: () => goToSettings('preferences') },
+  { label: 'Billing', hint: 'Account menu', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
   { label: 'General', hint: 'Organization settings', words: 'logo time zone timezone duty day', run: () => goToSettings('general') },
-  { label: 'People & invites', hint: 'Organization settings', words: 'leaders users invite access roles owner', run: () => goToSettings('people') },
+  { label: 'Access', hint: 'Organization settings', words: 'people invites leaders users invite roles owner', run: () => goToSettings('people') },
   { label: 'Units', hint: 'Organization settings', words: 'platoon squad team company add rename', run: () => goToPage('units') },
   { label: 'Schools', hint: 'Organization settings', words: 'tdy courses school', run: () => goToPage('schools') },
   { label: 'Locations', hint: 'Organization settings', words: 'tdy places location', run: () => goToPage('locations') },

@@ -181,7 +181,7 @@ button, and the account menu — that `placeTopbar()` moves between
 home screen or the dashboard, so there is one set of ids and handlers. (It
 replaced the home screen's hamburger menu.) The account menu splits
 **Personal** (Profile & account, Preferences, Billing) from **Organization**
-(Organization settings, People & invites), plus Platform admin for the
+(Access, Organization settings), plus Platform admin for the
 operator. The search box offers people on the loaded roster, the units you
 lead and every page and setting (`SEARCH_PAGES`); `globalSearchResults()` is
 pure and a result runs by index, so a typed name never reaches an onclick.
@@ -189,12 +189,16 @@ pure and a result runs by index, so a typed name never reaches an onclick.
 the home screen (`goToSettings()`, `goToPage()`) enters the user's own unit
 first.
 
-**Settings** is one area in two halves. `/<unit>/settings` is General (logo,
+**Settings** come in two kinds. `/<unit>/settings` is General (logo,
 time zone); `/<unit>/settings/<section>` is `profile`, `preferences`,
-`billing`, `people` or `data` (`SETTINGS_SECTIONS`, all rendered by
-`renderSettings()`), and `/<unit>/billing` is an alias for the Billing
-section. Units, Schools, Locations and the Audit log stay full pages of their
-own but count as settings: while any settings page is open, `syncNavActive()`
+`billing`, `people` (shown as "Access") or `data` (`SETTINGS_SECTIONS`, all
+rendered by `renderSettings()`), and `/<unit>/billing` is an alias for the
+Billing section. The **personal** ones (`PERSONAL_SECTIONS`: profile,
+preferences, billing) are reached only from the account menu, open under the
+main nav, and light their menu item rather than any nav entry. The
+**organization** ones have a sidebar of their own. Units, Schools, Locations
+and the Audit log stay full pages but count as organization settings: while
+any of those is open, `syncNavActive()`
 sets `body.settings-mode`, which swaps the sidebar's main nav for the settings
 nav (`SETTINGS_NAV`, rendered by `settingsNavHtml()`) and, below 900px, shows
 the same entries as a row of tabs (`#settingsTabs`). A new settings page is a
