@@ -13,7 +13,7 @@ The app requires Clerk auth, so a plain browser load renders nothing. This
 drives the SPA the same way a signed-in browser does: it starts a real
 server, loads '/', stubs `api()` with a fixture unit tree, then calls the
 app's own entry points — `loadHome()`, `selectUnit()`, `openDirectory()`,
-`openUnits()`, `openSettings()`, `openSoldierPage()`, `startFormation()`,
+`openUnits()`, `openSettings()`, `openBillingPage()`, `openSoldierPage()`, `startFormation()`,
 `showCreateUnitScreen()` — rather than hand-building the DOM. server.py is
 not touched or weakened.
 
@@ -261,6 +261,23 @@ INVITES_FIXTURE = [
      'expires_at': day(1) + ' 09:00:00', 'status': 'pending'},
 ]
 
+# What GET /api/billing/details adds for a subscribed account: a card and two
+# invoices, so the Billing page's history table is on screen to be measured.
+BILLING_DETAILS_FIXTURE = {
+    'plan': {'lookup_key': 'platoon_leader_annual', 'amount': 1999, 'interval': 'year', 'currency': 'usd'},
+    'card': {'brand': 'mastercard', 'last4': '4444', 'exp_month': 12, 'exp_year': 2029},
+    'invoices': [
+        {'id': 'in_1', 'number': 'A-1', 'created': TODAY.isoformat() + 'T12:00:00+00:00',
+         'period_start': TODAY.isoformat() + 'T12:00:00+00:00', 'period_end': day(365) + 'T12:00:00+00:00',
+         'status': 'paid', 'amount': 1999, 'currency': 'usd',
+         'url': 'https://invoice.stripe.com/i/1', 'pdf': 'https://pay.stripe.com/invoice/1/pdf'},
+        {'id': 'in_0', 'number': 'A-0', 'created': day(-30) + 'T12:00:00+00:00',
+         'period_start': day(-30) + 'T12:00:00+00:00', 'period_end': TODAY.isoformat() + 'T12:00:00+00:00',
+         'status': 'uncollectible', 'amount': 299, 'currency': 'usd', 'url': None, 'pdf': None},
+    ],
+    'stripe_error': False,
+}
+
 SETTINGS_FIXTURE = {
     'unit_name': 'Headhunter Company', 'kind': 'company',
     'tdy_schools': ['Air Assault', 'Combatives Level 1', 'Ranger'],
@@ -340,6 +357,8 @@ async (fixture) => {
     if (p === '/me') return fixture.user;
     if (p === '/admin/overview') return fixture.admin;
     if (p === '/billing/extend') return { billing: fixture.user.billing };
+    if (p === '/billing/details') return window.__billingDetails
+      || { billing: fixture.user.billing, plan: null, card: null, invoices: [], stripe_error: false };
     if (p === '/billing/checkout' || p === '/billing/portal') return null;
     if (/^\\/personnel\\/\\d+\\/profile$/.test(p)) return fixture.profile;
     return [];
@@ -583,19 +602,22 @@ def check_home(page, width, units, label):
 
 
 BILLING_LINKS = '#billingBanner .billing-banner-link'
-PRICING_BUTTONS = '#billingScreen .pricing-btn, #billingScreen .billing-banner-link, #billingScreen .dash-btn, #billingScreen .soldier-back'
+PRICING_BUTTONS = '#billingScreen .pricing-btn, #billingScreen .billing-banner-link, #billingScreen .dash-btn'
+BILLING_PAGE_BUTTONS = '#settingsView .billing-page button, #settingsView .billing-page a'
+TOPBAR_CONTROLS = '#appTopbar button, #globalSearch, #userMenu [role="menuitem"], #globalSearchResults .topbar-result'
 
 
 def check_billing(page, width):
     """The trial banner sits above every signed-in screen; the pricing screen
-    and the Billing page are one full-screen panel. None of it may overflow,
-    and every control on it is a real tap target."""
+    is a locked account's one full-screen panel. None of it may overflow, and
+    every control on it is a real tap target. (The Billing page proper is a
+    settings section, checked inside a unit by check_billing_page.)"""
     assert page.evaluate("!!document.querySelector('#billingBanner .billing-banner')"), (
         f'billing @ {width}px: the trial banner did not render on the home screen')
     check_no_horizontal_overflow(page, width, 'home + billing banner')
     if width < 900:
         check_tap_targets(page, width, BILLING_LINKS, 'billing banner')
-    page.evaluate('showBillingScreen(true)')
+    page.evaluate('showBillingScreen()')
     assert page.evaluate("document.querySelectorAll('#billingScreen .pricing-btn').length") == 2, (
         f'pricing @ {width}px: two purchase buttons expected')
     assert not page.evaluate("!!document.querySelector('#billingBanner .billing-banner')"), (
@@ -609,20 +631,126 @@ def check_billing(page, width):
     check_nothing_clips_inside(page, width, '#billingScreen .pricing-card', 'plan cards')
     if width < 900:
         check_tap_targets(page, width, PRICING_BUTTONS, 'pricing')
-    page.evaluate('showBillingScreen(false)')
-    assert page.evaluate("!!document.querySelector('#billingScreen .billing-card')"), (
-        f'billing page @ {width}px: the Billing card did not render')
-    check_no_horizontal_overflow(page, width, 'billing page')
-    check_fits_width(page, width, '#billingScreen .login-card', 'billing page')
-    check_nothing_clips_inside(page, width, '#billingScreen .pricing-card', 'plan cards (billing page)')
-    if width < 900:
-        check_tap_targets(page, width, PRICING_BUTTONS, 'billing page')
     check_billing_modal_without_storage(page, width)
     page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+    assert page.evaluate("document.getElementById('billingScreen').innerHTML") == '', (
+        f'pricing @ {width}px: leaving the pricing screen kept its markup (and its #pricingStatus)')
     # From the home screen, so raising the pricing screen is a real change of
     # state rather than something the checks above already left on screen.
     check_402_shows_the_pricing_screen(page, width)
     page.evaluate(SHOW_HOME_JS, UNITS_FIXTURE)
+
+
+def check_topbar(page, width, screen, slot):
+    """The one top bar, in the slot of the screen that is up, with its account
+    menu and its search results open in turn. Neither may hang off a phone."""
+    assert page.evaluate("document.getElementById('appTopbar').parentElement.id") == slot, (
+        f'topbar @ {width}px: not in #{slot} on the {screen} screen')
+    check_no_horizontal_overflow(page, width, f'{screen} + top bar')
+    page.evaluate('toggleUserMenu()')
+    assert page.evaluate("!document.getElementById('userMenu').hidden"), f'topbar @ {width}px: the menu did not open'
+    check_fits_width(page, width, '#userMenu', f'{screen} account menu')
+    check_no_horizontal_overflow(page, width, f'{screen} account menu')
+    admin_shown = page.evaluate("getComputedStyle(document.getElementById('adminMenuItem')).display !== 'none'")
+    assert admin_shown, f'topbar @ {width}px: the operator does not see Platform admin'
+    if width < 900:
+        check_tap_targets(page, width, TOPBAR_CONTROLS, f'{screen} top bar')
+    page.evaluate('closeUserMenu()')
+    page.fill('#globalSearch', 'pla')
+    page.evaluate('onGlobalSearch()')
+    assert page.evaluate("document.querySelectorAll('#globalSearchResults .topbar-result').length"), (
+        f'search @ {width}px: "pla" found nothing — fixture is stale')
+    check_fits_width(page, width, '#globalSearchResults', f'{screen} search results')
+    check_no_horizontal_overflow(page, width, f'{screen} search results')
+    if width < 900:
+        check_tap_targets(page, width, TOPBAR_CONTROLS, f'{screen} search results')
+    page.evaluate('closeGlobalSearch(); document.getElementById("globalSearch").blur()')
+
+
+NAV_VISIBLE_JS = "(sel) => { const el = document.querySelector(sel); return !!el && el.getClientRects().length > 0; }"
+SETTINGS_SECTIONS = ('general', 'people', 'data')
+PERSONAL_SECTIONS = ('profile', 'preferences')
+
+
+def check_settings(page, width):
+    """Every settings section, with the settings nav swapped in for the main
+    one (the sidebar on a desktop, the tab row on a phone)."""
+    page.evaluate('openSettings()')
+    assert page.evaluate("document.body.classList.contains('settings-mode')"), (
+        f'settings @ {width}px: the settings nav did not replace the main nav')
+    assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
+        f'settings @ {width}px: the Unit logo row did not render')
+    nav = '#settingsTabs' if width < 900 else '#settingsNav'
+    assert not page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"billing\"]')"), (
+        f'settings @ {width}px: Billing is personal and belongs to the account menu, not the settings nav')
+    assert page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"admin\"]')"), (
+        f'settings @ {width}px: the operator does not see Platform admin in the settings nav')
+    for section in SETTINGS_SECTIONS:
+        page.evaluate(f"openSettings(true, '{section}')")
+        if width >= 900:
+            assert not page.evaluate(NAV_VISIBLE_JS, '#mainNav'), f'settings @ {width}px: both navs are showing'
+        on = page.evaluate(f"document.querySelector('{nav} .active').dataset.settings")
+        assert on == section, f'settings @ {width}px: {section} open but {on} lit'
+        check_no_horizontal_overflow(page, width, f'settings/{section}')
+        if width < 900:
+            check_tap_targets(page, width, '#settingsTabs .settings-tab', f'settings/{section} tabs')
+    # Personal pages come from the account menu: the main nav stays, no tabs.
+    for section in PERSONAL_SECTIONS:
+        page.evaluate(f"goToSettings('{section}')")
+        assert not page.evaluate("document.body.classList.contains('settings-mode')"), (
+            f'settings @ {width}px: {section} brought up the organization settings nav')
+        lit = page.evaluate(f"document.querySelector('#userMenu [data-personal=\"{section}\"]').classList.contains('active')")
+        assert lit, f'settings @ {width}px: the account menu does not mark {section} as the open page'
+        check_no_horizontal_overflow(page, width, f'settings/{section}')
+        assert not page.evaluate(NAV_VISIBLE_JS, '#settingsNav'), (
+            f'settings @ {width}px: {section} shows the settings nav under the main nav')
+        if width >= 900:
+            assert page.evaluate(NAV_VISIBLE_JS, '#mainNav'), f'settings @ {width}px: {section} hid the main nav'
+    # A full page of its own still reads as settings.
+    page.evaluate('(async () => { openUnits(); await refreshUnitsPage(); })()')
+    page.wait_for_timeout(50)
+    assert page.evaluate(f"document.querySelector('{nav} .active').dataset.settings") == 'units', (
+        f'settings @ {width}px: the Units page does not light Units in the settings nav')
+    page.evaluate('closeUnits()')
+    assert not page.evaluate("document.body.classList.contains('settings-mode')"), (
+        f'settings @ {width}px: closing the last settings page left the settings nav up')
+
+
+def check_billing_page(page, width):
+    """The Billing page, in the trial (plan picker showing) and subscribed
+    (card and invoice table showing)."""
+    page.evaluate('openBillingPage()')
+    page.wait_for_timeout(50)
+    assert page.evaluate("document.body.classList.contains('settings-active') && settingsSection === 'billing'"), (
+        f'billing page @ {width}px: openBillingPage() did not open the Billing section')
+    assert page.evaluate("location.pathname.endsWith('/settings/billing')"), (
+        f'billing page @ {width}px: the address bar does not say where the page is')
+    assert page.evaluate("!!document.querySelector('#settingsView .billing-grid')"), (
+        f'billing page @ {width}px: the plan and payment cards did not render')
+    assert page.evaluate("document.querySelectorAll('#settingsView .pricing-btn').length") == 2, (
+        f'billing page @ {width}px: a trial account was not offered both plans')
+    check_no_horizontal_overflow(page, width, 'billing page (trial)')
+    check_nothing_clips_inside(page, width, '#settingsView .pricing-card', 'plan cards (billing page)')
+    check_nothing_clips_inside(page, width, '#settingsView .billing-card', 'billing cards (trial)')
+    if width < 900:
+        check_tap_targets(page, width, BILLING_PAGE_BUTTONS, 'billing page (trial)')
+    page.evaluate("""(details) => {
+      window.__savedBilling = currentUser.billing;
+      currentUser.billing = Object.assign({}, currentUser.billing, {
+        state: 'ACTIVE', subscribed: true, portal_available: true, extension_available: false,
+        days_left: null, current_period_end: details.invoices[0].period_end, prices: [] });
+      window.__billingDetails = Object.assign({ billing: currentUser.billing }, details);
+      openBillingPage();
+    }""", BILLING_DETAILS_FIXTURE)
+    page.wait_for_timeout(50)
+    assert page.evaluate("document.querySelectorAll('#settingsView .billing-table tbody tr').length") == 2, (
+        f'billing page @ {width}px: the invoice history did not render')
+    assert page.evaluate("document.querySelector('#settingsView .billing-pm-line').textContent") == 'Mastercard ending in 4444'
+    check_no_horizontal_overflow(page, width, 'billing page (subscribed)')
+    check_nothing_clips_inside(page, width, '#settingsView .billing-card', 'billing cards (subscribed)')
+    if width < 900:
+        check_tap_targets(page, width, BILLING_PAGE_BUTTONS, 'billing page (subscribed)')
+    page.evaluate("currentUser.billing = window.__savedBilling; window.__billingDetails = null; closeSettings()")
 
 
 # api()'s 402 branch is the only thing that turns a mid-session lock into the
@@ -716,26 +844,20 @@ def check_billing_modal_without_storage(page, width):
 
 
 def check_billing_back(page, width):
-    """Browser Back off the Billing page, opened from a unit route — the case
-    the popstate handler cannot see. The screen pushes no history, so the entry
-    Back pops is the unit page the user was already on; the handler's
-    same-unit branch only closes sub-pages, so without a billing branch of its
-    own #platoonScreen stays hidden behind #billingScreen and the press is
-    silently eaten. Dispatching the event exercises the handler without
-    needing a real history stack under this page."""
+    """Browser Back off the Billing page, opened from the roster. It is a
+    settings section now and pushes its own history entry, so Back is an
+    ordinary popstate onto the roster — which has to come back, not stay
+    hidden under a settings page. A real history.back(), not a synthetic
+    event, so the entry the page pushed is the one that is popped."""
     page.evaluate('openBillingPage()')
-    assert page.evaluate("document.body.classList.contains('billing-active')"), (
+    assert page.evaluate("document.body.classList.contains('settings-active')"), (
         f'billing back @ {width}px: the Billing page did not open over the roster')
-    page.evaluate("window.dispatchEvent(new PopStateEvent('popstate', {state: {section: 'home'}}))")
-    # routeAfterLogin() legitimately raises the last-days modal on the way out
-    # (this fixture is two days from the end of its trial); dismiss it so it is
-    # not left open over every check after this one.
-    page.evaluate('settleConfirm(false)')
-    assert not page.evaluate("document.body.classList.contains('billing-active')"), (
-        f'billing back @ {width}px: Back left body.billing-active set')
-    assert page.evaluate("getComputedStyle(document.getElementById('billingScreen')).display") == 'none', (
-        f'billing back @ {width}px: Back left the billing screen on screen')
-    assert page.evaluate("getComputedStyle(document.getElementById('platoonScreen')).display") != 'none', (
+    page.evaluate("new Promise(r => { window.addEventListener('popstate', () => setTimeout(r, 0), { once: true }); history.back(); })")
+    assert not page.evaluate("document.body.classList.contains('settings-active')"), (
+        f'billing back @ {width}px: Back left the Billing page up')
+    assert not page.evaluate("document.body.classList.contains('settings-mode')"), (
+        f'billing back @ {width}px: Back left the settings nav in place of the main nav')
+    assert page.evaluate("getComputedStyle(document.getElementById('personnelBody')).display") != 'none', (
         f'billing back @ {width}px: Back consumed the press without restoring the roster')
 
 
@@ -752,6 +874,7 @@ def run_checks(page, base_url):
 
         # Home: the org chart, normal tree and a nine-across organization.
         check_home(page, width, UNITS_FIXTURE, 'home')
+        check_topbar(page, width, 'home', 'homeTopbarSlot')
         check_home(page, width, WIDE_UNITS_FIXTURE, 'home (wide org)')
         check_billing(page, width)
 
@@ -765,8 +888,10 @@ def run_checks(page, base_url):
         if width < 900:
             check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
 
+        check_topbar(page, width, 'dashboard', 'dashTopbarSlot')
         check_billing_back(page, width)
         page.evaluate(ENTER_UNIT_JS, ROOT_UNIT_ID)
+        check_billing_page(page, width)
 
         page.evaluate('openDirectory()')
         page.wait_for_timeout(50)
@@ -785,14 +910,8 @@ def run_checks(page, base_url):
         check_no_horizontal_overflow(page, width, 'units')
         page.evaluate('closeUnits()')
 
-        # Settings, including the Unit card's logo row.
-        page.evaluate('openSettings()')
-        assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
-            f'settings @ {width}px: the Unit logo row did not render')
-        assert page.evaluate("!!document.querySelector('#settingsView [onclick=\"openBillingPage()\"]')"), (
-            f'settings @ {width}px: the Billing row did not render')
-        check_no_horizontal_overflow(page, width, 'settings')
-        page.evaluate('closeSettings()')
+        # Settings: every section, and the settings nav that replaces the main one.
+        check_settings(page, width)
 
         # A soldier page, with the "Edit name & rank" button the hero grew.
         page.evaluate('openSoldierPage(1)')

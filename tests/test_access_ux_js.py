@@ -171,7 +171,7 @@ def test_the_page_says_what_it_does(src):
     for name in ('openUserMgmt', 'refreshUserList', 'userMgmtModal'):
         assert name in src, f'{name} was renamed; the ids and function names stay put'
     assert src.count('People &amp; invites') + src.count('People & invites') >= 3, \
-        'the hamburger item, the Settings row and the modal heading all carry the new name'
+        'the account menu, the Settings nav and the modal heading all carry the new name'
     assert "Also on each unit's row under Units." in src, \
         'the Settings row does not point at the new home for this'
 

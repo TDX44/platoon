@@ -1116,9 +1116,9 @@ def _stripe_customer_for_mode(row):
 
 
 # ── Stripe seams ──
-# Five one-line functions, one per Stripe call the app makes. Everything
-# above them is testable with these replaced; nothing else in server.py
-# touches the SDK except the webhook's signature check.
+# One function per Stripe call the app makes. Everything above them is
+# testable with these replaced; nothing else in server.py touches the SDK
+# except the webhook's signature check.
 def _stripe_prices():
     return stripe.Price.list(lookup_keys=list(PRICE_LOOKUP_KEYS), active=True, limit=10).data
 
@@ -1137,6 +1137,18 @@ def _stripe_portal(params):
 
 def _stripe_cancel(subscription_id):
     stripe.Subscription.cancel(subscription_id)
+
+
+def _stripe_invoices(customer_id):
+    return stripe.Invoice.list(customer=customer_id, limit=BILLING_HISTORY_LIMIT).data
+
+
+def _stripe_card(customer_id):
+    """The card Stripe will charge next, or None. Checkout in subscription mode
+    puts the card on the subscription, the portal on the customer's invoice
+    settings, so the customer's cards are listed rather than one field read."""
+    cards = stripe.Customer.list_payment_methods(customer_id, type='card', limit=1).data
+    return cards[0].card if cards else None
 
 
 PRICES_TTL = 3600
@@ -1181,6 +1193,98 @@ def _billing_payload():
     return {**b,
             'prices': [{k: v for k, v in p.items() if k != 'id'} for p in _prices_cached()] if wants_prices else [],
             'portal_available': _stripe_customer_for_mode(row) is not None}
+
+
+# The Billing page's card and invoice history, straight from Stripe and never
+# stored: the webhook mirrors only what access depends on. Cached per customer
+# per worker for the same reason the prices are — the lookup blocks a sync
+# worker — and briefly, so a card changed in the portal shows up on return.
+BILLING_HISTORY_LIMIT = 12
+BILLING_DETAILS_TTL = 30
+_BILLING_DETAILS_CACHE = {}   # (customer_id, row version) -> (expires_at_monotonic, details)
+CARD_BRANDS = ('amex', 'diners', 'discover', 'eftpos_au', 'jcb', 'mastercard', 'unionpay', 'visa')
+INVOICE_STATUSES = ('draft', 'open', 'paid', 'uncollectible', 'void')
+
+
+def _sget(obj, name):
+    """A field off a StripeObject (attribute access; not dict-like since
+    stripe-python 12) or off a plain dict, the shape the tests hand in."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def _stamp_iso(ts):
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat() if isinstance(ts, int) else None
+
+
+def _stripe_token(value):
+    """An id or invoice number as Stripe writes them (in_1Abc, 7F3A2B-0001), or None."""
+    return value if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', value) else None
+
+
+def _https_or_none(url):
+    return url if isinstance(url, str) and url.startswith('https://') else None
+
+
+def _card_payload(card):
+    if card is None:
+        return None
+    brand, last4 = _sget(card, 'brand'), _sget(card, 'last4')
+    month, year = _sget(card, 'exp_month'), _sget(card, 'exp_year')
+    return {'brand': brand if brand in CARD_BRANDS else 'card',
+            'last4': last4 if isinstance(last4, str) and re.fullmatch(r'\d{4}', last4) else None,
+            'exp_month': month if isinstance(month, int) else None,
+            'exp_year': year if isinstance(year, int) else None}
+
+
+def _invoice_payload(inv):
+    # The service period is on the line, not the invoice: an invoice's own
+    # period_start/period_end describe the usage window before it, which for a
+    # subscription's first invoice is a zero-length span at checkout.
+    lines = _sget(_sget(inv, 'lines'), 'data') or []
+    period = _sget(lines[0], 'period') if lines else None
+    status = _sget(inv, 'status')
+    total = _sget(inv, 'total')
+    currency = _sget(inv, 'currency')
+    return {'id': _stripe_token(_sget(inv, 'id')),
+            'number': _stripe_token(_sget(inv, 'number')),
+            'created': _stamp_iso(_sget(inv, 'created')),
+            'period_start': _stamp_iso(_sget(period, 'start')),
+            'period_end': _stamp_iso(_sget(period, 'end')),
+            'status': status if status in INVOICE_STATUSES else None,
+            'amount': total if isinstance(total, int) else None,
+            'currency': currency if isinstance(currency, str) and re.fullmatch(r'[a-z]{3}', currency) else None,
+            'url': _https_or_none(_sget(inv, 'hosted_invoice_url')),
+            'pdf': _https_or_none(_sget(inv, 'invoice_pdf'))}
+
+
+def _billing_details_cached(customer_id, version):
+    """{'card', 'invoices', 'stripe_error'} for one customer. A failure is an
+    answer too (stripe_error: True, nothing else), cached for the same short
+    while, so the page says Stripe could not be reached instead of spinning or
+    500ing. `version` is the row's updated_at: any webhook write (a checkout
+    landing, a cancellation) is a miss, so the page never shows the account
+    as it was before the change it is returning from."""
+    now = time.monotonic()
+    key = (customer_id, version)
+    hit = _BILLING_DETAILS_CACHE.get(key)
+    if hit and now < hit[0]:
+        return hit[1]
+    try:
+        details = {'card': _card_payload(_stripe_card(customer_id)),
+                   'invoices': [_invoice_payload(i) for i in _stripe_invoices(customer_id)
+                                if _sget(i, 'status') != 'draft'],
+                   'stripe_error': False}
+    except Exception as exc:
+        app.logger.warning('could not fetch billing details from Stripe: %s', exc)
+        details = {'card': None, 'invoices': [], 'stripe_error': True}
+    for stale in [k for k, (exp, _) in _BILLING_DETAILS_CACHE.items() if exp <= now]:
+        del _BILLING_DETAILS_CACHE[stale]
+    _BILLING_DETAILS_CACHE[key] = (now + BILLING_DETAILS_TTL, details)
+    return details
 
 
 def _resolved_user():
@@ -1679,7 +1783,7 @@ def logout():
 
 def _billing_return_base():
     slug = _unit_row(get_db(), g.current_user['unit_id'])['slug']
-    return f"{request.host_url.rstrip('/')}/{slug}/settings"
+    return f"{request.host_url.rstrip('/')}/{slug}/settings/billing"
 
 
 def _ensure_stripe_customer(conn, user, row):
@@ -1757,8 +1861,57 @@ def billing_portal():
     customer_id = _stripe_customer_for_mode(g.billing_row)
     if not customer_id:
         return jsonify({'error': 'No billing account yet. Choose a plan first.'}), 409
-    session = _stripe_portal({'customer': customer_id, 'return_url': _billing_return_base()})
+    params = {'customer': customer_id, 'return_url': _billing_return_base()}
+    flow = _portal_flow((request.get_json(silent=True) or {}).get('intent'), g.billing_row)
+    if flow:
+        # A deep link straight to one task. The portal's configuration decides
+        # which flows exist, so a refused flow falls back to the portal's front
+        # page rather than leaving the button dead.
+        try:
+            return jsonify({'url': _stripe_portal({**params, 'flow_data': flow}).url})
+        except Exception as exc:
+            app.logger.warning('portal flow %s refused, opening the portal instead: %s', flow['type'], exc)
+    session = _stripe_portal(params)
     return jsonify({'url': session.url})
+
+
+def _portal_flow(intent, row):
+    """The portal flow_data for one of the Billing page's buttons, or None for
+    the portal's front page. The subscription id is always ours, never the
+    request's."""
+    if intent == 'payment_method':
+        return {'type': 'payment_method_update'}
+    sub_id = (row or {}).get('stripe_subscription_id')
+    if not sub_id or not (g.billing or {}).get('subscribed'):
+        return None
+    if intent == 'cancel' and not (row or {}).get('cancel_at_period_end'):
+        return {'type': 'subscription_cancel', 'subscription_cancel': {'subscription': sub_id}}
+    if intent == 'plan':
+        return {'type': 'subscription_update', 'subscription_update': {'subscription': sub_id}}
+    return None
+
+
+@app.route('/api/billing/details', methods=['GET'])
+@attached_required
+def billing_details():
+    """Everything the Billing page shows beyond /api/me's verdict: the plan the
+    account is on, the card on file and the invoice history. Exempt from the
+    402 like every /api/billing/ route. Card and invoices come from Stripe per
+    view (cached briefly) and are reduced to display fields here — brand,
+    last four, expiry; dates, amounts, status and Stripe's own https links —
+    so nothing else Stripe returns ever reaches the page."""
+    out = {'billing': _billing_payload(), 'plan': None, 'card': None, 'invoices': [], 'stripe_error': False}
+    row = g.billing_row
+    if row is None:
+        return jsonify(out)
+    key = row.get('stripe_price_lookup_key')
+    plan = next((p for p in _prices_cached() if p['lookup_key'] == key), None) if key else None
+    if plan:
+        out['plan'] = {k: v for k, v in plan.items() if k != 'id'}
+    customer_id = _stripe_customer_for_mode(row) if STRIPE_ENABLED else None
+    if customer_id:
+        out.update(_billing_details_cached(customer_id, str(row.get('updated_at'))))
+    return jsonify(out)
 
 
 # ── The webhook ──

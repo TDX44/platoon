@@ -3,7 +3,7 @@
 Run with: python tests/test_billing.py
 
 The app is exercised as platoon_app (RLS binds). Stripe itself is never
-called: the five _stripe_* seams in server.py are replaced per test, and the
+called: the _stripe_* seams in server.py are replaced per test, and the
 webhook is fed payloads signed with the real HMAC scheme.
 """
 import hashlib
@@ -55,6 +55,8 @@ server._stripe_customer_create = _unstubbed
 server._stripe_checkout = _unstubbed
 server._stripe_portal = _unstubbed
 server._stripe_cancel = _unstubbed
+server._stripe_invoices = _unstubbed
+server._stripe_card = _unstubbed
 
 DAY = timedelta(days=1)
 WEBHOOK_SECRET = os.environ['STRIPE_TEST_WEBHOOK_SECRET']
@@ -165,11 +167,15 @@ BOTH_PRICES = [price('platoon_leader_annual', 1999, 'year'), price('platoon_lead
 class Stripe:
     """The seams, recorded. Every _stripe_* call lands in .calls."""
 
-    def __init__(self, prices=None, fail_prices=False):
+    def __init__(self, prices=None, fail_prices=False, invoices=None, card=None, fail_details=False,
+                 refuse_flows=False):
         self.prices, self.fail_prices, self.calls = prices if prices is not None else BOTH_PRICES, fail_prices, []
+        self.invoices, self.card, self.fail_details = invoices or [], card, fail_details
+        self.refuse_flows = refuse_flows
 
     def install(self):
         server._PRICES_CACHE = (0.0, [])
+        server._BILLING_DETAILS_CACHE.clear()
 
         def prices():
             self.calls.append(('prices',))
@@ -187,13 +193,28 @@ class Stripe:
 
         def portal(params):
             self.calls.append(('portal', params))
+            if self.refuse_flows and 'flow_data' in params:
+                raise RuntimeError('This flow is not enabled in the portal configuration')
             return SimpleNamespace(url='https://billing.stripe.com/p/session/1')
 
         def cancel(sub_id):
             self.calls.append(('cancel', sub_id))
 
+        def invoices(customer_id):
+            self.calls.append(('invoices', customer_id))
+            if self.fail_details:
+                raise OSError('stripe is down')
+            return list(self.invoices)
+
+        def card(customer_id):
+            self.calls.append(('card', customer_id))
+            if self.fail_details:
+                raise OSError('stripe is down')
+            return self.card
+
         server._stripe_prices, server._stripe_customer_create = prices, customer
         server._stripe_checkout, server._stripe_portal, server._stripe_cancel = checkout, portal, cancel
+        server._stripe_invoices, server._stripe_card = invoices, card
         return self
 
 
@@ -486,8 +507,8 @@ def test_checkout_creates_the_customer_once_and_opens_a_session(fx):
     assert params['line_items'] == [{'price': 'price_platoon_leader_annual', 'quantity': 1}], params
     assert params['client_reference_id'] == str(leader['id']), params
     assert params['metadata'] == {'user_id': str(leader['id']), 'root_id': str(fx['a']['root']), 'mode': 'test'}, params
-    assert params['success_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings?billing=success', params
-    assert params['cancel_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings', params
+    assert params['success_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings/billing?billing=success', params
+    assert params['cancel_url'] == 'https://platoondev.carr7.com/2ndplatoon/settings/billing', params
     # Second checkout reuses the customer.
     c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'})
     assert [x[0] for x in st.calls].count('customer') == 1, 'the customer is created once per mode'
@@ -523,7 +544,7 @@ def test_portal_needs_a_customer(fx):
     r = c.post('/api/billing/portal', base_url='https://platoondev.carr7.com')
     assert r.status_code == 200 and r.get_json()['url'].startswith('https://billing.stripe.com/'), r.get_json()
     _, params = next(x for x in st.calls if x[0] == 'portal')
-    assert params == {'customer': 'cus_NEW', 'return_url': 'https://platoondev.carr7.com/2ndplatoon/settings'}, params
+    assert params == {'customer': 'cus_NEW', 'return_url': 'https://platoondev.carr7.com/2ndplatoon/settings/billing'}, params
     assert c.get('/api/me').get_json()['billing']['portal_available'] is True
 
 
@@ -535,16 +556,123 @@ def test_billing_routes_work_while_locked(fx):
     assert c.get('/api/units').status_code == 402
     assert c.post('/api/billing/checkout', json={'lookup_key': 'platoon_leader_monthly'}).status_code == 200
     assert c.post('/api/billing/portal').status_code == 200
+    assert c.get('/api/billing/details').status_code == 200, 'the Billing page is how a locked account sees its state'
     set_sub(leader['id'], trial_ends_at=utcnow() + 5 * DAY, extended_at=None)
+
+
+def test_portal_intents_deep_link_and_fall_back(fx):
+    """The Billing page's buttons each open one portal flow. The subscription
+    id in the flow is always the stored one; a request cannot name another,
+    and a flow the portal is not configured for opens the front page."""
+    leader = fx['a_leader']
+    set_sub(leader['id'], stripe_customer_id='test:cus_NEW', stripe_subscription_id='sub_MINE',
+            stripe_status='active', cancel_at_period_end=False)
+    c = client_as(leader)
+
+    def flow_for(body, **stripe_kw):
+        st = Stripe(**stripe_kw).install()
+        r = c.post('/api/billing/portal', json=body)
+        assert r.status_code == 200, r.get_json()
+        return [p.get('flow_data') for kind, p in (x[:2] for x in st.calls) if kind == 'portal']
+
+    assert flow_for({'intent': 'payment_method'}) == [{'type': 'payment_method_update'}]
+    assert flow_for({'intent': 'cancel', 'subscription': 'sub_SOMEONE_ELSE'}) == [
+        {'type': 'subscription_cancel', 'subscription_cancel': {'subscription': 'sub_MINE'}}]
+    assert flow_for({'intent': 'plan'}) == [
+        {'type': 'subscription_update', 'subscription_update': {'subscription': 'sub_MINE'}}]
+    assert flow_for({'intent': 'nonsense'}) == [None], 'an unknown intent is the front page'
+    assert flow_for({}) == [None]
+    # Refused by the portal's configuration: one flow attempt, then the front page.
+    assert flow_for({'intent': 'cancel'}, refuse_flows=True) == [
+        {'type': 'subscription_cancel', 'subscription_cancel': {'subscription': 'sub_MINE'}}, None]
+    # Already cancelling: there is nothing to cancel, so no cancel flow.
+    set_sub(leader['id'], cancel_at_period_end=True)
+    assert flow_for({'intent': 'cancel'}) == [None]
+    # Not subscribed: no subscription flows at all, but a card can still be updated.
+    set_sub(leader['id'], stripe_status='canceled', cancel_at_period_end=False)
+    assert flow_for({'intent': 'plan'}) == [None]
+    set_sub(leader['id'], stripe_status=None, stripe_subscription_id=None)
+    assert flow_for({'intent': 'payment_method'}) == [{'type': 'payment_method_update'}]
+
+
+HOSTILE = '"><img src=x onerror=alert(1)>'
+
+
+def test_billing_details_reduce_stripe_to_display_fields(fx):
+    leader = fx['a_leader']
+    c = client_as(leader)
+    # No customer yet: the plan and verdict, and nothing asked of Stripe.
+    set_sub(leader['id'], stripe_customer_id=None, stripe_status=None, stripe_price_lookup_key=None)
+    st = Stripe().install()
+    d = c.get('/api/billing/details').get_json()
+    assert d['card'] is None and d['invoices'] == [] and d['stripe_error'] is False and d['plan'] is None, d
+    assert d['billing']['state'] == 'TRIAL', d['billing']
+    assert not [x for x in st.calls if x[0] in ('invoices', 'card')], st.calls
+
+    paid = {'id': 'in_1', 'number': 'A-0001', 'created': 1789000000, 'status': 'paid', 'total': 1999,
+            'currency': 'usd', 'hosted_invoice_url': 'https://invoice.stripe.com/i/acct/1',
+            'invoice_pdf': 'https://pay.stripe.com/invoice/acct/1/pdf',
+            'lines': {'data': [{'period': {'start': 1789000000, 'end': 1820536000}}]},
+            'customer_email': 'someone@example.invalid', 'account_name': 'secret'}
+    # Attribute access, the way stripe-python >= 12 hands objects over.
+    hostile = SimpleNamespace(id=HOSTILE, number=None, created='yesterday', status=HOSTILE, total='1999',
+                              currency=HOSTILE, hosted_invoice_url='javascript:alert(1)',
+                              invoice_pdf='http://pay.stripe.com/x', lines=None)
+    draft = {'id': 'in_d', 'status': 'draft', 'total': 5, 'currency': 'usd', 'created': 1789000000}
+    card = SimpleNamespace(brand='visa', last4='4242', exp_month=4, exp_year=2028, fingerprint='fp_secret')
+    set_sub(leader['id'], stripe_customer_id='test:cus_NEW', stripe_subscription_id='sub_MINE',
+            stripe_status='active', stripe_price_lookup_key='platoon_leader_annual')
+    st = Stripe(invoices=[paid, hostile, draft], card=card).install()
+    d = c.get('/api/billing/details').get_json()
+    assert d['plan'] == {'lookup_key': 'platoon_leader_annual', 'amount': 1999, 'interval': 'year',
+                         'currency': 'usd'}, d['plan']
+    assert d['card'] == {'brand': 'visa', 'last4': '4242', 'exp_month': 4, 'exp_year': 2028}, d['card']
+    assert len(d['invoices']) == 2, 'drafts are not history'
+    good, bad = d['invoices']
+    assert good == {'id': 'in_1', 'number': 'A-0001', 'created': '2026-09-10T00:26:40+00:00',
+                    'period_start': '2026-09-10T00:26:40+00:00', 'period_end': '2027-09-10T00:26:40+00:00',
+                    'status': 'paid', 'amount': 1999, 'currency': 'usd',
+                    'url': 'https://invoice.stripe.com/i/acct/1',
+                    'pdf': 'https://pay.stripe.com/invoice/acct/1/pdf'}, good
+    assert bad == {'id': None, 'number': None, 'created': None, 'period_start': None, 'period_end': None,
+                   'status': None, 'amount': None, 'currency': None, 'url': None, 'pdf': None}, bad
+    assert 'secret' not in json.dumps(d) and 'someone@' not in json.dumps(d), 'a Stripe field leaked through'
+    assert ('invoices', 'cus_NEW') in st.calls and ('card', 'cus_NEW') in st.calls
+
+    # Cached per customer: a reload does not ask Stripe again...
+    n = len(st.calls)
+    c.get('/api/billing/details')
+    assert len([x for x in st.calls[n:] if x[0] in ('invoices', 'card')]) == 0, st.calls[n:]
+    # ...until the row changes (a webhook landed), which must be seen at once.
+    set_sub(leader['id'], cancel_at_period_end=True)
+    c.get('/api/billing/details')
+    assert len([x for x in st.calls[n:] if x[0] in ('invoices', 'card')]) == 2, st.calls[n:]
+
+    # An unknown brand or a malformed last4 never reaches the page as sent.
+    Stripe(card=SimpleNamespace(brand=HOSTILE, last4='42<b>', exp_month='4', exp_year=None)).install()
+    assert c.get('/api/billing/details').get_json()['card'] == {
+        'brand': 'card', 'last4': None, 'exp_month': None, 'exp_year': None}
+
+    # Stripe down: the page gets an answer that says so, not a 500.
+    Stripe(fail_details=True).install()
+    r = c.get('/api/billing/details')
+    assert r.status_code == 200, r.status_code
+    d = r.get_json()
+    assert d['stripe_error'] is True and d['card'] is None and d['invoices'] == [], d
+    set_sub(leader['id'], stripe_customer_id='test:cus_NEW', stripe_subscription_id=None, stripe_status=None,
+            stripe_price_lookup_key=None, cancel_at_period_end=False)
+    Stripe().install()
 
 
 def test_unattached_and_signed_out_cannot_use_billing_routes(fx):
     c = client_as(fx['stray'])
     for path in ('/api/billing/extend', '/api/billing/checkout', '/api/billing/portal'):
         assert c.post(path, json={}).status_code == 403, path
+    assert c.get('/api/billing/details').status_code == 403
     dbharness.as_user(None)
     for path in ('/api/billing/extend', '/api/billing/checkout', '/api/billing/portal'):
         assert server.app.test_client().post(path, json={}).status_code == 401, path
+    assert server.app.test_client().get('/api/billing/details').status_code == 401
 
 
 def signed(payload, secret=WEBHOOK_SECRET, ts=None):
@@ -1118,6 +1246,8 @@ def main():
         test_checkout_creates_the_customer_once_and_opens_a_session(fx)
         test_portal_needs_a_customer(fx)
         test_billing_routes_work_while_locked(fx)
+        test_portal_intents_deep_link_and_fall_back(fx)
+        test_billing_details_reduce_stripe_to_display_fields(fx)
         test_unattached_and_signed_out_cannot_use_billing_routes(fx)
         test_webhook_rejects_a_bad_signature_and_a_huge_body(fx)
         test_subscription_events_land_on_the_right_row_and_only_touch_stripe_columns(fx)

@@ -45,10 +45,11 @@ python tests/test_availability.py     # who is free on date X (date-window rules
 python tests/test_formation_order.py  # formation queue rule (runs the JS under node)
 python tests/test_timezone.py          # the duty day follows the unit, not the server
 python tests/test_mobile_layout.py    # layout geometry on home (org chart, incl. a
-                                      # wide org), roster, directory, availability,
-                                      # units, settings, soldier, formation and the
-                                      # create-unit screen: overflow, duplicated row
-                                      # metadata, modal control fit, tap targets
+                                      # wide org), the top bar and its menus, roster,
+                                      # directory, availability, units, every settings
+                                      # section, the Billing page, soldier, formation
+                                      # and the create-unit screen: overflow, duplicated
+                                      # row metadata, modal control fit, tap targets
 python tests/test_tenancy.py          # RLS default-deny, cross-tenant 404s, boot guard
 python tests/test_units.py            # unit CRUD, slug uniqueness, owner-only gates
 python tests/test_auth_flow.py        # signup states: needs_unit, invite, legacy claim
@@ -61,6 +62,7 @@ python tests/test_billing_state.py    # billing_rules.billing_state(): every sta
 python tests/test_billing.py          # the subscriptions row, the 402 gate sweep, extend/checkout/portal
                                       # with Stripe stubbed, the signed webhook, deletion, backup, /admin comp
 python tests/test_billing_js.py       # banner, pricing screen, Billing page and modal rule, under node
+python tests/test_settings_nav_js.py  # the settings nav, top-bar search and settings routes, under node
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -164,13 +166,44 @@ the body. The next navigation moves them, which is what actually retires the
 host. Pinned by `check_legacy_host_redirect`.
 
 Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
-`availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `settings`). Each is a hidden container in
+`availability`, `soldier/<id>`, `schools`, `locations`, `audit`, `units`,
+`settings[/<section>]`). Each is a hidden container in
 `.dash-main` revealed by a `body.<name>-active` class, with matching
 `open*()` / `close*()` / `render*()` functions — copy the directory page when
 adding another. The sidebar highlight is derived from those body classes by
 `syncNavActive()`; each `open*()` calls it, and `render()` covers the rest. Every new section needs a branch in `routeAfterLogin()` and the
 `popstate` handler, plus a class-clearing line wherever the other pages clear
 theirs.
+
+**The top bar** (`#appTopbar`) is one element — search, the light/dark
+button, and the account menu — that `placeTopbar()` moves between
+`#homeTopbarSlot` and `#dashTopbarSlot` whenever `showAppScreen()` shows the
+home screen or the dashboard, so there is one set of ids and handlers. (It
+replaced the home screen's hamburger menu.) The account menu splits
+**Personal** (Profile & account, Preferences, Billing) from **Organization**
+(Access, Organization settings), plus Platform admin for the
+operator. The search box offers people on the loaded roster, the units you
+lead and every page and setting (`SEARCH_PAGES`); `globalSearchResults()` is
+pure and a result runs by index, so a typed name never reaches an onclick.
+`/` or Ctrl/Cmd-K focuses it. Anything that needs a unit and is opened from
+the home screen (`goToSettings()`, `goToPage()`) enters the user's own unit
+first.
+
+**Settings** come in two kinds. `/<unit>/settings` is General (logo,
+time zone); `/<unit>/settings/<section>` is `profile`, `preferences`,
+`billing`, `people` (shown as "Access") or `data` (`SETTINGS_SECTIONS`, all
+rendered by `renderSettings()`), and `/<unit>/billing` is an alias for the
+Billing section. The **personal** ones (`PERSONAL_SECTIONS`: profile,
+preferences, billing) are reached only from the account menu, open under the
+main nav, and light their menu item rather than any nav entry. The
+**organization** ones have a sidebar of their own. Units, Schools, Locations
+and the Audit log stay full pages but count as organization settings: while
+any of those is open, `syncNavActive()`
+sets `body.settings-mode`, which swaps the sidebar's main nav for the settings
+nav (`SETTINGS_NAV`, rendered by `settingsNavHtml()`) and, below 900px, shows
+the same entries as a row of tabs (`#settingsTabs`). A new settings page is a
+`SETTINGS_NAV` entry plus, if it is a section rather than a page,
+a `SETTINGS_SECTIONS` entry and a branch in `renderSettings()`.
 
 **Formation mode** is the exception to the full-page pattern: a fixed
 full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
@@ -329,7 +362,7 @@ reappears.
 The zone is a **setting**, not config: `settings` key `org_timezone`, scoped
 `(root_id, NULL, 'org_timezone')` — one duty day per root, read per request
 rather than cached, so a request against one tenant never serves another
-tenant's zone. Changed by an owner from Settings → Organization, validated as
+tenant's zone. Changed by an owner from Settings → General, validated as
 a real IANA zone, and audited as `ORG_TIMEZONE`. `PLATOON_TZ` is just the
 fallback before that row exists.
 
@@ -607,8 +640,24 @@ as `created`. When that SQL guard suppresses the update,
 `_apply_stripe` writes **no audit row**: a row for a write that did not
 happen is a lie the support desk would act on. Cancellation is at period end
 through the Billing Portal and never flips local state — the webhook does.
-Stripe is called through five one-line `_stripe_*` seams; tests replace
-those. `stripe_customer_id` is stored `<mode>:<id>`.
+Stripe is called through the `_stripe_*` seams (prices, customer, checkout,
+portal, cancel, invoices, card); tests replace those. `stripe_customer_id` is
+stored `<mode>:<id>`.
+
+**The Billing page** (Settings → Billing, `/<unit>/settings/billing`) follows
+Resyrv's `/billing`: a current-plan card beside a payment-method card (card
+on file, the portal's entry points, usage), the plan picker while there is no
+subscription, then the invoice history. Its data is `GET
+/api/billing/details` — the verdict, the plan from the stored lookup key, and
+the card and invoices fetched from Stripe per view, **never stored**, reduced
+to display fields (brand, last four, expiry; dates, amounts, status, Stripe's
+own `https` links) and cached per worker for 30 s keyed on the row's
+`updated_at`, so a webhook write is always a miss. Stripe failing is
+`stripe_error: true`, not a 500. `POST /api/billing/portal` takes an optional
+`intent` — `payment_method`, `plan` or `cancel` — and deep-links the portal
+into that flow using the **stored** subscription id (never one from the
+request); a flow the portal is not configured for falls back to the portal's
+front page. Checkout and the portal return to `/<unit>/settings/billing`.
 
 Prices are cached per worker — 1 h on success, 60 s on a failure or a
 partial answer (fewer than both lookup keys returned) — and are `[]` in
@@ -616,10 +665,12 @@ both failure cases, never a stale or half-complete amount.
 
 The plan buttons carry the price lookup key in a `data-key` attribute, read
 back via `this.dataset.key`; no server string is ever interpolated into
-inline JS. The billing screen (pricing, locked, or Settings → Billing) pushes
-no history, so the `popstate` handler returns through `routeAfterLogin()`
-while `body.billing-active` — the same path that sends a still-`LOCKED`
-account straight back to the pricing screen.
+inline JS. The pricing screen (`#billingScreen`, `showBillingScreen()`) is
+only ever a **locked** account's; everyone else uses the Billing page, which
+is an ordinary settings route. The pricing screen pushes no history, so the
+`popstate` handler returns through `routeAfterLogin()` while
+`body.billing-active` — the same path that sends a still-`LOCKED` account
+straight back to it.
 
 ### Day reset — there is no background worker
 

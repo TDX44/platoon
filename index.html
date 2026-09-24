@@ -381,8 +381,6 @@
   .pricing-btn { min-height: 44px; margin-top: auto; }
   .pricing-loading, .pricing-status { text-align: center; color: var(--cp-muted); font-size: 0.9em; margin: 10px 0 0; min-height: 1.2em; }
   .pricing-links { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
-  .billing-card { margin-top: 12px; }
-  .billing-status { margin: 0 0 12px; color: var(--cp-text); }
   .admin-btn-xs { padding: 4px 8px; font-size: 0.78em; min-height: 28px; margin-left: 6px; }
   @media (max-width: 420px) {
     .pricing-cards { grid-template-columns: 1fr; }
@@ -461,49 +459,6 @@
   body.light-mode .pin-pad button { background: #dde3ee; color: #2d3436; }
   body.light-mode .pin-pad button:hover { background: #0984e3; color: #fff; }
 
-  /* ─── Hamburger menu ─── */
-  .hamburger-wrap { position: absolute; top: 0; left: 0; z-index: 50; }
-  .hamburger-btn {
-    background: transparent; border: 1px solid #444; color: #aaa;
-    font-size: 1.3em; padding: 6px 12px; border-radius: 6px; cursor: pointer;
-    transition: all 0.2s; line-height: 1;
-  }
-  .hamburger-btn:hover { border-color: #00d4ff; color: #00d4ff; }
-  .hamburger-dropdown {
-    display: none; flex-direction: column; position: absolute; top: calc(100% + 6px); left: 0;
-    background: #2d2d44; border: 1px solid #444; border-radius: 8px;
-    min-width: 190px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); overflow: hidden;
-  }
-  .hamburger-dropdown.open { display: flex; }
-  .hamburger-dropdown button {
-    background: transparent; border: none; color: #e0e0e0; padding: 12px 16px;
-    text-align: left; cursor: pointer; font-size: 0.9em; font-weight: 500;
-    transition: background 0.15s; border-bottom: 1px solid #3a3a55; width: 100%;
-  }
-  .hamburger-dropdown button:last-child { border-bottom: none; }
-  .hamburger-dropdown button:hover { background: #35355a; }
-  /* Submenu group */
-  .menu-group-header {
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  .menu-group-header .menu-arrow { font-size: 0.7em; opacity: 0.6; transition: transform 0.2s; }
-  .menu-group-header.open .menu-arrow { transform: rotate(90deg); }
-  .menu-submenu {
-    display: none; flex-direction: column; background: #26263d;
-    border-top: 1px solid #3a3a55;
-  }
-  .menu-submenu.open { display: flex; }
-  .menu-submenu button {
-    padding-left: 28px; font-size: 0.85em; font-weight: 400;
-    color: #b2bec3; border-bottom-color: #2e2e48;
-  }
-  .menu-submenu button:hover { background: #2e2e4e; color: #e0e0e0; }
-  body.light-mode .hamburger-dropdown { background: #fff; border-color: #c0c8d8; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
-  body.light-mode .hamburger-dropdown button { color: #2d3436; border-bottom-color: #e0e6ef; }
-  body.light-mode .hamburger-dropdown button:hover { background: #f0f4f8; }
-  body.light-mode .menu-submenu { background: #f5f7fa; border-top-color: #d0d8e8; }
-  body.light-mode .menu-submenu button { color: #636e72; border-bottom-color: #e0e6ef; }
-  body.light-mode .menu-submenu button:hover { background: #e8edf4; color: #2d3436; }
 
   /* ─── Home / Platoon selector ─── */
   #homeScreen {
@@ -1175,28 +1130,6 @@
     color: var(--theme_text-weak);
     margin-top: -8px;
     font-size: 1rem;
-  }
-  .hamburger-wrap { top: 0; left: 0; }
-  .hamburger-dropdown,
-  body.light-mode .hamburger-dropdown {
-    background: var(--theme_surface);
-    border: 1px solid var(--theme_border);
-    border-radius: var(--theme_radius);
-    box-shadow: 0 16px 42px rgba(24,29,38,0.14);
-  }
-  .hamburger-dropdown button,
-  body.light-mode .hamburger-dropdown button {
-    color: var(--theme_text);
-    border-bottom-color: var(--theme_border);
-  }
-  .hamburger-dropdown button:hover,
-  body.light-mode .hamburger-dropdown button:hover {
-    background: var(--theme_surface-blue);
-  }
-  .menu-submenu,
-  body.light-mode .menu-submenu {
-    background: var(--theme_surface-soft);
-    border-top-color: var(--theme_border);
   }
 
   .platoon-cards {
@@ -2173,6 +2106,169 @@
        under the hint with a gap; full width reads as part of the row. */
     .settings-select { margin-left: 0; width: 100%; }
   }
+  /* ── Settings: the heading over every section ── */
+  .settings-head { margin: 4px 0 18px; max-width: 1100px; }
+  .settings-scope {
+    font-size: 0.7em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--cp-faint); overflow-wrap: anywhere;
+  }
+  .settings-head h2 { font-size: 1.45em; margin: 4px 0 2px; color: var(--cp-text-strong); }
+  .settings-lead { color: var(--cp-muted); font-size: 0.88em; margin: 0; line-height: 1.45; }
+  .settings-row-info { flex-wrap: nowrap; }
+  .settings-row-value {
+    margin-left: auto; min-width: 0; text-align: right; overflow-wrap: anywhere;
+    color: var(--cp-text); font-size: 0.9em;
+  }
+  body.settings-mode .dash-header, body.settings-active .dash-header { display: none; }
+
+  /* ── Settings nav: replaces the main nav while a settings page is open ── */
+  /* .dash-nav.settings-nav, not .settings-nav: .dash-nav's display:flex comes
+     later in this sheet and would win a tie, showing both navs at once. */
+  .dash-nav.settings-nav { display: none; }
+  body.settings-mode #mainNav { display: none; }
+  body.settings-mode .dash-nav.settings-nav { display: flex; overflow-y: auto; min-height: 0; }
+  body.settings-mode .dash-brand > img { max-width: 72px; }
+  .settings-nav-back {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    background: none; border: none; cursor: pointer; text-align: left;
+    color: var(--cp-side-text); font: inherit; font-size: 0.82em; font-weight: 600;
+    padding: 8px 12px; border-radius: var(--cp-radius);
+  }
+  .settings-nav-back:hover { color: var(--cp-side-strong); background: var(--cp-side-hover-bg); }
+  .settings-nav-back svg { width: 15px; height: 15px; stroke: currentColor; flex: none; }
+  .settings-nav-title { font-size: 1.05em; font-weight: 700; color: var(--cp-side-strong); padding: 8px 12px 2px; }
+  .settings-nav-group {
+    font-size: 0.66em; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--cp-side-text); opacity: 0.75; padding: 14px 12px 4px;
+  }
+  .settings-nav .dash-nav-item { padding: 8px 12px; font-size: 0.85em; }
+  /* The same nav as a row of tabs, where the sidebar is gone. */
+  .settings-tabs { display: none; }
+  @media (max-width: 900px) {
+    body.settings-mode .settings-tabs {
+      display: block; margin: 10px 0 0; overflow-x: auto; scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .settings-tabs::-webkit-scrollbar { display: none; }
+    .settings-tabs-row { display: flex; gap: 6px; padding: 0 14px 2px; width: max-content; }
+    .settings-tab {
+      flex: none; min-height: 44px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-muted);
+      font: inherit; font-size: 0.8em; font-weight: 600; white-space: nowrap;
+    }
+    .settings-tab.active { background: var(--cp-accent); color: var(--cp-accent-text); border-color: transparent; }
+  }
+
+  /* ── The Billing page (Resyrv's layout: plan beside payment, then history) ── */
+  .billing-page { display: flex; flex-direction: column; gap: 18px; max-width: 1100px; }
+  .billing-grid {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: stretch;
+  }
+  @media (max-width: 1100px) { .billing-grid { grid-template-columns: minmax(0, 1fr); } }
+  .billing-card {
+    display: flex; flex-direction: column; gap: 16px; min-width: 0; box-sizing: border-box;
+    background: var(--cp-surface); border: 1px solid var(--cp-border);
+    border-radius: var(--cp-radius-lg); padding: 20px;
+  }
+  .billing-card h3 { margin: 0; font-size: 1em; color: var(--cp-text-strong); }
+  .billing-card-head {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px; border-bottom: 1px solid var(--cp-hairline);
+  }
+  .billing-card-head > div { min-width: 0; flex: 1 1 200px; }
+  .billing-caption { margin: 3px 0 0; color: var(--cp-muted); font-size: 0.82em; line-height: 1.45; }
+  .billing-badge {
+    flex: none; font-size: 0.76em; font-weight: 600; padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+  }
+  .billing-tone-ok    { background: var(--cp-green-bg); color: var(--cp-green); }
+  .billing-tone-warn  { background: var(--cp-amber-bg); color: var(--cp-amber); }
+  .billing-tone-bad   { background: var(--cp-red-bg);   color: var(--cp-red); }
+  .billing-tone-info  { background: var(--cp-steel-bg); color: var(--cp-steel); }
+  .billing-tone-muted { background: var(--cp-hover);    color: var(--cp-muted); }
+  .billing-price { display: flex; align-items: baseline; gap: 6px; }
+  .billing-price-num {
+    font-size: 2em; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+    font-variant-numeric: tabular-nums; color: var(--cp-text-strong);
+  }
+  .billing-price-per { color: var(--cp-muted); font-size: 0.9em; }
+  .billing-price-sub { margin: 4px 0 0; color: var(--cp-muted); font-size: 0.8em; }
+  .billing-status { margin: 6px 0 0; font-size: 0.88em; color: var(--cp-text); }
+  .billing-features {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px;
+  }
+  @media (max-width: 600px) { .billing-features { grid-template-columns: minmax(0, 1fr); } }
+  .billing-features li { position: relative; padding-left: 1.5em; font-size: 0.86em; color: var(--cp-text); line-height: 1.4; }
+  .billing-features li::before { content: '\2713'; position: absolute; left: 0; color: var(--cp-green); font-weight: 700; }
+  .billing-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; }
+  .billing-actions .dash-btn { min-height: 44px; }
+  .billing-btn-danger:hover { color: var(--cp-red); border-color: var(--cp-red); background: var(--cp-red-bg); }
+  .billing-pm {
+    display: flex; align-items: center; gap: 12px; padding: 14px;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+  }
+  .billing-pm-icon {
+    flex: none; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--cp-border);
+    display: inline-flex; align-items: center; justify-content: center; color: var(--cp-muted);
+  }
+  .billing-pm-icon svg { width: 22px; height: 22px; stroke: currentColor; }
+  .billing-pm-text { min-width: 0; }
+  .billing-pm-line { margin: 0; font-weight: 600; font-size: 0.9em; color: var(--cp-text-strong); overflow-wrap: anywhere; }
+  .billing-btn-wide { width: 100%; min-height: 44px; }
+  .billing-portal-links {
+    display: flex; justify-content: center; align-items: center; gap: 4px; flex-wrap: wrap;
+    color: var(--cp-faint); margin-top: -10px;
+  }
+  .billing-textlink {
+    background: none; border: none; cursor: pointer; padding: 8px 4px; min-height: 44px;
+    color: var(--cp-accent); font: inherit; font-size: 0.82em; font-weight: 600;
+  }
+  .billing-textlink:hover { text-decoration: underline; }
+  .billing-fineprint { margin: -6px 0 0; text-align: center; color: var(--cp-faint); font-size: 0.76em; line-height: 1.45; }
+  .billing-usage { border-top: 1px solid var(--cp-hairline); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .billing-card-head + .billing-usage { border-top: none; padding-top: 0; }
+  .billing-usage h4 {
+    margin: 0; font-size: 0.72em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--cp-faint);
+  }
+  .billing-usage-row { display: flex; justify-content: space-between; gap: 10px; font-size: 0.86em; color: var(--cp-muted); }
+  .billing-usage-num { color: var(--cp-text); font-variant-numeric: tabular-nums; }
+  .billing-notice {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    padding: 14px 18px; border-radius: var(--cp-radius-lg);
+  }
+  .billing-notice > div { flex: 1 1 260px; min-width: 0; }
+  .billing-notice strong { color: inherit; font-size: 0.92em; }
+  .billing-notice p { margin: 3px 0 0; color: var(--cp-text); font-size: 0.84em; line-height: 1.45; }
+  .billing-notice .dash-btn { min-height: 44px; }
+  .billing-plans .pricing-cards { margin: 0; }
+  .billing-plans .pricing-status { margin: 0; min-height: 0; }
+  .billing-plans .pricing-status:empty { display: none; }
+  .billing-table-wrap { overflow-x: auto; margin: -4px -20px -20px; padding: 0 8px 8px; }
+  .billing-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 0.84em; }
+  .billing-table th {
+    text-align: left; font-weight: 600; color: var(--cp-muted); font-size: 0.9em; white-space: nowrap;
+    padding: 8px 12px; border-bottom: 1px solid var(--cp-hairline);
+  }
+  .billing-table td { padding: 11px 12px; border-bottom: 1px solid var(--cp-hairline); white-space: nowrap; color: var(--cp-text); }
+  .billing-table tr:last-child td { border-bottom: none; }
+  .billing-table .billing-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .billing-muted { color: var(--cp-muted) !important; }
+  .billing-pill { font-size: 0.9em; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .billing-link {
+    display: inline-flex; align-items: center; min-height: 32px; padding: 0 4px; margin-left: 6px;
+    color: var(--cp-accent); font-weight: 600; text-decoration: none;
+  }
+  .billing-link:first-child { margin-left: 0; }
+  .billing-table td:has(.billing-link) { padding-top: 4px; padding-bottom: 4px; }
+  .billing-link:hover { text-decoration: underline; }
+  .billing-empty { margin: 0; padding: 22px 0; text-align: center; color: var(--cp-muted); font-size: 0.86em; }
+  @media (max-width: 900px) {
+    .billing-card { padding: 16px; }
+    .billing-table-wrap { margin: -4px -16px -16px; }
+    .billing-link { min-height: 44px; padding: 0 8px; }
+  }
+
   body.audit-active #dashMetrics,
   body.audit-active #bulkBar,
   body.audit-active #personnelBody { display: none; }
@@ -2715,7 +2811,7 @@
     }
     #homeScreen {
       min-height: 100svh;
-      padding: 58px 4px 20px;
+      padding: 0 4px 20px;
       gap: 12px;
     }
     #homeScreen > img {
@@ -2738,44 +2834,6 @@
       width: 100%;
     }
     .screen-title { font-size: 1.42rem; }
-    .hamburger-btn {
-      background: rgba(255,255,255,0.94);
-      backdrop-filter: blur(8px);
-      min-width: 48px;
-      min-height: 48px;
-    }
-    body.dark-mode .hamburger-btn { background: rgba(23,26,31,0.94); }
-    .hamburger-wrap {
-      position: fixed;
-      top: max(10px, env(safe-area-inset-top));
-      left: max(10px, env(safe-area-inset-left));
-      right: max(10px, env(safe-area-inset-right));
-      z-index: 120;
-      pointer-events: none;
-    }
-    .hamburger-btn,
-    .hamburger-dropdown {
-      pointer-events: auto;
-    }
-    .hamburger-dropdown {
-      position: fixed;
-      top: calc(max(10px, env(safe-area-inset-top)) + 54px);
-      left: max(10px, env(safe-area-inset-left));
-      right: max(10px, env(safe-area-inset-right));
-      min-width: 0;
-      width: auto;
-      max-height: calc(100svh - 72px);
-      overflow-y: auto;
-      border-radius: var(--theme_radius);
-    }
-    .hamburger-dropdown button {
-      min-height: 48px;
-      width: 100%;
-      text-align: left;
-    }
-    .menu-submenu button {
-      padding-left: 26px;
-    }
     #platoonScreen { max-width: none; }
     .edit-unit-name {
       font-size: 1.25rem;
@@ -3133,13 +3191,145 @@
   .dash-layout {
     display: grid;
     grid-template-columns: 224px minmax(0, 1fr) 332px;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
+      "side top top"
       "side head head"
       "side main rail";
     min-height: 100vh;
     background: var(--dash-bg);
     color: var(--dash-text);
+  }
+
+  /* ─── Top bar: search, theme, account menu (#appTopbar, one element that
+     placeTopbar() moves between the home screen and the dashboard) ─── */
+  .topbar-slot { position: sticky; top: 0; z-index: 60; min-width: 0; }
+  .dash-topbar-slot { grid-area: top; }
+  .app-topbar {
+    display: flex; align-items: center; gap: 12px; box-sizing: border-box;
+    min-height: 60px; padding: 10px 28px;
+    background: var(--cp-surface); color: var(--cp-text);
+    border-bottom: 1px solid var(--cp-border);
+  }
+  .home-topbar-slot { align-self: stretch; margin-bottom: auto; top: 8px; }
+  .home-topbar-slot .app-topbar {
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+    padding: 8px 12px; min-height: 0; box-shadow: var(--cp-shadow);
+  }
+  /* Balances the top bar's auto margin so the org chart stays centred below it. */
+  #homeScreen::after { content: ''; margin-top: auto; }
+  .topbar-search { position: relative; flex: 1 1 auto; max-width: 520px; min-width: 0; }
+  .topbar-search-field { position: relative; }
+  .topbar-search-icon {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 17px; height: 17px; stroke: var(--cp-faint); pointer-events: none;
+  }
+  .topbar-search-input {
+    width: 100%; box-sizing: border-box; min-height: 42px; padding: 8px 40px 8px 38px;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+    background: var(--cp-input); color: var(--cp-text); font: inherit; font-size: 0.86em;
+    -webkit-appearance: none; appearance: none;
+  }
+  .topbar-search-input::placeholder { color: var(--cp-faint); }
+  .topbar-search-input::-webkit-search-cancel-button { display: none; }
+  .topbar-search-input:focus { outline: 2px solid var(--cp-accent); outline-offset: -1px; border-color: transparent; }
+  .topbar-kbd {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none;
+    font: inherit; font-size: 0.7em; line-height: 1.4; color: var(--cp-faint);
+    border: 1px solid var(--cp-border); border-radius: 4px; padding: 0 6px;
+  }
+  .topbar-search:focus-within .topbar-kbd { display: none; }
+  .topbar-results {
+    position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 90;
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+    box-shadow: var(--cp-shadow-lg); padding: 6px; max-height: min(440px, 70vh); overflow-y: auto;
+  }
+  .topbar-results[hidden] { display: none; }
+  .topbar-results-group {
+    font-size: 0.68em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--cp-faint); padding: 8px 10px 4px;
+  }
+  .topbar-result {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    width: 100%; min-height: 40px; padding: 8px 10px; box-sizing: border-box;
+    background: none; border: none; border-radius: var(--cp-radius); cursor: pointer;
+    color: var(--cp-text); font: inherit; font-size: 0.86em; text-align: left;
+  }
+  .topbar-result:hover, .topbar-result.active { background: var(--cp-hover); }
+  .topbar-result-label { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-result-hint { flex: none; color: var(--cp-muted); font-size: 0.88em; }
+  .topbar-results-empty { padding: 12px 10px; color: var(--cp-muted); font-size: 0.86em; }
+  .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+  .topbar-icon {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 42px; height: 42px; padding: 0; cursor: pointer;
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+    background: var(--cp-surface); color: var(--cp-muted);
+  }
+  .topbar-icon:hover { color: var(--cp-text); background: var(--cp-hover); }
+  .topbar-icon svg { width: 19px; height: 19px; stroke: currentColor; }
+  .topbar-icon .icon-sun, body.dark-mode .topbar-icon .icon-moon { display: none; }
+  body.dark-mode .topbar-icon .icon-sun { display: block; }
+  .user-menu-wrap { position: relative; }
+  .topbar-user {
+    display: inline-flex; align-items: center; gap: 8px; max-width: 240px; min-height: 42px;
+    padding: 4px 10px 4px 4px; cursor: pointer;
+    border: 1px solid var(--cp-border); border-radius: 999px;
+    background: var(--cp-surface); color: var(--cp-text); font: inherit; font-size: 0.84em; font-weight: 600;
+  }
+  .topbar-user:hover, .topbar-user[aria-expanded="true"] { background: var(--cp-hover); }
+  .topbar-avatar {
+    flex: none; width: 32px; height: 32px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--cp-accent); color: var(--cp-accent-text); font-size: 13px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .topbar-user-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-chev { flex: none; width: 15px; height: 15px; stroke: var(--cp-faint); }
+  .user-menu {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 90; width: 270px; box-sizing: border-box;
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg);
+    box-shadow: var(--cp-shadow-lg); padding: 6px; font-size: 0.86em;
+  }
+  .user-menu[hidden] { display: none; }
+  .user-menu-head {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+    padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--cp-hairline);
+  }
+  .user-menu-head strong { color: var(--cp-text-strong); overflow-wrap: anywhere; }
+  .user-menu-head span { color: var(--cp-muted); font-size: 0.9em; overflow-wrap: anywhere; }
+  .user-menu-head .user-menu-role { color: var(--cp-faint); }
+  .user-menu-label {
+    font-size: 0.72em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--cp-faint); padding: 8px 10px 3px;
+  }
+  .user-menu button {
+    display: block; width: 100%; min-height: 40px; padding: 9px 10px; cursor: pointer;
+    background: none; border: none; border-radius: var(--cp-radius); text-align: left;
+    color: var(--cp-text); font: inherit;
+  }
+  .user-menu button:hover, .user-menu button:focus-visible { background: var(--cp-hover); outline: none; }
+  .user-menu .user-menu-danger { color: var(--cp-red); }
+  .user-menu button.active { color: var(--cp-accent); font-weight: 600; }
+  .user-menu-sep { height: 1px; background: var(--cp-hairline); margin: 6px 0; }
+  @media (max-width: 900px) {
+    .app-topbar { gap: 8px; min-height: 0; padding: calc(8px + var(--safe-top)) 14px 8px; }
+    .home-topbar-slot { top: max(6px, env(safe-area-inset-top)); }
+    .home-topbar-slot .app-topbar { padding: 6px 8px; }
+    .topbar-kbd, .topbar-user-name, .topbar-chev { display: none; }
+    .topbar-search-input { min-height: 44px; padding-right: 12px; }
+    .topbar-icon { width: 44px; height: 44px; }
+    .topbar-user { min-width: 44px; min-height: 44px; padding: 5px; justify-content: center; }
+    .topbar-result, .user-menu button { min-height: 44px; }
+    /* A phone has no room to hang a menu off one button: both drop full-width
+       under the bar instead, anchored to the bar itself (the search box and
+       the menu button stop being positioned) so a banner above it cannot
+       push the bar out from under them. */
+    .app-topbar { position: relative; }
+    .topbar-search, .user-menu-wrap { position: static; }
+    .user-menu, .topbar-results {
+      left: 8px; right: 8px; width: auto; top: calc(100% + 6px);
+      max-height: 70svh; overflow-y: auto;
+    }
   }
 
   /* Sidebar */
@@ -3529,8 +3719,8 @@
   @media (max-width: 1240px) {
     .dash-layout {
       grid-template-columns: 224px minmax(0, 1fr);
-      grid-template-areas: "side head" "side main" "side rail";
-      grid-template-rows: auto auto 1fr;
+      grid-template-areas: "side top" "side head" "side main" "side rail";
+      grid-template-rows: auto auto auto 1fr;
     }
     .dash-rail { padding: 0 28px 60px; flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
     .dash-rail > .dash-card { flex: 1 1 300px; }
@@ -3542,10 +3732,11 @@
       padding-bottom: calc(66px + env(safe-area-inset-bottom));
     }
     .dash-sidebar { display: none; }
+    .dash-topbar-slot { order: -1; }
     .dash-bottomnav { display: grid; }
     /* body.dash-active zeroes the body padding so the roster is full-bleed,
        which also drops the safe-area inset every other screen gets from it. */
-    .dash-header { padding: calc(14px + var(--safe-top)) 14px 4px; }
+    .dash-header { padding: 12px 14px 4px; }
     .dash-header-title { width: 100%; }
     body .dash-header .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
@@ -3641,34 +3832,56 @@
 
 <!-- ─── Home Screen ─── -->
 <div id="homeScreen" style="display:none">
-  <div class="hamburger-wrap">
-    <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleHamburger()" aria-label="Menu">&#9776;</button>
-    <div class="hamburger-dropdown" id="hamburgerDropdown">
-      <button onclick="toggleTheme();closeHamburger()" id="themeMenuItem">Light Mode</button>
-
-      <!-- Backup group -->
-      <button class="menu-group-header" id="backupGroupHeader" onclick="toggleMenuGroup('backupGroup')" style="display:none">
-        Backup <span class="menu-arrow">&#9658;</span>
-      </button>
-      <div class="menu-submenu" id="backupGroup">
-        <button onclick="exportBackup();closeHamburger()">Export Backup</button>
-        <button onclick="openRestoreModal();closeHamburger()">Import Backup</button>
+  <!-- The one top bar (#appTopbar) lives in whichever screen is up; placeTopbar()
+       moves it between this slot and the dashboard's. -->
+  <div class="topbar-slot home-topbar-slot" id="homeTopbarSlot">
+    <header class="app-topbar" id="appTopbar">
+      <div class="topbar-search" id="topbarSearch">
+        <div class="topbar-search-field">
+        <svg class="topbar-search-icon" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input type="search" id="globalSearch" class="topbar-search-input" autocomplete="off" spellcheck="false"
+               placeholder="Search people, units, settings…" aria-label="Search people, units and settings"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="globalSearchResults"
+               oninput="onGlobalSearch()" onfocus="onGlobalSearch()" onkeydown="globalSearchKey(event)">
+        <kbd class="topbar-kbd" aria-hidden="true">/</kbd>
+        </div>
+        <div class="topbar-results" id="globalSearchResults" role="listbox" aria-label="Search results" hidden></div>
       </div>
-
-      <!-- Users group -->
-      <button class="menu-group-header" onclick="toggleMenuGroup('usersGroup')">
-        Account <span class="menu-arrow">&#9658;</span>
-      </button>
-      <div class="menu-submenu" id="usersGroup">
-        <button onclick="openClerkProfile();closeHamburger()">Manage Account</button>
-        <button id="manageUsersMenuItem" onclick="openUserMgmt();closeHamburger()" style="display:none">People &amp; invites</button>
-        <!-- Shown only to the operator of this instance (currentUser.platform_admin,
-             which /api/me only returns after Clerk has confirmed the address). -->
-        <button id="adminMenuItem" onclick="openAdmin();closeHamburger()" style="display:none">Admin</button>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-icon" id="themeToggleBtn" onclick="toggleTheme()"
+                aria-label="Switch to dark mode" title="Switch to dark mode">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+        <div class="user-menu-wrap" id="userMenuWrap">
+          <button type="button" class="topbar-user" id="userMenuBtn" onclick="toggleUserMenu()"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenu" aria-label="Account menu">
+            <span class="topbar-avatar" id="userAvatar" aria-hidden="true"></span>
+            <span class="topbar-user-name" id="userMenuName"></span>
+            <svg class="topbar-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="user-menu" id="userMenu" role="menu" aria-label="Account" hidden>
+            <div class="user-menu-head">
+              <strong id="userMenuFull"></strong>
+              <span id="userMenuEmail"></span>
+              <span class="user-menu-role" id="userMenuRole"></span>
+            </div>
+            <div class="user-menu-label">Personal</div>
+            <button type="button" role="menuitem" data-personal="profile" onclick="closeUserMenu();goToSettings('profile')">Profile &amp; account</button>
+            <button type="button" role="menuitem" data-personal="preferences" onclick="closeUserMenu();goToSettings('preferences')">Preferences</button>
+            <button type="button" role="menuitem" data-personal="billing" onclick="closeUserMenu();openBillingPage()">Billing</button>
+            <div class="user-menu-label">Organization</div>
+            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('people')">Access</button>
+            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('general')">Organization settings</button>
+            <!-- Shown only to the operator of this instance (currentUser.platform_admin,
+                 which /api/me only returns after Clerk has confirmed the address). -->
+            <button id="adminMenuItem" type="button" role="menuitem" onclick="closeUserMenu();openAdmin()" style="display:none">Platform admin</button>
+            <div class="user-menu-sep" role="separator"></div>
+            <button type="button" role="menuitem" class="user-menu-danger" onclick="closeUserMenu();doLogout()">Sign out</button>
+          </div>
+        </div>
       </div>
-
-      <button onclick="doLogout()" style="color:#ff7675;">Sign Out</button>
-    </div>
+    </header>
   </div>
   <!-- The unit's own logo once the tree is loaded (applyUnitLogo); the box is
        fixed at 140x140 so any aspect ratio up to 512px drops in without shift. -->
@@ -3720,24 +3933,25 @@
 <div id="platoonScreen">
 <div class="dash-layout">
 
+<div class="topbar-slot dash-topbar-slot" id="dashTopbarSlot"></div>
+
 <aside class="dash-sidebar">
   <div class="dash-brand">
     <img id="sidebarLogo" src="/images/app-logo.png" alt="Unit insignia"
          width="512" height="512" loading="lazy">
     <span class="dash-brand-name">Platoon Manager</span>
   </div>
-  <nav class="dash-nav" aria-label="Main navigation">
+  <nav class="dash-nav" id="mainNav" aria-label="Main navigation">
     <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
     <button class="dash-nav-item" data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
     <button class="dash-nav-item" data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item" data-nav="availability" onclick="openAvailability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg>Availability</button>
     <button class="dash-nav-item" data-nav="reports" onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
-    <button class="dash-nav-item" data-nav="lists" onclick="openTdyLists(listsKind)"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg>TDY Lists</button>
     <div class="dash-section-spacer"></div>
-    <button class="dash-nav-item" data-nav="units" onclick="openUnits()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/></svg>Units</button>
     <button class="dash-nav-item" data-nav="settings" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
   </nav>
-  <div class="dash-side-user" id="dashSideUser"></div>
+  <!-- Settings replaces the main nav while any settings page is open (body.settings-mode). -->
+  <nav class="dash-nav settings-nav" id="settingsNav" aria-label="Settings"></nav>
 </aside>
 
 <header class="dash-header">
@@ -3790,6 +4004,8 @@
     <button class="btn-small btn-danger" onclick="clearBulkSelect()">Clear</button>
   </div>
   <div class="dash-sections" id="personnelBody"></div>
+  <!-- The settings nav again, as a row of tabs, for widths where the sidebar is gone. -->
+  <div class="settings-tabs" id="settingsTabs"></div>
   <div class="soldier-view" id="soldierView"></div>
   <div class="directory-view" id="directoryView"></div>
   <div class="availability-view" id="availabilityView"></div>
@@ -4449,7 +4665,7 @@ async function api(method, path, body) {
     let j = null;
     try { j = await res.json(); } catch (e) {}
     if (currentUser && j && j.billing) currentUser.billing = j.billing;
-    showBillingScreen(true);
+    showBillingScreen();
     return null;
   }
   if (!res.ok) {
@@ -4713,17 +4929,37 @@ function clearDashFilters() {
   render();
 }
 // ─── Settings (full page) ───────────────────────────────────────────────────
-// Was a popup menu; the sidebar entry now routes to /<unit>/settings like any
-// other page, and the items that used to live in that popup are grouped here.
-function openSettings(push = true) {
+// Two kinds of settings. Personal ones (your account, your preferences, your
+// billing) are reached from the account menu in the top bar and open as plain
+// pages under the main nav. Organization ones (this unit and the tree under
+// it) have the sidebar: while one is open the main nav is swapped for the
+// settings nav (body.settings-mode, set by syncNavActive()), so Units,
+// Schools, Locations and the Audit log — full pages of their own — read as
+// settings pages too. /<unit>/settings is General; /<unit>/settings/<section>
+// is the rest, personal sections included.
+const SETTINGS_SECTIONS = {
+  profile:     { title: 'Profile & account', lead: 'Who you are signed in as, and how you sign in.' },
+  preferences: { title: 'Preferences', lead: 'How Platoon Manager looks on this device.' },
+  billing:     { title: 'Billing', lead: 'Your plan, payment method and invoices.' },
+  general:     { title: 'General', lead: 'The unit’s logo and the organization’s duty day.' },
+  people:      { title: 'Access', lead: 'Who leads which unit, and the links that bring new leaders in.' },
+  data:        { title: 'Data & backup', lead: 'Records, exports, backups and the daily reset.' },
+};
+let settingsSection = 'general';
+// Sections that belong to the account menu, not to the settings sidebar.
+const PERSONAL_SECTIONS = ['profile', 'preferences', 'billing'];
+
+function openSettings(push = true, section = null) {
   closeSoldierPage(false);
   closeDirectoryPage(false);
   closeAvailabilityPage(false);
   closeTdyLists(false);
   closeAuditLog(false);
   closeUnits(false);
+  settingsSection = SETTINGS_SECTIONS[section] ? section : 'general';
   document.body.classList.add('settings-active');
-  if (push) pushAppRoute(currentUnit, 'settings');
+  if (push) pushAppRoute(currentUnit, settingsSection === 'general' ? 'settings' : `settings/${settingsSection}`);
+  if (settingsSection === 'billing') loadBillingDetails();
   renderSettings();
   syncNavActive();
   window.scrollTo({ top: 0 });
@@ -4734,6 +4970,90 @@ function closeSettings(push = true) {
   document.body.classList.remove('settings-active');
   if (push) pushAppRoute(currentUnit, 'accountability');
   render();
+}
+
+// From anywhere, including the home screen, which has no unit: settings are
+// always opened against one, so the signed-in user's own unit stands in.
+function goToSettings(section) {
+  if (!currentUnit) {
+    const top = currentUser && unitById(currentUser.unit_id);
+    if (!top) return;
+    selectUnit(top, false);
+  }
+  openSettings(true, section);
+}
+
+// The settings nav. Pure over its arguments (tests/test_settings_nav_js.py
+// runs it under node): `active` is the lit key, `opts.admin` adds the
+// operator's entry. Sections of the settings page carry their key; the rest
+// are full pages with their own open*() and keep them.
+const SETTINGS_NAV = [
+  { group: 'Organization' },
+  { key: 'general', label: 'General', open: "openSettings(true,'general')",
+    icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>' },
+  { key: 'people', label: 'Access', open: "openSettings(true,'people')",
+    icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M18 14a6.5 6.5 0 013.5 6"/>' },
+  { key: 'units', label: 'Units', open: 'openUnits()',
+    icon: '<path d="M12 7v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/>' },
+  { key: 'schools', label: 'Schools', open: "openTdyLists('schools')",
+    icon: '<path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/>' },
+  { key: 'locations', label: 'Locations', open: "openTdyLists('locations')",
+    icon: '<path d="M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
+  { key: 'data', label: 'Data & backup', open: "openSettings(true,'data')",
+    icon: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>' },
+  { key: 'audit', label: 'Audit log', open: 'openAuditLog()',
+    icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>' },
+  { group: 'Platform', admin: true },
+  { key: 'admin', label: 'Platform admin', open: 'openAdmin()', admin: true,
+    icon: '<path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>' },
+];
+
+function settingsNavItems(opts) {
+  const admin = !!(opts && opts.admin);
+  return SETTINGS_NAV.filter(it => !it.admin || admin);
+}
+
+function settingsNavHtml(active, opts) {
+  const items = settingsNavItems(opts).map(it => it.group
+    ? `<div class="settings-nav-group">${escapeHtml(it.group)}</div>`
+    : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`);
+  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Dashboard</button>`
+    + `<div class="settings-nav-title">Settings</div>` + items.join('');
+}
+
+function settingsTabsHtml(active, opts) {
+  return `<div class="settings-tabs-row" role="tablist" aria-label="Settings">${settingsNavItems(opts).filter(it => !it.group).map(it =>
+    `<button type="button" role="tab" class="settings-tab${it.key === active ? ' active' : ''}" aria-selected="${it.key === active}" data-settings="${it.key}" onclick="${it.open}">${escapeHtml(it.label)}</button>`).join('')}</div>`;
+}
+
+// The organization settings page that is open, as a SETTINGS_NAV key; null
+// outside settings and on a personal page (which has no sidebar of its own).
+function activeSettingsKey() {
+  const c = document.body.classList;
+  if (c.contains('settings-active')) return PERSONAL_SECTIONS.includes(settingsSection) ? null : settingsSection;
+  if (c.contains('units-active')) return 'units';
+  if (c.contains('lists-active')) return listsKind;
+  if (c.contains('audit-active')) return 'audit';
+  return null;
+}
+
+function renderSettingsNav() {
+  const key = activeSettingsKey();
+  document.body.classList.toggle('settings-mode', key !== null);
+  if (key === null) {
+    ['settingsNav', 'settingsTabs'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    return;
+  }
+  const opts = { admin: !!(currentUser && currentUser.platform_admin) };
+  const nav = document.getElementById('settingsNav');
+  if (nav) nav.innerHTML = settingsNavHtml(key, opts);
+  const tabs = document.getElementById('settingsTabs');
+  if (tabs) {
+    tabs.innerHTML = settingsTabsHtml(key, opts);
+    const on = tabs.querySelector('.settings-tab.active');
+    // Keep the lit tab in view: on a phone it can sit several screens along.
+    if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
 }
 
 const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
@@ -4856,22 +5176,73 @@ function settingsToggle(label, hint, on, fn) {
   </div>`;
 }
 
+// A fact about the account, not a control: label on the left, value on the right.
+function settingsInfoRow(label, value) {
+  return `<div class="settings-row settings-row-info">
+    <div class="settings-row-label">${label}</div>
+    <div class="settings-row-value">${escapeHtml(value || '—')}</div>
+  </div>`;
+}
+
 function renderSettings() {
   const view = document.getElementById('settingsView');
   if (!view) return;
   const isOwner = !!(currentUser && currentUser.role === 'owner');
   const isDark = document.body.classList.contains('dark-mode');
-  view.innerHTML = `
-    <button class="soldier-back" onclick="closeSettings()">&larr; Back to roster</button>
-    <div class="directory-head">
-      <h2>Settings &mdash; ${escapeHtml(unitLabel(currentUnit))}</h2>
-    </div>
-    <div class="soldier-cards settings-cards">
+  const meta = SETTINGS_SECTIONS[settingsSection] || SETTINGS_SECTIONS.general;
+  const personal = PERSONAL_SECTIONS.includes(settingsSection);
+  const scope = personal ? 'Personal' : `Organization &middot; ${escapeHtml(unitLabel(currentUnit))}`;
+  let body;
+  if (settingsSection === 'profile') {
+    const u = currentUser || {};
+    body = `
+      <section class="soldier-card">
+        <h3>Profile</h3>
+        ${settingsInfoRow('Name', u.full_name || u.username)}
+        ${settingsInfoRow('Email', u.email)}
+        ${settingsInfoRow('Role', u.role === 'owner' ? 'Owner' : 'Leader')}
+        ${settingsInfoRow('Unit', unitLabel(unitById(u.unit_id)))}
+      </section>
+      <section class="soldier-card">
+        <h3>Sign-in &amp; security</h3>
+        ${settingsNavRow('Manage account', 'Name, email, password and two-factor sign-in, handled by Clerk.', 'openClerkProfile()')}
+        ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
+      </section>`;
+  } else if (settingsSection === 'preferences') {
+    body = `
       <section class="soldier-card">
         <h3>Appearance</h3>
-        ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar.',
+        ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar. Also on the moon and sun button in the top bar.',
                          isDark, 'toggleTheme();renderSettings()')}
+      </section>`;
+  } else if (settingsSection === 'billing') {
+    body = billingPageHtml(currentUser && currentUser.billing, billingDetails, billingUsage());
+  } else if (settingsSection === 'people') {
+    body = `
+      <section class="soldier-card">
+        <h3>Leaders</h3>
+        ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
+        ${settingsRow('Invite a leader', 'A single-use link for one unit and one role.', 'Invite', 'openInviteModal()')}
+      </section>`;
+  } else if (settingsSection === 'data') {
+    body = `
+      <section class="soldier-card">
+        <h3>Records</h3>
+        ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
+        ${settingsNavRow('Duty roster', 'CQ and staff duty by date.', 'openDutyRoster()')}
       </section>
+      <section class="soldier-card">
+        <h3>Import &amp; export</h3>
+        ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
+        ${settingsRow('Export backup', 'Full JSON snapshot of the organization.', 'Export', 'exportBackup()')}
+        ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
+      </section>
+      <section class="soldier-card">
+        <h3>Day</h3>
+        ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
+      </section>`;
+  } else {
+    body = `
       <section class="soldier-card">
         <h3>Unit</h3>
         ${logoSettingsRow()}
@@ -4879,48 +5250,38 @@ function renderSettings() {
       <section class="soldier-card">
         <h3>Organization</h3>
         ${timezoneSettingsRow(isOwner)}
-      </section>
-      <section class="soldier-card">
-        <h3>Lists &amp; rosters</h3>
-        ${settingsNavRow('Schools', 'Courses offered in the TDY dropdown.', "openTdyLists('schools')")}
-        ${settingsNavRow('Locations', 'Places offered in the TDY dropdowns.', "openTdyLists('locations')")}
-        ${settingsNavRow('Duty roster', 'CQ and staff duty by date.', 'openDutyRoster()')}
-        ${settingsNavRow('Units', 'Add, rename or remove units beneath this one.', 'openUnits()')}
-      </section>
-      <section class="soldier-card">
-        <h3>Data</h3>
-        ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
-        ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
-        ${settingsRow('Export backup', 'Full JSON snapshot of the organization.', 'Export', 'exportBackup()')}
-        ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
-        ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
-      </section>
-      <section class="soldier-card">
-        <h3>Account</h3>
-        ${settingsNavRow('Billing', billingSettingsHint(currentUser && currentUser.billing), 'openBillingPage()')}
-        ${settingsNavRow('Manage account', 'Password, email and 2FA, handled by Clerk.', 'openClerkProfile()')}
-        ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
-        ${settingsNavRow('Audit log', 'Every change made in this unit and below.', 'openAuditLog()')}
-        ${currentUser && currentUser.platform_admin
-          ? settingsNavRow('Admin', 'Every organization on this instance. Operator only.', 'openAdmin()')
-          : ''}
-        ${settingsRow('Sign out', 'End this session on this device.', 'Sign out', 'doLogout()', 'dash-btn-ghost')}
-      </section>
-    </div>`;
+      </section>`;
+  }
+  view.innerHTML = `
+    <div class="settings-head">
+      <div class="settings-scope">${scope}</div>
+      <h2>${escapeHtml(meta.title)}</h2>
+      <p class="settings-lead">${escapeHtml(meta.lead)}</p>
+    </div>
+    <div class="${settingsSection === 'billing' ? 'billing-page' : 'soldier-cards settings-cards'}">${body}</div>`;
 }
 
 // One place decides which sidebar entry is lit, derived from the open page.
+// Settings pages light their own nav (renderSettingsNav) and the main nav's
+// Settings entry, which is what the mobile bottom nav's More falls back to.
 function syncNavActive() {
   const c = document.body.classList;
+  const personal = c.contains('settings-active') && PERSONAL_SECTIONS.includes(settingsSection)
+    ? settingsSection : null;
   const current =
-      c.contains('units-active')    ? 'units'
-    : c.contains('settings-active') || c.contains('audit-active') ? 'settings'
-    : c.contains('lists-active')     ? 'lists'
+      personal                      ? null
+    : activeSettingsKey() !== null  ? 'settings'
     : c.contains('availability-active') ? 'availability'
     : c.contains('directory-active') ? 'directory'
     : 'accountability';
   document.querySelectorAll('.dash-nav-item[data-nav], .dash-bottomnav button[data-nav]').forEach(el =>
     el.classList.toggle('active', el.dataset.nav === current));
+  document.querySelectorAll('#userMenu [data-personal]').forEach(el => {
+    el.classList.toggle('active', el.dataset.personal === personal);
+    if (el.dataset.personal === personal) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
+  });
+  renderSettingsNav();
 }
 
 function closeDashMenus() {
@@ -8355,27 +8716,210 @@ function fallbackCopy(text, btn, idleLabel = 'Copy to Clipboard') {
 }
 function closeReport() { document.getElementById('reportModal').classList.remove('active'); }
 
-// ─── Hamburger menu ───
-function toggleHamburger() {
-  document.getElementById('hamburgerDropdown').classList.toggle('open');
+// ─── Top bar: search, theme, account menu ───
+// One element, #appTopbar, shared by the home screen and the dashboard;
+// placeTopbar() moves it into the slot of whichever is showing, so there is
+// one set of ids and one set of handlers.
+function placeTopbar(screen) {
+  const bar = document.getElementById('appTopbar');
+  const slot = document.getElementById(screen === 'home' ? 'homeTopbarSlot' : 'dashTopbarSlot');
+  if (!bar || !slot) return;
+  if (bar.parentNode !== slot) slot.appendChild(bar);
+  closeUserMenu();
+  closeGlobalSearch();
+  syncUserMenu();
 }
-function closeHamburger() {
-  document.getElementById('hamburgerDropdown').classList.remove('open');
-  // Collapse all submenus
-  document.querySelectorAll('.menu-submenu').forEach(m => m.classList.remove('open'));
-  document.querySelectorAll('.menu-group-header').forEach(h => h.classList.remove('open'));
+
+function userInitials(u) {
+  const name = String((u && (u.full_name || u.username || String(u.email || '').split('@')[0])) || '').trim();
+  const parts = name.split(/[\s._-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2);
+  return letters.toUpperCase() || '?';
 }
-function toggleMenuGroup(groupId) {
-  const group = document.getElementById(groupId);
-  const header = group.previousElementSibling;
-  const isOpen = group.classList.contains('open');
-  // Close all submenus first
-  document.querySelectorAll('.menu-submenu').forEach(m => m.classList.remove('open'));
-  document.querySelectorAll('.menu-group-header').forEach(h => h.classList.remove('open'));
-  if (!isOpen) {
-    group.classList.add('open');
-    header.classList.add('open');
+
+function syncUserMenu() {
+  const u = currentUser || {};
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('userAvatar', userInitials(u));
+  set('userMenuName', u.full_name || u.username || '');
+  set('userMenuFull', u.full_name || u.username || '');
+  set('userMenuEmail', u.email || '');
+  const top = unitById(u.unit_id);
+  set('userMenuRole', `${u.role === 'owner' ? 'Owner' : 'Leader'}${top ? ` · ${unitLabel(top)}` : ''}`);
+  document.getElementById('adminMenuItem').style.display =
+    currentUser && currentUser.platform_admin ? 'block' : 'none';
+}
+
+function toggleUserMenu() {
+  const menu = document.getElementById('userMenu');
+  if (!menu) return;
+  if (menu.hidden) {
+    closeGlobalSearch();
+    syncUserMenu();
+    menu.hidden = false;
+    document.getElementById('userMenuBtn').setAttribute('aria-expanded', 'true');
+    const first = menu.querySelector('[role="menuitem"]');
+    if (first) first.focus();
+  } else {
+    closeUserMenu();
   }
+}
+
+function closeUserMenu() {
+  const menu = document.getElementById('userMenu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  const btn = document.getElementById('userMenuBtn');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+// Arrow keys walk the menu; Escape closes it and hands focus back.
+function userMenuKey(e) {
+  const menu = document.getElementById('userMenu');
+  if (!menu || menu.hidden) return;
+  const items = [...menu.querySelectorAll('[role="menuitem"]')].filter(el => el.offsetParent !== null);
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+    items[next].focus();
+  } else if (e.key === 'Escape') {
+    closeUserMenu();
+    document.getElementById('userMenuBtn').focus();
+  }
+}
+
+// ─── Global search ───
+// People on the loaded roster, the units you lead, and every page and
+// setting, in one box. The results are data plus an action index — no name
+// or label ever lands inside an onclick — and globalSearchResults() is pure
+// so tests/test_settings_nav_js.py can run it under node.
+const SEARCH_PAGES = [
+  { label: 'Accountability', hint: 'Page', words: 'roster present formation today', run: () => goToPage('accountability') },
+  { label: 'Directory', hint: 'Page', words: 'people contacts phone', run: () => goToPage('directory') },
+  { label: 'Availability', hint: 'Page', words: 'who is free available planning', run: () => goToPage('availability') },
+  { label: 'Formation mode', hint: 'Page', words: 'formation count', run: () => goToPage('formation') },
+  { label: 'Profile & account', hint: 'Account menu', words: 'name email password two-factor 2fa sign out clerk', run: () => goToSettings('profile') },
+  { label: 'Preferences', hint: 'Account menu', words: 'dark mode light theme appearance', run: () => goToSettings('preferences') },
+  { label: 'Billing', hint: 'Account menu', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
+  { label: 'General', hint: 'Organization settings', words: 'logo time zone timezone duty day', run: () => goToSettings('general') },
+  { label: 'Access', hint: 'Organization settings', words: 'people invites leaders users invite roles owner', run: () => goToSettings('people') },
+  { label: 'Units', hint: 'Organization settings', words: 'platoon squad team company add rename', run: () => goToPage('units') },
+  { label: 'Schools', hint: 'Organization settings', words: 'tdy courses school', run: () => goToPage('schools') },
+  { label: 'Locations', hint: 'Organization settings', words: 'tdy places location', run: () => goToPage('locations') },
+  { label: 'Data & backup', hint: 'Organization settings', words: 'export import csv backup restore reset history duty roster', run: () => goToSettings('data') },
+  { label: 'Audit log', hint: 'Organization settings', words: 'changes history log', run: () => goToPage('audit') },
+];
+const SEARCH_LIMIT = { people: 6, units: 5, pages: 6 };
+
+function globalSearchResults(q, people, unitList, pages) {
+  const term = String(q || '').trim().toLowerCase();
+  if (!term) return [];
+  const has = (...fields) => fields.some(f => String(f || '').toLowerCase().includes(term));
+  const out = [];
+  (people || []).filter(p => has(`${p.rank} ${p.first} ${p.last}`, `${p.last}, ${p.first}`, `${p.rank} ${p.last}`))
+    .slice(0, SEARCH_LIMIT.people)
+    .forEach(p => out.push({ group: 'People', label: `${p.rank} ${p.last}, ${p.first}`, hint: STATUS_LABELS_SEARCH[p.status] || '', kind: 'person', id: p.id }));
+  (unitList || []).filter(u => has(u.name, u.slug))
+    .slice(0, SEARCH_LIMIT.units)
+    .forEach(u => out.push({ group: 'Units', label: u.name, hint: kindLabel(u.kind), kind: 'unit', id: u.id }));
+  (pages || []).map((pg, i) => [pg, i]).filter(([pg]) => has(pg.label, pg.words, pg.hint))
+    .slice(0, SEARCH_LIMIT.pages)
+    .forEach(([pg, i]) => out.push({ group: 'Pages & settings', label: pg.label, hint: pg.hint, kind: 'page', id: i }));
+  return out;
+}
+const STATUS_LABELS_SEARCH = {
+  present: 'Present', tdy: 'TDY', leave: 'Leave', pass: 'Pass', other: 'Other', ftr: 'FTR',
+  late: 'Late', excused: 'Excused',
+};
+
+function globalSearchHtml(results, active) {
+  if (!results.length) return '<div class="topbar-results-empty">No matches.</div>';
+  let group = null;
+  return results.map((r, i) => {
+    const head = r.group !== group ? `<div class="topbar-results-group">${escapeHtml((group = r.group))}</div>` : '';
+    return `${head}<button type="button" class="topbar-result${i === active ? ' active' : ''}" role="option" id="searchResult${i}" aria-selected="${i === active}" onmousedown="event.preventDefault()" onclick="runSearchResult(${i})"><span class="topbar-result-label">${escapeHtml(r.label)}</span><span class="topbar-result-hint">${escapeHtml(r.hint)}</span></button>`;
+  }).join('');
+}
+
+let searchResults = [];
+let searchActive = 0;
+
+function onGlobalSearch() {
+  const input = document.getElementById('globalSearch');
+  const box = document.getElementById('globalSearchResults');
+  if (!input || !box) return;
+  const q = input.value.trim();
+  if (!q) { closeGlobalSearch(false); return; }
+  closeUserMenu();
+  // The roster is only loaded inside a unit; on the home screen people are not
+  // offered, rather than offering the last unit's roster.
+  searchResults = globalSearchResults(q, currentUnit ? personnel : [], units, SEARCH_PAGES);
+  searchActive = 0;
+  box.innerHTML = globalSearchHtml(searchResults, searchActive);
+  box.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-activedescendant', searchResults.length ? 'searchResult0' : '');
+}
+
+function closeGlobalSearch(clear = true) {
+  const box = document.getElementById('globalSearchResults');
+  const input = document.getElementById('globalSearch');
+  if (box) { box.hidden = true; box.innerHTML = ''; }
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    if (clear) input.value = '';
+  }
+  searchResults = [];
+}
+
+function globalSearchKey(e) {
+  const box = document.getElementById('globalSearchResults');
+  if (e.key === 'Escape') { closeGlobalSearch(); e.target.blur(); return; }
+  if (!searchResults.length || !box || box.hidden) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = searchResults.length;
+    searchActive = e.key === 'ArrowDown' ? (searchActive + 1) % n : (searchActive - 1 + n) % n;
+    box.innerHTML = globalSearchHtml(searchResults, searchActive);
+    e.target.setAttribute('aria-activedescendant', `searchResult${searchActive}`);
+    const on = document.getElementById(`searchResult${searchActive}`);
+    if (on) on.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    runSearchResult(searchActive);
+  }
+}
+
+function runSearchResult(i) {
+  const r = searchResults[i];
+  if (!r) return;
+  closeGlobalSearch();
+  const input = document.getElementById('globalSearch');
+  if (input) input.blur();
+  if (r.kind === 'person') openSoldierPage(r.id);
+  else if (r.kind === 'unit') selectUnitById(r.id);
+  else if (r.kind === 'page' && SEARCH_PAGES[r.id]) SEARCH_PAGES[r.id].run();
+}
+
+// A page inside a unit, opened from anywhere: on the home screen the user's
+// own unit stands in, as it does for settings.
+async function goToPage(page) {
+  let loading = null;
+  if (!currentUnit) {
+    const top = currentUser && unitById(currentUser.unit_id);
+    if (!top) return;
+    loading = selectUnit(top, page === 'accountability' || page === 'formation');
+  }
+  if (page === 'accountability') dashGoAccountability();
+  else if (page === 'directory') openDirectory();
+  else if (page === 'availability') openAvailability();
+  // Formation asks about the roster, so it waits for the roster to arrive.
+  else if (page === 'formation') { await loading; startFormation(); }
+  else if (page === 'units') openUnits();
+  else if (page === 'audit') openAuditLog();
+  else if (LIST_PAGES[page]) openTdyLists(page);
 }
 
 // ─── Theme ───
@@ -8385,8 +8929,12 @@ function applyTheme(theme) {
   document.documentElement.classList.toggle('light-mode', !isDark);
   document.body.classList.toggle('dark-mode', isDark);
   document.body.classList.toggle('light-mode', !isDark);
-  const item = document.getElementById('themeMenuItem');
-  if (item) item.innerHTML = isDark ? 'Light Mode' : 'Dark Mode';
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) {
+    const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  }
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', isDark ? '#101114' : '#ffffff');
 }
@@ -9308,36 +9856,199 @@ function pricingScreenHtml(b) {
     </div></div>`;
 }
 
-function billingPageHtml(b) {
-  const back = '<button type="button" class="soldier-back" onclick="routeAfterLogin()">&larr; Back</button>';
-  if (!b) {
-    return `<div class="login-card"><div class="login-brand pricing-panel">${back}<section class="soldier-card"><h3>Billing</h3><p class="settings-row-hint">Billing does not apply to this account.</p></section></div></div>`;
+// ─── The Billing page ───
+// Laid out like Resyrv's /billing: a current-plan card beside a payment-method
+// card (card on file, the Stripe portal's entry points, usage), the plan
+// picker when there is no subscription, then the invoice history. `b` is the
+// verdict off /api/me; `d` is /api/billing/details (null while it loads);
+// `usage` is {people, units} off the loaded tree, or null. Pure, and run under
+// node by tests/test_billing_js.py — every server string is looked up,
+// parsed, or escaped, and a link is only ever Stripe's own https URL.
+const BILLING_FEATURES = [
+  'Unlimited personnel and units', 'Formation mode and daily reports',
+  'Availability and TDY planning', 'Invite every leader in your chain',
+  'Audit log and full backups', 'Installs on any phone',
+];
+const CARD_BRAND_NAMES = {
+  amex: 'American Express', diners: 'Diners Club', discover: 'Discover', eftpos_au: 'eftpos',
+  jcb: 'JCB', mastercard: 'Mastercard', unionpay: 'UnionPay', visa: 'Visa', card: 'Card',
+};
+const INVOICE_STATUS = {
+  paid: ['Paid', 'ok'], open: ['Open', 'warn'], uncollectible: ['Uncollectible', 'bad'],
+  void: ['Void', 'muted'], draft: ['Draft', 'muted'],
+};
+const BILLING_BADGE = {
+  ACTIVE: ['Active', 'ok'], PAST_DUE: ['Past due', 'warn'], TRIAL: ['Trial', 'info'],
+  GRACE: ['Trial ended', 'bad'], COMPED: ['Active', 'ok'], LOCKED: ['Paused', 'bad'],
+};
+
+function billingLongDate(iso) {
+  if (!iso || typeof iso !== 'string') return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function billingMoney(amount, currency) {
+  const n = Number(amount);
+  if (amount === null || amount === undefined || !Number.isFinite(n)) return '—';
+  const cur = typeof currency === 'string' && /^[a-z]{3}$/.test(currency) ? currency.toUpperCase() : 'USD';
+  try {
+    return (n / 100).toLocaleString('en-US', { style: 'currency', currency: cur });
+  } catch (e) {
+    return `$${(n / 100).toFixed(2)}`;
+  }
+}
+
+function billingLink(url, label) {
+  return typeof url === 'string' && url.startsWith('https://')
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="billing-link">${label}</a>` : '';
+}
+
+function billingPlanCardHtml(b, d) {
+  const plan = d && d.plan && (d.plan.interval === 'year' || d.plan.interval === 'month') ? d.plan : null;
+  const [badgeWord, tone] = BILLING_BADGE[b.state] || ['', 'muted'];
+  const name = b.state === 'COMPED' ? 'Complimentary'
+    : b.subscribed === true ? (plan ? (plan.interval === 'year' ? 'Annual' : 'Monthly') : 'Platoon Manager')
+    : 'Free trial';
+  let caption;
+  if (b.state === 'COMPED') caption = 'Complimentary access. There is nothing to pay.';
+  else if (b.subscribed === true) caption = plan ? `You are on the ${name} plan, billed ${plan.interval === 'year' ? 'yearly' : 'monthly'}.` : 'You have an active subscription.';
+  else caption = 'Everything is included while you try it. No card until you choose a plan.';
+  let price;
+  if (b.subscribed === true && plan) {
+    const perMonth = plan.interval === 'year'
+      ? `<p class="billing-price-sub">${escapeHtml(billingMoney(Number(plan.amount) / 12, plan.currency))} a month, billed annually</p>` : '';
+    price = `<div class="billing-price"><span class="billing-price-num">${escapeHtml(billingMoney(plan.amount, plan.currency))}</span><span class="billing-price-per">/${plan.interval}</span></div>${perMonth}`;
+  } else {
+    price = `<div class="billing-price"><span class="billing-price-num">${b.subscribed === true ? '' : 'Free'}</span></div>`;
   }
   let status;
   if (b.state === 'COMPED') status = 'Complimentary access.';
-  else if (b.state === 'TRIAL') status = `Trial ends ${billingDate(b.trial_ends_at)}.`;
+  else if (b.state === 'TRIAL') status = `Trial ends ${billingDate(b.trial_ends_at)} &middot; ${escapeHtml(billingDays(b.days_left))} left.`;
   else if (b.state === 'GRACE') status = `Your trial ended. Grace until ${billingDate(b.grace_ends_at)}.`;
-  else if (b.state === 'PAST_DUE') status = 'Your last payment failed. Update your card to keep access.';
+  else if (b.state === 'PAST_DUE') status = 'Payment failed. Update your payment method to keep access.';
   else if (b.state === 'ACTIVE') status = b.cancel_at_period_end === true
     ? `Ends ${billingDate(b.current_period_end)}. You will not be billed again.`
     : `Renews ${billingDate(b.current_period_end)}.`;
   else if (b.state === 'LOCKED') status = 'Access is paused.';
   else status = '';
-  const rows = [];
-  if (b.extension_available === true) {
-    rows.push(settingsRow('Extend trial', 'One extension of 7 days. No card needed.', 'Extend 7 days', 'extendTrial()'));
-  }
-  if (b.subscribed !== true && b.state !== 'COMPED') rows.push(billingPlanCards(b, true));
-  if (b.subscribed === true || b.portal_available === true) {
-    rows.push(settingsRow('Update card', 'Card details, handled by Stripe.', 'Open', 'openBillingPortal()'));
-    rows.push(settingsRow('Invoices', 'Receipts and past invoices.', 'Open', 'openBillingPortal()'));
-    if (b.subscribed === true && b.cancel_at_period_end !== true) {
-      rows.push(settingsRow('Cancel subscription', 'Ends at the period end. Nothing is deleted.', 'Cancel', 'openBillingPortal()', 'dash-btn-ghost'));
+  const actions = [];
+  if (b.subscribed === true) {
+    actions.push('<button type="button" class="dash-btn dash-btn-primary" onclick="openBillingPortal(\'plan\')">Change plan</button>');
+    if (b.cancel_at_period_end !== true) {
+      actions.push('<button type="button" class="dash-btn dash-btn-ghost billing-btn-danger" onclick="openBillingPortal(\'cancel\')">Cancel subscription</button>');
+    }
+  } else if (b.state !== 'COMPED') {
+    actions.push('<button type="button" class="dash-btn dash-btn-primary" onclick="scrollToBillingPlans()">Choose a plan</button>');
+    if (b.extension_available === true) {
+      actions.push('<button type="button" class="dash-btn dash-btn-secondary" onclick="extendTrial()">Extend 7 days</button>');
     }
   }
-  return `<div class="login-card"><div class="login-brand pricing-panel">${back}
-      <section class="soldier-card billing-card"><h3>Billing</h3><p class="billing-status">${escapeHtml(status)}</p>${rows.join('')}</section>
-    </div></div>`;
+  return `<section class="billing-card billing-plan">
+      <div class="billing-card-head">
+        <div><h3>Current plan</h3><p class="billing-caption">${caption}</p></div>
+        <span class="billing-badge billing-tone-${tone}">${escapeHtml(name)} &middot; ${badgeWord}</span>
+      </div>
+      <div>${price}<p class="billing-status">${status}</p></div>
+      <ul class="billing-features">${BILLING_FEATURES.map(f => `<li>${f}</li>`).join('')}</ul>
+      ${actions.length ? `<div class="billing-actions">${actions.join('')}</div>` : ''}
+    </section>`;
+}
+
+function billingUsageHtml(usage) {
+  if (!usage) return '';
+  const row = (label, n) => Number.isFinite(Number(n))
+    ? `<div class="billing-usage-row"><span>${label}</span><span class="billing-usage-num">${Number(n)} &middot; Unlimited</span></div>` : '';
+  return `<div class="billing-usage"><h4>Usage</h4>${row('Personnel', usage.people)}${row('Units', usage.units)}</div>`;
+}
+
+function billingPaymentCardHtml(b, d, usage) {
+  if (b.state === 'COMPED') {
+    return `<section class="billing-card billing-pay"><div class="billing-card-head"><div><h3>Usage</h3><p class="billing-caption">Everything in your organization.</p></div></div>${billingUsageHtml(usage)}</section>`;
+  }
+  const card = d && d.card && /^\d{4}$/.test(String(d.card.last4)) ? d.card : null;
+  let line, sub;
+  if (!d) { line = 'Loading…'; sub = 'Asking Stripe'; }
+  else if (d.stripe_error === true) { line = 'Payment method unavailable'; sub = 'Stripe could not be reached. Try again in a moment.'; }
+  else if (card) {
+    const brand = CARD_BRAND_NAMES[card.brand] || 'Card';
+    const m = Number(card.exp_month), y = Number(card.exp_year);
+    line = `${brand} ending in ${escapeHtml(card.last4)}`;
+    sub = Number.isInteger(m) && Number.isInteger(y) && m >= 1 && m <= 12
+      ? `Expires ${String(m).padStart(2, '0')}/${String(y % 100).padStart(2, '0')} &middot; Managed by Stripe` : 'Managed by Stripe';
+  } else {
+    line = 'No payment method on file';
+    sub = b.subscribed === true ? 'Add one in the billing portal.' : 'Stripe will collect it at checkout.';
+  }
+  const portal = b.subscribed === true || b.portal_available === true;
+  const buttons = portal ? `
+      <button type="button" class="dash-btn dash-btn-secondary billing-btn-wide" onclick="openBillingPortal('payment_method')">Update payment method</button>
+      <div class="billing-portal-links">
+        <button type="button" class="billing-textlink" onclick="openBillingPortal()">View invoices</button><span aria-hidden="true">&middot;</span><button type="button" class="billing-textlink" onclick="openBillingPortal()">Update billing details</button>
+      </div>` : '';
+  return `<section class="billing-card billing-pay">
+      <div class="billing-card-head"><div><h3>Payment method</h3><p class="billing-caption">Manage your payment details</p></div></div>
+      <div class="billing-pm">
+        <span class="billing-pm-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/></svg></span>
+        <div class="billing-pm-text"><p class="billing-pm-line">${line}</p><p class="billing-caption">${sub}</p></div>
+      </div>
+      ${buttons}
+      <p class="billing-fineprint">Card details are held by Stripe. Platoon Manager never sees your full card number.</p>
+      ${billingUsageHtml(usage)}
+    </section>`;
+}
+
+function billingHistoryHtml(b, d) {
+  let inner;
+  const invoices = d && Array.isArray(d.invoices) ? d.invoices : [];
+  if (!d) inner = '<p class="billing-empty">Loading invoices…</p>';
+  else if (d.stripe_error === true) inner = '<p class="billing-empty">Invoices could not be loaded from Stripe right now.</p>';
+  else if (!invoices.length) inner = '<p class="billing-empty">No invoices yet. They will appear here after your first payment.</p>';
+  else {
+    const rows = invoices.map(inv => {
+      const [word, tone] = INVOICE_STATUS[inv && inv.status] || ['—', 'muted'];
+      const start = billingLongDate(inv.period_start), end = billingLongDate(inv.period_end);
+      const links = [billingLink(inv.url, 'View'), billingLink(inv.pdf, 'PDF')].filter(Boolean).join(' ');
+      return `<tr>
+          <td>${escapeHtml(billingLongDate(inv.created) || '—')}</td>
+          <td class="billing-muted">${start && end ? `${escapeHtml(start)} – ${escapeHtml(end)}` : '—'}</td>
+          <td><span class="billing-pill billing-tone-${tone}">${word}</span></td>
+          <td class="billing-num">${escapeHtml(billingMoney(inv.amount, inv.currency))}</td>
+          <td class="billing-num">${links || '—'}</td>
+        </tr>`;
+    }).join('');
+    inner = `<div class="billing-table-wrap"><table class="billing-table">
+        <thead><tr><th>Date</th><th>Period</th><th>Status</th><th class="billing-num">Amount</th><th class="billing-num">Invoice</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+  }
+  return `<section class="billing-card billing-history">
+      <div class="billing-card-head"><div><h3>Billing history</h3><p class="billing-caption">Your recent invoices and payments</p></div></div>
+      ${inner}
+    </section>`;
+}
+
+function billingPageHtml(b, d, usage) {
+  if (!b) {
+    return `<section class="billing-card"><h3>Billing</h3><p class="billing-caption">Billing does not apply to this account.</p></section>`;
+  }
+  const notices = [];
+  if (b.state === 'PAST_DUE') {
+    notices.push(`<div class="billing-notice billing-tone-warn" role="alert"><div><strong>Your last payment did not go through.</strong><p>Update your card to keep access. Stripe will retry it.</p></div><button type="button" class="dash-btn dash-btn-primary" onclick="openBillingPortal('payment_method')">Update card</button></div>`);
+  } else if (b.state === 'ACTIVE' && b.cancel_at_period_end === true) {
+    notices.push(`<div class="billing-notice billing-tone-info" role="status"><div><strong>Your subscription is set to cancel.</strong><p>You keep full access until ${billingDate(b.current_period_end)}. Renew any time before then to stay on your plan.</p></div><button type="button" class="dash-btn dash-btn-primary" onclick="openBillingPortal()">Keep my plan</button></div>`);
+  } else if (b.state === 'GRACE') {
+    notices.push(`<div class="billing-notice billing-tone-bad" role="alert"><div><strong>Your trial ended.</strong><p>${escapeHtml(billingDays(b.days_left))} until access is paused. Choose a plan below; nothing is deleted.</p></div></div>`);
+  }
+  const plans = b.subscribed !== true && b.state !== 'COMPED' ? `
+    <section class="billing-card billing-plans" id="billingPlans">
+      <div class="billing-card-head"><div><h3>Choose a plan</h3><p class="billing-caption">Monthly or annual. You confirm on Stripe’s secure checkout before anything is charged.</p></div></div>
+      ${billingPlanCards(b, true)}
+      <p id="pricingStatus" class="pricing-status" aria-live="polite"></p>
+    </section>` : '';
+  return `${notices.join('')}
+    <div class="billing-grid">${billingPlanCardHtml(b, d)}${billingPaymentCardHtml(b, d, usage)}</div>
+    ${plans}
+    ${billingHistoryHtml(b, d)}`;
 }
 
 // Once a calendar day (the tenant's day, by getTodayStr()) during the last
@@ -9356,16 +10067,6 @@ function adminCompToggle(u) {
   return `<button type="button" class="admin-btn admin-btn-ghost admin-btn-xs" onclick="setBillingMode(${id}, '${comped ? 'default' : 'comped'}')">${comped ? 'Uncomp' : 'Comp'}</button>`;
 }
 
-function billingSettingsHint(b) {
-  if (!b) return 'Plan, card and invoices.';
-  if (b.state === 'COMPED') return 'Complimentary access.';
-  if (b.state === 'TRIAL') return `Trial ends ${billingDate(b.trial_ends_at)}.`;
-  if (b.state === 'GRACE') return `Trial ended. ${billingDays(b.days_left)} until access is paused.`;
-  if (b.state === 'PAST_DUE') return 'Payment failed. Update your card.';
-  if (b.state === 'ACTIVE') return b.cancel_at_period_end ? `Ends ${billingDate(b.current_period_end)}.` : `Renews ${billingDate(b.current_period_end)}.`;
-  return 'Plan, card and invoices.';
-}
-
 function renderBillingBanner() {
   const el = document.getElementById('billingBanner');
   if (!el) return;
@@ -9374,17 +10075,47 @@ function renderBillingBanner() {
   el.innerHTML = signedIn && !onPricing ? billingBannerHtml(currentUser && currentUser.billing) : '';
 }
 
-// One screen, two faces: the pricing screen when locked, the Billing page
-// otherwise. Neither pushes history — Back is routeAfterLogin(), which lands
-// wherever the address bar still says.
-function showBillingScreen(locked) {
+// The pricing screen: a locked account's only screen. It pushes no history —
+// Back is routeAfterLogin(), which lands wherever the address bar still says
+// (and straight back here while the account is still locked). Everyone else
+// manages billing on the Billing page, a settings section like any other.
+function showBillingScreen() {
   showAppScreen('billing');
-  const b = currentUser && currentUser.billing;
-  document.getElementById('billingScreen').innerHTML = locked ? pricingScreenHtml(b) : billingPageHtml(b);
+  document.getElementById('billingScreen').innerHTML = pricingScreenHtml(currentUser && currentUser.billing);
   window.scrollTo({ top: 0 });
 }
 
-function openBillingPage() { showBillingScreen(false); }
+function openBillingPage() { goToSettings('billing'); }
+
+function billingPageOpen() {
+  return document.body.classList.contains('settings-active') && settingsSection === 'billing';
+}
+
+// /api/billing/details for the open Billing page; null while it loads.
+let billingDetails = null;
+
+async function loadBillingDetails() {
+  billingDetails = null;
+  const d = await api('GET', '/billing/details');
+  billingDetails = d || { plan: null, card: null, invoices: [], stripe_error: true };
+  if (d && d.billing && currentUser) {
+    currentUser.billing = d.billing;
+    renderBillingBanner();
+  }
+  if (billingPageOpen()) renderSettings();
+}
+
+// Headcount and unit count across the whole tree the account leads — what the
+// plan covers, so it is shown against "Unlimited" rather than a limit.
+function billingUsage() {
+  const top = currentUser && unitById(currentUser.unit_id);
+  return top ? { people: unitHeadcount(top.id), units: unitSubtree(top.id).length } : null;
+}
+
+function scrollToBillingPlans() {
+  const el = document.getElementById('billingPlans');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function setPricingStatus(msg) {
   const el = document.getElementById('pricingStatus');
@@ -9397,7 +10128,10 @@ async function refreshBilling() {
   currentUser = me;
   renderBillingBanner();
   if (document.body.classList.contains('billing-active')) {
-    showBillingScreen(me.billing && me.billing.state === 'LOCKED');
+    if (me.billing && me.billing.state === 'LOCKED') showBillingScreen();
+    else routeAfterLogin();
+  } else if (billingPageOpen()) {
+    loadBillingDetails();
   }
 }
 
@@ -9406,8 +10140,8 @@ async function extendTrial() {
   if (!r || !r.billing) return;
   currentUser.billing = r.billing;
   renderBillingBanner();
-  if (document.body.classList.contains('billing-active')) showBillingScreen(false);
-  else if (document.getElementById('settingsView') && document.body.classList.contains('settings-active')) renderSettings();
+  if (document.body.classList.contains('billing-active')) routeAfterLogin();
+  else if (billingPageOpen()) renderSettings();
 }
 
 async function startCheckout(lookupKey) {
@@ -9417,8 +10151,11 @@ async function startCheckout(lookupKey) {
   setPricingStatus('');
 }
 
-async function openBillingPortal() {
-  const r = await api('POST', '/billing/portal');
+// `intent` deep-links the portal to one task: 'payment_method', 'plan' or
+// 'cancel'. The server falls back to the portal's front page when the portal
+// is not configured for that flow, so every button still goes somewhere.
+async function openBillingPortal(intent) {
+  const r = await api('POST', '/billing/portal', intent ? { intent } : undefined);
   if (r && r.url) window.location.assign(r.url);
 }
 
@@ -9434,6 +10171,7 @@ async function awaitBillingActive() {
       if (me.billing && me.billing.subscribed) {
         renderBillingBanner();
         if (document.body.classList.contains('billing-active')) routeAfterLogin();
+        else if (billingPageOpen()) loadBillingDetails();
         return;
       }
     }
@@ -9476,8 +10214,14 @@ function showAppScreen(screen) {
     document.body.classList.remove('audit-active');
     document.body.classList.remove('units-active');
     document.body.classList.remove('settings-active');
+    document.body.classList.remove('settings-mode');
     currentSoldierId = null;
   }
+  if (screen === 'home' || screen === 'platoon') placeTopbar(screen);
+  else { closeUserMenu(); closeGlobalSearch(); }
+  // The pricing screen's markup (and its #pricingStatus) goes when it does, so
+  // the Billing page's own status line is the only one getElementById finds.
+  if (screen !== 'billing') document.getElementById('billingScreen').innerHTML = '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'flex' : 'none';
   document.getElementById('createUnitScreen').style.display = screen === 'createUnit' ? 'flex' : 'none';
@@ -10205,6 +10949,10 @@ function parseAppRoute() {
   const unit = parts.length ? unitBySlug(parts[0]) : null;
   if (unit) {
     if (parts[1] === 'soldier' && parts[2]) return { unit, section: 'soldier', soldierId: parseInt(parts[2], 10) };
+    // /<unit>/settings/<section>, and /<unit>/billing as a short way to the
+    // Billing section (it is where Stripe sends people back to).
+    if (parts[1] === 'settings') return { unit, section: 'settings', sub: parts[2] || null };
+    if (parts[1] === 'billing') return { unit, section: 'settings', sub: 'billing' };
     // /tdy-lists shipped briefly before the split into Schools + Locations.
     const section = parts[1] === 'tdy-lists' ? 'schools' : (parts[1] || 'accountability');
     return { unit, section };
@@ -10223,7 +10971,7 @@ function routeAfterLogin() {
     awaitBillingActive();
   }
   // A locked account lands on the pricing screen and nowhere else.
-  if (currentUser && currentUser.billing && currentUser.billing.state === 'LOCKED') { showBillingScreen(true); return; }
+  if (currentUser && currentUser.billing && currentUser.billing.state === 'LOCKED') { showBillingScreen(); return; }
   const route = parseAppRoute();
   // Before the needs_unit check: /admin is not unit-scoped, so an operator who
   // belongs to no unit must still land on it rather than on the "name your
@@ -10244,7 +10992,7 @@ function routeAfterLogin() {
   if (route.section === 'directory') openDirectory(false);
   else if (route.section === 'availability') openAvailability(false);
   else if (route.section === 'audit') openAuditLog(false);
-  else if (route.section === 'settings') openSettings(false);
+  else if (route.section === 'settings') openSettings(false, route.sub);
   else if (route.section === 'units') openUnits(false);
   else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
 }
@@ -10336,10 +11084,6 @@ async function loadHome() {
   if (!currentUser) { showLoginScreen(); return; }
   if (currentUser.needs_unit) { showCreateUnitScreen(); return; }
   showAppScreen('home');
-  document.getElementById('manageUsersMenuItem').style.display = 'block';
-  document.getElementById('adminMenuItem').style.display =
-    currentUser.platform_admin ? 'block' : 'none';
-  document.getElementById('backupGroupHeader').style.display = 'flex';
   syncInstallButton();
   await loadUnits();
   applyUnitLogo();
@@ -10405,16 +11149,12 @@ function selectUnit(unit, push = true, pendingSoldier = null) {
   currentUnit = unit;
   pendingSoldierId = pendingSoldier;
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
-  ['directory-active', 'availability-active', 'lists-active', 'audit-active', 'settings-active', 'units-active']
+  ['directory-active', 'availability-active', 'lists-active', 'audit-active', 'settings-active', 'units-active', 'settings-mode']
     .forEach(c => document.body.classList.remove(c));
   if (push) pushAppRoute(unit, 'accountability');
   showAppScreen('platoon');
   applyUnitLogo();
-  const sideUser = document.getElementById('dashSideUser');
-  if (sideUser && currentUser) {
-    sideUser.innerHTML = `<strong>${escapeHtml(currentUser.full_name || currentUser.username || '')}</strong>${escapeHtml(unitLabel(unit))}`;
-  }
-  load();
+  return load();
 }
 
 // ─── Add to Home Screen ───
@@ -10744,9 +11484,22 @@ async function deleteUser(userId, username) {
 // ─── Init ───
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') exitFormation();
+  userMenuKey(e);
+  // "/" (or Ctrl/Cmd-K) jumps to search, unless the key is being typed into something.
+  const typing = e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]');
+  const shortcut = (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey)
+    || (String(e.key || '').toLowerCase() === 'k' && (e.ctrlKey || e.metaKey));
+  const input = document.getElementById('globalSearch');
+  if (shortcut && input && input.offsetParent !== null
+      && !document.body.classList.contains('formation-active')
+      && !document.querySelector('.modal-overlay.active')) {
+    e.preventDefault();
+    input.focus();
+  }
 });
 document.addEventListener('click', e => {
-  if (!e.target.closest('.hamburger-wrap')) closeHamburger();
+  if (!e.target.closest('#userMenuWrap')) closeUserMenu();
+  if (!e.target.closest('#topbarSearch')) closeGlobalSearch(false);
   // Close every dropdown except the one just clicked — there are two in the
   // header now, and both staying open at once looks broken.
   const openedMore = e.target.closest('details.dash-more');
@@ -10786,7 +11539,7 @@ window.addEventListener('popstate', () => {
       if (route.section === 'directory') openDirectory(false);
       else if (route.section === 'availability') openAvailability(false);
       else if (route.section === 'audit') openAuditLog(false);
-      else if (route.section === 'settings') openSettings(false);
+      else if (route.section === 'settings') openSettings(false, route.sub);
       else if (route.section === 'units') openUnits(false);
       else if (LIST_PAGES[route.section]) openTdyLists(route.section, false);
     } else if (wantSoldier != null) {
@@ -10798,7 +11551,7 @@ window.addEventListener('popstate', () => {
     } else if (route.section === 'audit') {
       openAuditLog(false);
     } else if (route.section === 'settings') {
-      openSettings(false);
+      openSettings(false, route.sub);
     } else if (route.section === 'units') {
       openUnits(false);
     } else if (LIST_PAGES[route.section]) {
