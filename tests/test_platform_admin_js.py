@@ -305,18 +305,26 @@ def test_the_empty_and_loading_states_say_so(out):
 
 def test_the_menu_entries_are_gated_on_the_flag(src):
     """Both entry points must test currentUser.platform_admin, and the
-    hamburger item must start hidden — a default-visible item shows itself to
-    everyone for the moment before loadHome() runs."""
+    account-menu item must start hidden — a default-visible item shows itself
+    to everyone for the moment before the menu is first synced."""
     item = extract(src, r'<button id="adminMenuItem".*?</button>', 'the Admin menu item')
     assert 'style="display:none"' in item, f'the Admin menu item starts visible: {item}'
-    home = extract(src, r'async function loadHome\(\) \{.*?\n\}', 'loadHome()')
-    assert re.search(r"adminMenuItem'\)\.style\.display\s*=\s*\n?\s*currentUser\.platform_admin", home), \
-        'loadHome() does not gate the Admin menu item on platform_admin'
+    sync = extract(src, r'function syncUserMenu\(\) \{.*?\n\}', 'syncUserMenu()')
+    assert re.search(r"adminMenuItem'\)\.style\.display\s*=\s*\n?\s*currentUser && currentUser\.platform_admin", sync), \
+        'syncUserMenu() does not gate the Admin menu item on platform_admin'
+    place = extract(src, r'function placeTopbar\(screen\) \{.*?\n\}', 'placeTopbar()')
+    assert 'syncUserMenu()' in place, 'the menu is not re-synced when a screen is shown'
 
-    settings = extract(src, r'function renderSettings\(\) \{.*?\n\}', 'renderSettings()')
-    assert 'openAdmin()' in settings, 'the Settings Account card has no Admin row'
-    assert re.search(r'currentUser\.platform_admin\s*\n?\s*\?\s*settingsNavRow\(\'Admin\'', settings), \
-        'the Settings Admin row is not gated on platform_admin'
+    # The settings nav: the entry is marked admin-only, and the one filter
+    # every rendering goes through drops it unless the flag is set.
+    nav = extract(src, r'const SETTINGS_NAV = \[.*?\n\];', 'SETTINGS_NAV')
+    assert re.search(r"key: 'admin'[^}]*open: 'openAdmin\(\)'[^}]*admin: true", nav), \
+        'the settings nav has no admin-only Platform admin entry'
+    items = extract(src, r'function settingsNavItems\(opts\) \{.*?\n\}', 'settingsNavItems()')
+    assert '!it.admin || admin' in items, 'settingsNavItems() does not drop admin-only entries'
+    render_nav = extract(src, r'function renderSettingsNav\(\) \{.*?\n\}', 'renderSettingsNav()')
+    assert 'admin: !!(currentUser && currentUser.platform_admin)' in render_nav, \
+        'the settings nav is not gated on platform_admin'
 
     for name, body in (
             ('routeAfterLogin()', extract(src, r'function routeAfterLogin\(\) \{.*?\n\}',
