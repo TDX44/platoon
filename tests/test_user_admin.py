@@ -118,6 +118,24 @@ def test_an_owners_row_is_owner_only_and_the_root_keeps_one():
     assert r.status_code == 200 and r.get_json()['role'] == 'leader', \
         f'with a second owner in place, an owner may be demoted: {r.get_json()}'
 
+    # ...but not moved below the root still holding owner: that is a root
+    # role, and a unit_id alone used to carry it down unchanged.
+    third = dbharness.make_user(tree['root'], 'owner', 'keep.third')
+    r = c.put(f"/api/users/{third['id']}", json={'unit_id': tree['child']})
+    assert r.status_code == 400, f'an owner moved below the root must become a leader: {r.get_json()}'
+    r = c.put(f"/api/users/{third['id']}", json={'unit_id': tree['child'], 'role': 'leader'})
+    assert r.status_code == 200 and (r.get_json()['unit_id'], r.get_json()['role']) == \
+        (tree['child'], 'leader'), r.get_json()
+
+
+def test_a_username_cannot_be_blank():
+    c = server.app.test_client()
+    dbharness.as_user(OWNER)
+    for bad in ('', '   ', None, 5):
+        r = c.put(f"/api/users/{LEADER['id']}", json={'username': bad})
+        assert r.status_code == 400, (bad, r.status_code)
+    assert 'sarge' in usernames(c)
+
 
 def test_deleting_a_user_is_owner_only():
     victim = dbharness.make_user(T['child'], 'leader', 'victim')
@@ -139,6 +157,7 @@ def main():
         test_moving_and_promoting_a_user()
         test_an_owners_row_is_owner_only_and_the_root_keeps_one()
         test_deleting_a_user_is_owner_only()
+        test_a_username_cannot_be_blank()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

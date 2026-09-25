@@ -2306,14 +2306,19 @@ def update_user(user_id):
     if 'role' in data:
         if data['role'] not in ROLES:
             return jsonify({'error': 'role must be owner or leader'}), 400
-        if data['role'] == 'owner':
-            if not is_owner(g.current_user):
-                return jsonify({'error': 'Only an owner can grant owner.'}), 403
-            if new_unit != g.current_user['root_id']:
-                return jsonify({'error': 'owner is a root role; attach the user at the root first.'}), 400
+        if data['role'] == 'owner' and not is_owner(g.current_user):
+            return jsonify({'error': 'Only an owner can grant owner.'}), 403
         fields.append('role = %s'); values.append(data['role'])
+    # Checked on the role the row ENDS with, so a unit_id alone cannot carry
+    # an owner down the tree.
+    if data.get('role', target['role']) == 'owner' and new_unit != g.current_user['root_id']:
+        return jsonify({'error': 'owner is a root role; attach the user at the root first, '
+                                 'or make them a leader to move them below it.'}), 400
     if 'username' in data:
-        fields.append('username = %s'); values.append((data['username'] or '').strip())
+        username = data['username'].strip() if isinstance(data['username'], str) else ''
+        if not username:
+            return jsonify({'error': 'Username is required.'}), 400
+        fields.append('username = %s'); values.append(username)
     if not fields:
         return jsonify({'error': 'Nothing to update'}), 400
     # The other half of the same brick: the last owner may not demote himself
