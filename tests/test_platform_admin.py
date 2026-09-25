@@ -492,7 +492,7 @@ def test_rls_is_untouched_by_the_admin_functions(fx):
             'the function did not run for the app role, so nothing above was tested'
 
 
-# The six pre-tenant functions from sql/auth_functions.sql, checked here too:
+# The seven pre-tenant functions from sql/auth_functions.sql, checked here too:
 # they carry the same search_path pin and nothing else asserts it.
 FRONT_DOOR = [
     'auth_user_by_clerk_id(text)',
@@ -500,6 +500,7 @@ FRONT_DOOR = [
     'auth_invite(text, text)',
     'auth_create_user(text, text, text, text, int, text, int)',
     'auth_claim_legacy_user(int, text, text, text, text, int, text, int)',
+    'auth_attach_invited_user(int, text, text)',
     'auth_create_root_unit(text, text, text, int)',
 ]
 

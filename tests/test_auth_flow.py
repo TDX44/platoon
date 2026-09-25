@@ -136,12 +136,13 @@ class _Racer:
     """Steals the legacy row from a second connection in the instant between
     sync_clerk_user() finding it and claiming it."""
 
-    def __init__(self, conn, steal):
+    def __init__(self, conn, steal, marker='auth_claim_legacy_user'):
         self._conn = conn
         self._steal = steal
+        self._marker = marker
 
     def execute(self, sql, params=None, *a, **kw):
-        if 'auth_claim_legacy_user' in sql and self._steal:
+        if self._marker in sql and self._steal:
             self._steal()
             self._steal = None
         return self._conn.execute(sql, params, *a, **kw)
@@ -217,6 +218,79 @@ def test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash():
     assert user is None and err, 'the loser of the race gets an error, not a None the route 500s on'
 
 
+def test_an_unattached_account_redeems_an_invite_later():
+    """Signed up, landed on 'create a unit', then followed an invite link: the
+    existing row must attach, not be handed straight back unattached."""
+    stranger, err = sync('clerk_later', 'later@example.com')
+    assert err is None and stranger['unit_id'] is None, stranger
+    t = dbharness.make_tree('Quebec Co')
+    make_invite(t, 'tok-later')
+    user, err = sync('clerk_later', 'later@example.com', 'tok-later')
+    assert err is None, err
+    assert user['id'] == stranger['id'], 'the same account, not a second one'
+    assert (user['unit_id'], user['role'], user['root_id']) == (t['child'], 'leader', t['root']), user
+    conn = dbharness.owner_conn()
+    acc = conn.execute("SELECT accepted_by, accepted_at FROM invites WHERE token = 'tok-later'").fetchone()
+    conn.close()
+    assert acc['accepted_by'] == 'clerk_later' and acc['accepted_at'], acc
+    # ...and an attached account presenting another invite is not moved by it.
+    make_invite(t, 'tok-again', unit=t['root'], role='owner')
+    again, err = sync('clerk_later', 'later@example.com', 'tok-again')
+    assert err is None and (again['unit_id'], again['role']) == (t['child'], 'leader'), again
+
+
+def test_an_invite_is_single_use_under_a_race():
+    """Two sign-ins holding the same token: whoever loses the accept lands
+    unattached rather than both attaching off one single-use link."""
+    t = dbharness.make_tree('Romeo Co')
+    make_invite(t, 'tok-race')
+
+    stolen = []
+
+    def steal():
+        if stolen:
+            return
+        stolen.append(True)
+        conn = dbharness.owner_conn()
+        conn.execute("UPDATE invites SET accepted_at = %s, accepted_by = 'clerk_first' "
+                     "WHERE token = 'tok-race'", (server.app_stamp(),))
+        conn.commit(); conn.close()
+
+    real_get_db = server.get_db
+    server.get_db = lambda: _Racer(real_get_db(), steal, 'UPDATE invites')
+    try:
+        user, err = sync('clerk_second', 'second@example.com', 'tok-race')
+    finally:
+        server.get_db = real_get_db
+    assert err is None and user['unit_id'] is None, f'the loser must not attach: {user}'
+    conn = dbharness.owner_conn()
+    acc = conn.execute("SELECT accepted_by FROM invites WHERE token = 'tok-race'").fetchone()['accepted_by']
+    conn.close()
+    assert acc == 'clerk_first', acc
+
+
+def test_sync_does_not_undo_a_rename():
+    """username is set when the account is made; after that it is the
+    owner's to change, and created_by on reports hangs off it."""
+    t = dbharness.make_tree('Sierra Co')
+    make_invite(t, 'tok-name')
+    user, err = sync('clerk_named', 'named@example.com', 'tok-name')
+    assert err is None, err
+    conn = dbharness.owner_conn()
+    conn.execute("UPDATE users SET username = 'SSG Named' WHERE id = %s", (user['id'],))
+    conn.commit(); conn.close()
+    with server.app.test_request_context('/api/auth/sync', method='POST'):
+        g.auth_claims = {'sub': 'clerk_named'}
+        again, err = server.sync_clerk_user({'username': 'named-handle', 'email': 'NEW@example.com',
+                                             'full_name': 'New Name'})
+        g.db_commit = True
+        server._close_db(None)
+    assert err is None, err
+    row = reread(user['id'])
+    assert row['username'] == 'SSG Named', f'sync overwrote the rename: {row["username"]!r}'
+    assert (row['email'], row['full_name']) == ('new@example.com', 'New Name'), row
+
+
 def main():
     try:
         test_stranger_gets_an_unattached_account()
@@ -230,6 +304,9 @@ def main():
         test_a_founder_was_invited_by_nobody()
         test_the_user_list_is_not_made_n_plus_1_by_this()
         test_losing_the_race_for_a_legacy_row_is_an_error_not_a_crash()
+        test_an_unattached_account_redeems_an_invite_later()
+        test_an_invite_is_single_use_under_a_race()
+        test_sync_does_not_undo_a_rename()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

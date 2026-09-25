@@ -49,6 +49,21 @@ RETURNS SETOF users LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT A
   RETURNING *;
 $$;
 
+-- An account that signed up attached to nothing and later redeems an invite.
+-- Its row has root_id NULL, which no tenant's RLS can see, so attaching it is
+-- pre-tenant work. The invite vouches, in here rather than in the caller: it
+-- must already be accepted BY this Clerk account (the app's single-use
+-- conditional UPDATE does that under the invite's tenant), and only a row
+-- that is still attached nowhere moves.
+CREATE OR REPLACE FUNCTION auth_attach_invited_user(p_user_id int, p_token text, p_clerk_user_id text)
+RETURNS SETOF users LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+  UPDATE users u SET unit_id = i.unit_id, role = i.role, root_id = i.root_id
+  FROM invites i
+  WHERE i.token = p_token AND i.accepted_by = p_clerk_user_id AND p_clerk_user_id <> ''
+    AND u.id = p_user_id AND u.clerk_user_id = p_clerk_user_id AND u.unit_id IS NULL
+  RETURNING u.*;
+$$;
+
 CREATE OR REPLACE FUNCTION auth_create_root_unit(p_name text, p_kind text, p_slug text, p_user_id int)
 RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
 DECLARE new_id int;
@@ -71,6 +86,7 @@ BEGIN
     'auth_user_by_clerk_id(text)', 'auth_user_by_identity(text, text)', 'auth_invite(text, text)',
     'auth_create_user(text, text, text, text, int, text, int)',
     'auth_claim_legacy_user(int, text, text, text, text, int, text, int)',
+    'auth_attach_invited_user(int, text, text)',
     'auth_create_root_unit(text, text, text, int)']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);

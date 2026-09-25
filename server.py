@@ -957,6 +957,38 @@ def _display_name_for_user(payload):
     return 'User'
 
 
+def _claim_invite(conn, token, clerk_user_id):
+    """Accept the live invite behind `token` for this Clerk account, or None.
+
+    Accepting is one conditional UPDATE, so of two sign-ins racing the same
+    single-use link exactly one gets it; the other lands as if it had none.
+    Leaves the invite's tenant declared, so the expiry it is judged against
+    and the accepted_at it is stamped with are read on the clock that minted
+    it. The caller's rollback on a later failure un-accepts it.
+    """
+    if not token:
+        return None
+    # Pre-tenant, so this is FALLBACK_TZ: it is only the coarse filter that
+    # fetches the invite row. The expiry that counts is re-checked below on the
+    # invite's OWN tenant clock, which is the clock create_invite wrote it on.
+    # ponytail: when FALLBACK_TZ runs ahead of the tenant's zone this filter is
+    # the stricter of the two and can drop an invite a few hours early. That
+    # fails safe (it never admits an expired one) and the alternative is
+    # changing auth_invite().
+    invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, app_stamp())).fetchone()
+    if not invite:
+        return None
+    set_tenant(conn, invite['root_id'])
+    g.tz = _tenant_timezone(conn, invite['root_id']) if invite['root_id'] else FALLBACK_TZ
+    now = app_stamp()
+    if invite['expires_at'] <= now:
+        return None
+    claimed = conn.execute(
+        "UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s AND accepted_at = '' "
+        'RETURNING token', (now, clerk_user_id, token)).fetchone()
+    return invite if claimed else None
+
+
 def sync_clerk_user(payload):
     claims = getattr(g, 'auth_claims', None)
     if not claims:
@@ -976,38 +1008,30 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
-    # Pre-tenant, so this is FALLBACK_TZ: it is only the coarse filter that
-    # fetches the invite row. The expiry that counts is re-checked below on the
-    # invite's OWN tenant clock, which is the clock create_invite wrote it on.
-    # ponytail: when FALLBACK_TZ runs ahead of the tenant's zone this filter is
-    # the stricter of the two and can drop an invite a few hours early. That
-    # fails safe (it never admits an expired one) and the alternative is
-    # changing auth_invite(), which belongs to Task 1's sql/auth_functions.sql.
-    now = app_stamp()
+    token = (payload.get('invite_token') or '').strip()
     try:
         existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         if existing:
+            # Signed up, found nothing to join, then followed an invite link:
+            # the account exists but is attached nowhere, so the invite is
+            # still what attaches it. An attached account is never moved by one.
+            if existing['unit_id'] is None and _claim_invite(conn, token, clerk_user_id):
+                conn.execute('SELECT * FROM auth_attach_invited_user(%s, %s, %s)',
+                             (existing['id'], token, clerk_user_id))
+                existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
             set_tenant(conn, existing.get('root_id'))
             g.tz = _tenant_timezone(conn, existing['root_id']) if existing.get('root_id') else FALLBACK_TZ
+            # username is set once, when the account is made: after that it is
+            # an owner's to rename (update_user), and a report's created_by is
+            # matched against it, so a sign-in must not put the Clerk handle back.
             if existing['root_id'] is not None:
-                conn.execute('UPDATE users SET username = %s, email = %s, full_name = %s WHERE id = %s',
-                             (username, email, full_name, existing['id']))
+                conn.execute('UPDATE users SET email = %s, full_name = %s WHERE id = %s',
+                             (email, full_name, existing['id']))
             row = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
             g.current_user = dict(row)
             return g.current_user, None
 
-        token = (payload.get('invite_token') or '').strip()
-        invite = conn.execute('SELECT * FROM auth_invite(%s, %s)', (token, now)).fetchone() if token else None
-        if invite:
-            # Declare the invite's tenant now, so both the expiry it is judged
-            # against and the accepted_at it is stamped with are read on the
-            # clock that minted it. An invite that has run out on that clock is
-            # simply absent — the caller lands unattached, as if they had none.
-            set_tenant(conn, invite['root_id'])
-            g.tz = _tenant_timezone(conn, invite['root_id']) if invite['root_id'] else FALLBACK_TZ
-            now = app_stamp()
-            if invite['expires_at'] <= now:
-                invite = None
+        invite = _claim_invite(conn, token, clerk_user_id)
         legacy = conn.execute('SELECT * FROM auth_user_by_identity(%s, %s)', (email, username)).fetchone()
         # The email and username arrive in the request body, so a matching row
         # is not proof of who is signing in — the invite is. An attached row may
@@ -1031,9 +1055,6 @@ def sync_clerk_user(payload):
                          (clerk_user_id, username, email, full_name, unit_id, role, root_id))
         set_tenant(conn, root_id)
         g.tz = _tenant_timezone(conn, root_id) if root_id else FALLBACK_TZ
-        if invite:
-            conn.execute('UPDATE invites SET accepted_at = %s, accepted_by = %s WHERE token = %s',
-                         (now, clerk_user_id, invite['token']))
         row = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         if not row:
             # Two Clerk accounts raced the same legacy row: the loser's claim

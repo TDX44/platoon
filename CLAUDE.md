@@ -428,15 +428,15 @@ sync, so an attached user's `LOGIN` is still audited.
 Because RLS binds every statement the app role runs, and does nothing for the
 handful of operations that legitimately need to run *before* a tenant is
 known (finding a user by Clerk id, redeeming an invite, creating a first
-root), those operations are the **six `auth_*` functions in
+root), those operations are the **seven `auth_*` functions in
 `sql/auth_functions.sql`** — `auth_user_by_clerk_id`,
 `auth_user_by_identity`, `auth_invite`, `auth_create_user`,
-`auth_claim_legacy_user`, `auth_create_root_unit`. They are `SECURITY
+`auth_claim_legacy_user`, `auth_attach_invited_user`, `auth_create_root_unit`. They are `SECURITY
 DEFINER`, owned by `platoon_owner`, `SET search_path FROM CURRENT` (the
 standard guard against search-path hijacking of definer functions), and
 `EXECUTE` is revoked from `PUBLIC` and granted only to `platoon_app`. This
 list is deliberately small and enumerable: if a cross-tenant read or write is
-not one of these six functions, the four `billing_*` functions in
+not one of these seven functions, the four `billing_*` functions in
 `sql/billing_functions.sql` (the webhook has no session and declares no
 tenant, so it cannot go through RLS either) or `admin_billing_rows()` in
 `sql/admin_functions.sql`, it does not happen.
@@ -509,7 +509,15 @@ pre-existing local row by email/username with an empty `clerk_user_id`
 (`auth_claim_legacy_user` — how the migrated organization's five accounts,
 and the dev rehearsal's copy of them, land under a new Clerk instance) —
 otherwise it gets a fresh `unit_id NULL` row and the self-serve signup screen
-described under Tenancy above. There is no admin-bootstrap allowlist; whoever
+described under Tenancy above. An account that already exists **unattached**
+and later presents a live invite is attached by it
+(`auth_attach_invited_user`, which only moves a `unit_id NULL` row and only for
+an invite already accepted by that same Clerk id); an attached account is never
+moved by one. Accepting is a single conditional `UPDATE ... WHERE accepted_at =
+''` (`_claim_invite()`), so of two sign-ins racing one link exactly one gets
+it. **`username` is written only when the account is made** — a later sync
+updates `email` and `full_name` but leaves `username` alone, because an owner
+may rename it and a report's `created_by` is matched against it. There is no admin-bootstrap allowlist; whoever
 creates a root becomes its `owner`.
 Owners and leaders mint single-use `/invite/<token>` links from Manage
 Access (`owner` role offered only to an owner, only for the root); each

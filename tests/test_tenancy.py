@@ -132,6 +132,7 @@ FRONT_DOOR = [
     'auth_invite(text, text)',
     'auth_create_user(text, text, text, text, int, text, int)',
     'auth_claim_legacy_user(int, text, text, text, text, int, text, int)',
+    'auth_attach_invited_user(int, text, text)',
     'auth_create_root_unit(text, text, text, int)',
 ]
 
