@@ -11773,26 +11773,68 @@ async function confirmReset() {
 const SESSION_WARNING_SECS = 60;
 const SESSION_TIMEOUT_MINS = 30;
 let _sessionTimer = null, _sessionWarnTimer = null, _sessionCountInterval = null;
+// Idle is measured across every open tab, not per tab: signing out is global,
+// so one tab left in the background must not sign out the one being used.
+// Tabs share their last activity through localStorage (and hear each other's
+// through the storage event); a timer that fires re-checks it before acting.
+const SESSION_ACTIVITY_KEY = 'platoonLastActivity';
+const SESSION_ACTIVITY_WRITE_MS = 5000;   // mousemove must not write every frame
+let _lastActivity = Date.now(), _lastActivityWrite = 0;
 
-function resetSessionTimer() {
+function sharedLastActivity() {
+  try { return Number(localStorage.getItem(SESSION_ACTIVITY_KEY)) || 0; } catch (e) { return 0; }
+}
+function sessionIdleMs() {
+  return Date.now() - Math.max(_lastActivity, sharedLastActivity());
+}
+function armSessionTimers() {
   clearTimeout(_sessionTimer); clearTimeout(_sessionWarnTimer);
-  const warnAfter = (SESSION_TIMEOUT_MINS * 60 - SESSION_WARNING_SECS) * 1000;
-  _sessionWarnTimer = setTimeout(showSessionWarning, warnAfter);
-  _sessionTimer = setTimeout(() => { doLogout(); }, SESSION_TIMEOUT_MINS * 60 * 1000);
+  const left = SESSION_TIMEOUT_MINS * 60 * 1000 - sessionIdleMs();
+  _sessionWarnTimer = setTimeout(onSessionWarn, Math.max(0, left - SESSION_WARNING_SECS * 1000));
+  _sessionTimer = setTimeout(onSessionTimeout, Math.max(0, left));
+}
+function onSessionWarn() {
+  if (!currentUser) return;
+  if (sessionIdleMs() < (SESSION_TIMEOUT_MINS * 60 - SESSION_WARNING_SECS) * 1000) { armSessionTimers(); return; }
+  showSessionWarning();
+}
+function onSessionTimeout() {
+  if (!currentUser) return;
+  if (sessionIdleMs() < SESSION_TIMEOUT_MINS * 60 * 1000) { hideSessionWarning(); armSessionTimers(); return; }
+  doLogout();
+}
+function resetSessionTimer() {
+  const now = Date.now();
+  _lastActivity = now;
+  if (now - _lastActivityWrite > SESSION_ACTIVITY_WRITE_MS) {
+    _lastActivityWrite = now;
+    try { localStorage.setItem(SESSION_ACTIVITY_KEY, String(now)); } catch (e) {}
+  }
+  // Activity while the warning is up answers it: close it and stop the count,
+  // or it sits on screen at 0 over a session that is no longer ending.
+  hideSessionWarning();
+  armSessionTimers();
+}
+function hideSessionWarning() {
+  clearInterval(_sessionCountInterval);
+  _sessionCountInterval = null;
+  const modal = document.getElementById('sessionWarnModal');
+  if (modal) modal.classList.remove('active');
 }
 function showSessionWarning() {
-  document.getElementById('sessionWarnModal').classList.add('active');
+  const modal = document.getElementById('sessionWarnModal');
+  if (modal.classList.contains('active')) return;
+  modal.classList.add('active');
   let secs = SESSION_WARNING_SECS;
   document.getElementById('sessionCountdown').textContent = secs;
+  clearInterval(_sessionCountInterval);
   _sessionCountInterval = setInterval(() => {
     secs--;
-    document.getElementById('sessionCountdown').textContent = secs;
+    document.getElementById('sessionCountdown').textContent = Math.max(0, secs);
     if (secs <= 0) { clearInterval(_sessionCountInterval); }
   }, 1000);
 }
 function extendSession() {
-  document.getElementById('sessionWarnModal').classList.remove('active');
-  clearInterval(_sessionCountInterval);
   resetSessionTimer();
   api('GET', '/me');
 }
@@ -11801,6 +11843,12 @@ function extendSession() {
     if (currentUser) resetSessionTimer();
   }, { passive: true })
 );
+// Another tab was used: this one's idle clock restarts with it.
+window.addEventListener('storage', e => {
+  if (e.key !== SESSION_ACTIVITY_KEY || !currentUser) return;
+  hideSessionWarning();
+  armSessionTimers();
+});
 
 // ─── Backup / Restore ───
 async function exportBackup() {
