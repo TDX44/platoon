@@ -79,6 +79,17 @@ BEGIN
   RETURN new_id;
 END $$;
 
+-- The notification timer (POST /api/cron/notify) has no session and so no
+-- tenant. This is all it may learn across tenants: which roots have anybody
+-- opted in to an email. Root ids and nothing else; everything after that runs
+-- under RLS with each root declared in turn.
+CREATE OR REPLACE FUNCTION auth_notify_roots()
+RETURNS SETOF int LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+  SELECT DISTINCT root_id FROM notification_prefs
+  WHERE accountability_enabled OR digest_enabled
+  ORDER BY 1;
+$$;
+
 DO $$
 DECLARE f text;
 BEGIN
@@ -87,7 +98,8 @@ BEGIN
     'auth_create_user(text, text, text, text, int, text, int)',
     'auth_claim_legacy_user(int, text, text, text, text, int, text, int)',
     'auth_attach_invited_user(int, text, text)',
-    'auth_create_root_unit(text, text, text, int)']
+    'auth_create_root_unit(text, text, text, int)',
+    'auth_notify_roots()']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO platoon_app', f);

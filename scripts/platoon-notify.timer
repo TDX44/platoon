@@ -1,0 +1,13 @@
+[Unit]
+Description=Platoon Manager email notifications, every five minutes
+
+[Timer]
+# Each rule fires at most once per duty day however often this runs (the app
+# records every send), so five minutes is just how late an alert may be.
+OnCalendar=*:0/5
+# A missed run is simply the next run; nothing to catch up.
+Persistent=false
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

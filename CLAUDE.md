@@ -64,6 +64,11 @@ python tests/test_billing.py          # the subscriptions row, the 402 gate swee
                                       # with Stripe stubbed, the signed webhook, deletion, backup, /admin comp
 python tests/test_billing_js.py       # banner, pricing screen, Billing page and modal rule, under node
 python tests/test_settings_nav_js.py  # the settings nav, top-bar search and settings routes, under node
+python tests/test_import.py           # alpha-roster import: rank aliases, unit matching, duplicates, one transaction
+python tests/test_import_js.py        # the CSV/TSV parser and column mapping, under node
+python tests/test_recurring_absences.py # repeating absences: expansion limits, series cancel, backup
+python tests/test_duty_rotation.py    # duty_rotation.propose() fairness + the rotation/bulk routes
+python tests/test_notifications.py    # email alerts: prefs, the cron gate, per-tenant timer, at-most-once
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -280,7 +285,9 @@ There is no migration framework — schema changes are made by editing the
 `init_db()`.
 
 Tables: `personnel`, `personnel_profile`, `settings`, `users`, `audit_log`,
-`duty_roster`, `scheduled_events`, `invites`. (Legacy `training_*` tables from the
+`duty_roster`, `scheduled_events`, `invites`, `subscriptions`, `report_history`,
+`units`, `notification_prefs`, `notification_sends` (and `stripe_events`, not
+tenant data). (Legacy `training_*` tables from the
 removed 350-1 tracker feature may still exist in older database files; they are
 unused.)
 
@@ -378,6 +385,19 @@ and the report both drop the date range for them (`isSameDayState`) — a
 today-to-today window is noise. `REASON_FIELDS` in `index.html` is the one place
 that decides which statuses get the free-text reason box and how it is worded.
 
+**Repeating absences** are not a new kind of absence. A `recurrence` on
+`POST .../schedule` (`{type: 'weekly', weekdays: [0..6, Monday = 0], until}` or
+`{type: 'interval', every: N, until}`) is expanded by `expand_recurrence()` into
+ordinary rows at booking time — each the first window's length, at most
+`RECURRENCE_MAX_OCCURRENCES` (60), `until` at most `RECURRENCE_MAX_DAYS` (183)
+ahead, a real end date required, and no two occurrences overlapping (only one
+absence can be current). They share a `scheduled_events.series_id` (32 hex
+chars, added idempotently by `init_db()`), which exists only so `DELETE
+/api/schedules/series/<id>` can cancel the occurrences that have not started;
+a running one and history stay. The live dedupe index applies row by row, so a
+double-tapped recurring Save books nothing more. One `SCHEDULE_SERIES` /
+`DELETE_SERIES` audit row each. Tests: `tests/test_recurring_absences.py`.
+
 Two rules it deliberately keeps: `completed` is terminal (history is never
 resurrected), and the cache is only overwritten when it already holds an absence
 or when an absence has just activated — which is what keeps a hand-set
@@ -393,6 +413,89 @@ bounds `_derive_state()` uses — and the dates decide regardless of `state`,
 because `completed` is a claim about today, not about the day being asked
 about. Range mode means "unavailable on any day of the range" and each person carries the
 `days` they are out. Tests: `tests/test_availability.py`.
+
+### Alpha-roster import
+
+The Import modal still takes the old one-person-per-line paste (`RANK Last,
+First`, posted one soldier at a time). Text — pasted or read from a chosen
+file — whose header row names the soldier (`Last` + `First`, or `Name`) is a
+**spreadsheet** instead: `parseDelimited()` (tab if the first line has one,
+else comma, RFC 4180 quoting), `guessImportColumn()` and `mapImportRows()` in
+`index.html` split and map it (the user can change any column's target), and
+everything a row *means* is decided by **`POST /api/personnel/import`**:
+`normalize_rank()` (case, dots, hyphens and `RANK_ALIASES`; an ambiguous "LT"
+stays an error), the same `_name_errors()` as a single add,
+`validation.validate_profile()` on the `IMPORT_PROFILE_FIELDS` columns, the
+unit matched by name or slug, case-insensitive, **only inside the caller's
+subtree** (unmatched or ambiguous falls back to the unit the import was
+started from, flagged), and a likely duplicate — same last + first, rank
+ignored, in the subtree or earlier in the file — skipped unless
+`include_duplicates`. `dry_run: true` is the preview, so the preview cannot
+promise what the import refuses. A real run refuses the whole batch if any row
+has an error (the client leaves those rows out), caps at `IMPORT_MAX_ROWS`
+(500), inserts in the request's one transaction and writes one
+`IMPORT_PERSONNEL` audit row. The default `unit_id` goes through
+`_unit_gate()`: another tenant's unit is 404, one outside the subtree 403.
+Tests: `tests/test_import.py`, `tests/test_import_js.py`.
+
+### Duty rotation
+
+"Generate rotation…" on the duty roster. **`duty_rotation.py`** is the rule,
+pure like `billing_rules.py`: `propose(days, pool, history, absences,
+holidays, separate_weekends, taken)` gives each day to the free soldier with
+the fewest earlier turns of that duty, then not the same soldier two days
+running, then the longest since their last turn, then pool order. Weekends
+(and any holiday dates given) keep a separate tally when `separate_weekends`.
+Away means the availability rule — `from_date <= D and (to_date = '' or to_date
+>= D)`, any state — and a day that already has the duty is left alone.
+`POST /api/duty/rotation` feeds it (history = every `duty_roster` row of that
+duty for the pool before the range, wherever filed) and **writes nothing**; it
+returns the proposal, who is away on each day and the pool. The leader can
+change any pick, then **`POST /api/duty/bulk`** saves up to `DUTY_BULK_MAX`
+entries in one transaction: every soldier must be in the unit's subtree (the
+`add_duty` rule), dates canonical, an entry that already exists (same date,
+duty, soldier) is skipped so a double tap books nothing, conflicts warn as for
+a single entry, one `ADD_DUTY_ROTATION` audit row. Both take `unit_id` through
+`_unit_gate()` (404 / 403). Tests: `tests/test_duty_rotation.py`.
+
+### Email notifications
+
+Per account, opted into under **Preferences** (`GET`/`PUT
+/api/me/notifications`, table `notification_prefs`: `accountability_enabled`
++ `accountability_time`, `digest_enabled` + `digest_time`, `HH:MM` on the
+tenant's clock). (a) **Accountability not complete** mails the account if
+anyone in its unit's subtree is still unaccounted for (`present` and not
+marked today — the frontend's `isUnaccounted()`) at or after its time; a
+complete roster sends nothing and records nothing, so a soldier added later
+still triggers it. (b) The **morning digest**: due back today (an absence
+whose `to_date` was yesterday), starting an absence today, and overdue — which
+cannot be an active row past its end, since reconciliation completes those,
+so it is the roster cache still holding an absence past its `to_date`, or
+FTR. `late`/`excused` are left out of the first two as same-day noise. An
+empty digest is recorded as `nothing to send` and not re-evaluated that day.
+
+**Inert unless `RESEND_API_KEY` and `NOTIFY_FROM` are both set** (the timer
+route then answers `{"email": "disabled"}` and the Preferences card says so).
+Mail goes through Resend's HTTP API with `urllib` (`_send_email()`, which tests
+replace), plain text plus HTML with every value `html.escape`d, and a
+User-Agent set explicitly (Cloudflare-fronted APIs refuse urllib's default).
+
+There is still no background worker. **`POST /api/cron/notify`** is driven by
+`scripts/platoon-notify.timer` (every 5 minutes, `curl` to the host's :5000
+with `X-Cron-Secret: $CRON_SECRET` from `.env`) and authenticated **only** by
+that header: `cron_secret_required` answers 404 while `CRON_SECRET` is unset
+and 403 on a wrong value (`hmac.compare_digest`). It has no session and no
+tenant, so the one cross-tenant thing it may do is `auth_notify_roots()` (root
+ids with anybody opted in, nothing else); then for each root it declares the
+tenant, loads that root's zone into `g.tz`, reconciles absences as a roster read
+would, and evaluates every opted-in account under RLS. Each (account, rule,
+duty day) is **claimed** in `notification_sends` (tenant table, RLS) and
+**committed before the send**, so a second timer run or a crash can never mail
+it twice — at-most-once, a failed send is recorded `failed` and not retried
+(a missed alert beats a flood). The route commits per root, re-declaring the
+tenant after each commit because `set_config(..., true)` dies with the
+transaction; one tenant raising rolls back only itself. Tests:
+`tests/test_notifications.py`.
 
 ### Time
 
@@ -438,7 +541,8 @@ Organizations nest as a `units` adjacency list (`parent_id` self-reference,
 `kind` one of company/platoon/squad/team/section/detachment/flight/crew,
 `UNIQUE(root_id, slug)`). Every tenant table — `units`, `personnel`,
 `personnel_profile`, `scheduled_events`, `duty_roster`, `report_history`,
-`audit_log`, `settings`, `users`, `invites` — carries `root_id`, which is
+`audit_log`, `settings`, `users`, `invites`, `subscriptions`,
+`notification_prefs`, `notification_sends` — carries `root_id`, which is
 "which tree" for that row; a root unit's own `root_id` equals its own `id`.
 
 **RLS is the tenant blast door**, not an optional extra. `sql/rls.sql` puts a
@@ -461,15 +565,17 @@ sync, so an attached user's `LOGIN` is still audited.
 Because RLS binds every statement the app role runs, and does nothing for the
 handful of operations that legitimately need to run *before* a tenant is
 known (finding a user by Clerk id, redeeming an invite, creating a first
-root), those operations are the **seven `auth_*` functions in
+root, and the notification timer finding which roots to visit), those
+operations are the **eight `auth_*` functions in
 `sql/auth_functions.sql`** — `auth_user_by_clerk_id`,
 `auth_user_by_identity`, `auth_invite`, `auth_create_user`,
-`auth_claim_legacy_user`, `auth_attach_invited_user`, `auth_create_root_unit`. They are `SECURITY
+`auth_claim_legacy_user`, `auth_attach_invited_user`, `auth_create_root_unit`,
+`auth_notify_roots`. They are `SECURITY
 DEFINER`, owned by `platoon_owner`, `SET search_path FROM CURRENT` (the
 standard guard against search-path hijacking of definer functions), and
 `EXECUTE` is revoked from `PUBLIC` and granted only to `platoon_app`. This
 list is deliberately small and enumerable: if a cross-tenant read or write is
-not one of these seven functions, the four `billing_*` functions in
+not one of these eight functions, the four `billing_*` functions in
 `sql/billing_functions.sql` (the webhook has no session and declares no
 tenant, so it cannot go through RLS either) or `admin_billing_rows()` in
 `sql/admin_functions.sql`, it does not happen.
@@ -737,7 +843,9 @@ auto-return-to-duty happen on **every `GET /api/personnel`**
 (`_reconcile_absences`, see Absence lifecycle), so a roster that is being
 looked at is always current. Clearing yesterday's `present` marks is
 `/api/reset` — per unit, or owner-wide across the root — plus the frontend's
-own day handling.
+own day handling. The one scheduled job is outside the app: the email timer
+(`scripts/platoon-notify.timer`) calling `POST /api/cron/notify`, which sets the
+tenant per root itself — see Email notifications.
 
 ### Backup
 
@@ -751,7 +859,13 @@ tree (units matched by slug, created if absent); sequences are resynced
 after. `version: 1` and `version: 2` files are refused with a clear message —
 those predate per-tenant scoping, and anyone holding one restores it before
 the A1 migration, not after. If you change the schema, update both export and
-restore, and keep the `version` check working. **Row ids are global primary
+restore, and keep the `version` check working. `scheduled_events.series_id`
+rides along (`SELECT *`); a restored one that is not 32 hex characters becomes
+NULL, keeping the absence. An owner's `users` rows carry the four
+`notify_*` preference keys (`NOTIFY_BACKUP_KEYS`, only for an account that has
+a `notification_prefs` row); restore checks them with the same
+`_notify_prefs_from()` a PUT uses and counts a bad set in `skipped_rows`.
+`notification_sends` is a send log and is not exported. **Row ids are global primary
 keys**, so a restore keeps the file's id where it is free (an ordinary
 round trip keeps every soldier's URL) and gives the row a fresh one where it
 is not — restoring one organization's export into another while the first
@@ -862,6 +976,12 @@ which is not recoverable by redeploying.
 `docker-compose.yml` runs two services: `app` (gunicorn `-w 2` on :5000) and
 `cloudflared` (the public ingress tunnel; `TUNNEL_TOKEN` from `.env`).
 
+Email notifications need, in `.env`, `RESEND_API_KEY`, `NOTIFY_FROM` (a sender
+on a Resend-verified domain) and `CRON_SECRET`, then the timer installed on
+prodsrv02 the same way as the backup one:
+`sudo cp scripts/platoon-notify.{service,timer} /etc/systemd/system/ &&
+sudo systemctl daemon-reload && sudo systemctl enable --now platoon-notify.timer`.
+
 ## Conventions
 
 - The frontend is intentionally one file — add views as `render*()` functions and
@@ -869,5 +989,6 @@ which is not recoverable by redeploying.
   The exception is `public/`: pages that must render signed-out, with no JS.
 - New API routes go under `/api/`, return JSON, and use the existing auth
   decorators and `log_action()` for the audit trail.
-- `.env` holds all secrets (`SECRET_KEY`, Clerk keys, `TUNNEL_TOKEN`) and is
+- `.env` holds all secrets (`SECRET_KEY`, Clerk keys, `TUNNEL_TOKEN`, Stripe keys,
+  `RESEND_API_KEY`, `CRON_SECRET`) and is
   gitignored; see `.env.example`.

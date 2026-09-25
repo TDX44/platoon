@@ -134,6 +134,7 @@ FRONT_DOOR = [
     'auth_claim_legacy_user(int, text, text, text, text, int, text, int)',
     'auth_attach_invited_user(int, text, text)',
     'auth_create_root_unit(text, text, text, int)',
+    'auth_notify_roots()',
 ]
 
 

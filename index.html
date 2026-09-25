@@ -61,6 +61,26 @@
   .import-preview table { width: 100%; font-size: 0.85em; }
   .import-preview td { padding: 3px 6px; border-bottom: 1px solid #3a3a55; }
   .import-error { color: #e17055; font-size: 0.8em; margin-top: 4px; }
+  .import-file-row { margin: 8px 0; font-size: 0.85em; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .import-file-label { margin: 0; }
+  .import-mapping:empty { display: none; }
+  .import-map-title { font-size: 0.8em; font-weight: 600; margin: 8px 0 4px; color: var(--cp-muted); }
+  .import-map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); gap: 6px; }
+  .import-map-col { display: flex; flex-direction: column; gap: 2px; font-size: 0.8em; min-width: 0; margin: 0; }
+  .import-map-col span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .import-map-col select { width: 100%; min-width: 0; }
+  .import-dups { display: flex; gap: 6px; align-items: center; font-size: 0.85em; margin: 8px 0 0; }
+  .import-flag { color: var(--cp-amber); }
+  .import-row-error td { color: var(--cp-red); }
+  .import-row-dup td { opacity: 0.6; }
+  .repeat-row { margin-top: 10px; }
+  .notify-time { width: auto; min-width: 7em; }
+  .repeat-days { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 0.85em; }
+  .repeat-days label { display: flex; align-items: center; gap: 4px; margin: 0; min-height: 32px; }
+  .repeat-every { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.85em; }
+  .repeat-every label { margin: 0; }
+  .repeat-every input { width: 5em; }
+  .repeat-hint { font-size: 0.78em; color: var(--cp-muted); margin-top: 4px; }
 
   /* Modals */
   .modal-overlay {
@@ -1721,6 +1741,14 @@
   .duty-row:last-child {
     border-bottom: 0;
   }
+  .rot-check { display: flex; gap: 6px; align-items: center; margin: 0; }
+  .rot-pool-head { display: flex; gap: 6px; align-items: center; }
+  .rot-pool-head label { margin: 0 auto 0 0; }
+  .rot-pool { max-height: 11em; overflow-y: auto; border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+              padding: 4px 8px; margin-top: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(12em, 1fr)); }
+  .rot-pool label { display: flex; gap: 6px; align-items: center; margin: 0; min-height: 32px; font-size: 0.85em; min-width: 0; }
+  .rot-row select { width: 100%; min-width: 0; }
+  .rot-tag { font-size: 0.75em; color: var(--cp-muted); font-weight: 500; }
   .duty-title {
     color: var(--theme_text);
     font-weight: 700;
@@ -4219,10 +4247,20 @@
     <p class="import-hint">
       Paste one person per line. Accepted formats:<br>
       &nbsp;&bull; <code>RANK Last, First</code> &nbsp;(e.g. <em>CW2 Smith, John</em>)<br>
-      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)
+      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)<br>
+      Or paste or choose a spreadsheet saved as CSV or tab-separated, with a header row
+      (Rank, Last, First or Name, and optionally Unit, Phone, Email, MOS&hellip;).
     </p>
-    <label>Paste list</label>
+    <label for="importText">Paste list</label>
     <textarea id="importText" rows="8" placeholder="CW2 Smith, John&#10;WO1 Doe, Jane&#10;SGT Jones, Mike" oninput="previewImport()"></textarea>
+    <div class="import-file-row">
+      <label class="import-file-label" for="importFile">Choose a CSV file</label>
+      <input type="file" id="importFile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" onchange="loadImportFile(this)">
+    </div>
+    <div id="importMapping" class="import-mapping"></div>
+    <label id="importDupsRow" class="import-dups" style="display:none">
+      <input type="checkbox" id="importIncludeDups" onchange="scheduleImportDryRun()"> Also import likely duplicates
+    </label>
     <div id="importPreviewWrap" class="import-preview" style="display:none">
       <div id="importError" class="import-error"></div>
       <table id="importPreviewTable"></table>
@@ -4283,6 +4321,31 @@
         <label style="font-size:0.8em;" for="awayToInput" id="awayToLabel">To</label>
         <input type="date" class="date-input rp-field" id="awayToInput" onchange="onAwayDateChange()"
                onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'to')" />
+      </div>
+    </div>
+
+    <div class="repeat-row" id="repeatRow">
+      <label for="repeatKind">Repeat</label>
+      <select id="repeatKind" onchange="syncRepeatControls()">
+        <option value="">Does not repeat</option>
+        <option value="weekly">Weekly on chosen days</option>
+        <option value="interval">Every few days</option>
+      </select>
+      <div class="repeat-days" id="repeatWeekdays" style="display:none">
+        <label><input type="checkbox" value="0">Mon</label><label><input type="checkbox" value="1">Tue</label>
+        <label><input type="checkbox" value="2">Wed</label><label><input type="checkbox" value="3">Thu</label>
+        <label><input type="checkbox" value="4">Fri</label><label><input type="checkbox" value="5">Sat</label>
+        <label><input type="checkbox" value="6">Sun</label>
+      </div>
+      <div class="repeat-every" id="repeatEvery" style="display:none">
+        <label for="repeatEveryN">Every</label>
+        <input type="number" id="repeatEveryN" min="1" max="183" value="7" inputmode="numeric"> days
+      </div>
+      <div id="repeatUntilRow" style="display:none">
+        <label for="repeatUntil">Last start date</label>
+        <input type="date" class="date-input rp-field" id="repeatUntil"
+               onmousedown="rpOpen(event, 'repeatUntil', null, 'single')" />
+        <div class="repeat-hint">Each repeat is its own absence, the same length as the first. Up to 60, at most six months ahead.</div>
       </div>
     </div>
 
@@ -4380,10 +4443,55 @@
         <input type="text" id="dutyNotes" placeholder="Optional">
       </div>
     </div>
-    <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:12px;">Add Duty</button>
+    <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:8px;">Add Duty</button>
+    <button class="btn-small btn-cancel" onclick="openRotationModal()" style="width:100%;margin-bottom:12px;">Generate rotation&hellip;</button>
     <div class="duty-list" id="dutyList"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeDutyRoster()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duty Rotation Modal -->
+<div class="modal-overlay" id="rotationModal">
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rotationTitle">
+    <h2 id="rotationTitle">Generate rotation</h2>
+    <div class="duty-form">
+      <div class="full-width">
+        <label for="rotDuty">Duty</label>
+        <select id="rotDuty"></select>
+      </div>
+      <div>
+        <label for="rotFrom">From</label>
+        <input type="date" class="date-input rp-field" id="rotFrom"
+               onmousedown="rpOpen(event, 'rotFrom', 'rotTo', 'from')">
+      </div>
+      <div>
+        <label for="rotTo">To</label>
+        <input type="date" class="date-input rp-field" id="rotTo"
+               onmousedown="rpOpen(event, 'rotFrom', 'rotTo', 'to')">
+      </div>
+      <div class="full-width">
+        <label class="rot-check"><input type="checkbox" id="rotWeekends" checked> Weekends and holidays keep their own count</label>
+      </div>
+      <div class="full-width">
+        <label for="rotHolidays">Holidays (optional)</label>
+        <input type="text" id="rotHolidays" placeholder="2026-11-11, 2026-11-26">
+      </div>
+      <div class="full-width">
+        <div class="rot-pool-head">
+          <label>Pool</label>
+          <button type="button" class="btn-small btn-cancel" onclick="rotPoolAll(true)">All</button>
+          <button type="button" class="btn-small btn-cancel" onclick="rotPoolAll(false)">None</button>
+        </div>
+        <div class="rot-pool" id="rotPool"></div>
+      </div>
+    </div>
+    <button class="btn-small btn-add" onclick="proposeRotation()" style="width:100%;margin-bottom:12px;">Propose</button>
+    <div class="duty-list" id="rotProposal" style="display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeRotationModal()">Cancel</button>
+      <button class="btn-small btn-add" id="rotSaveBtn" onclick="saveRotation()" disabled>Save rotation</button>
     </div>
   </div>
 </div>
@@ -4790,6 +4898,8 @@ removePerson = singleFlight(removePerson);
 saveTdyLeave = singleFlight(saveTdyLeave);
 applyBulkStatus = singleFlight(applyBulkStatus);
 addDutyEntry = singleFlight(addDutyEntry);
+proposeRotation = singleFlight(proposeRotation);
+saveRotation = singleFlight(saveRotation);
 createInvite = singleFlight(createInvite);
 createUnitInvite = singleFlight(createUnitInvite);
 createChildUnit = singleFlight(createChildUnit);
@@ -5391,7 +5501,8 @@ function renderSettings() {
         <h3>Appearance</h3>
         ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar. Also on the moon and sun button in the top bar.',
                          isDark, 'toggleTheme();renderSettings()')}
-      </section>`;
+      </section>
+      ${notifyCardHtml()}`;
   } else if (settingsSection === 'billing') {
     body = billingPageHtml(currentUser && currentUser.billing, billingDetails, billingUsage());
   } else if (settingsSection === 'people') {
@@ -5436,6 +5547,51 @@ function renderSettings() {
       <p class="settings-lead">${escapeHtml(meta.lead)}</p>
     </div>
     <div class="${settingsSection === 'billing' ? 'billing-page' : 'soldier-cards settings-cards'}">${body}</div>`;
+  if (settingsSection === 'preferences' && !notifyPrefs) loadNotifyPrefs();
+}
+
+// ─── Email notifications (Preferences) ───
+// Per account, not per unit: GET/PUT /api/me/notifications. The server sends
+// them from POST /api/cron/notify on a timer, on the unit's clock.
+let notifyPrefs = null;
+
+async function loadNotifyPrefs() {
+  notifyPrefs = { loading: true };
+  const res = await api('GET', '/me/notifications');
+  notifyPrefs = res || { failed: true };
+  if (settingsSection === 'preferences') renderSettings();
+}
+
+async function saveNotifyPrefs(change) {
+  const res = await api('PUT', '/me/notifications', change);
+  if (res) notifyPrefs = res;
+  renderSettings();
+}
+
+function notifyTimeRow(key, label) {
+  return `<div class="settings-row">
+    <div class="settings-row-text"><label class="settings-row-label" for="notify_${key}">${label}</label></div>
+    <input type="time" id="notify_${key}" class="notify-time" value="${escapeHtml(notifyPrefs[key] || '')}"
+           onchange="if (this.value) saveNotifyPrefs({ ${key}: this.value })">
+  </div>`;
+}
+
+function notifyCardHtml() {
+  const p = notifyPrefs;
+  let inner;
+  if (!p || p.loading) inner = '<div class="settings-row-hint">Loading&hellip;</div>';
+  else if (p.failed) inner = '<div class="settings-row-hint">Could not load your notification settings.</div>';
+  else if (!p.email_enabled) inner = '<div class="settings-row-hint">Email is not set up on this server yet.</div>';
+  else {
+    inner = `<div class="settings-row-hint">Sent to ${escapeHtml(p.email || 'no address on file')}, on the unit's clock (${escapeHtml(APP_TZ)}), at most once a day each.</div>
+      ${settingsToggle('Accountability not complete', 'Email me if anyone in my unit is still unaccounted for by this time.',
+                       p.accountability_enabled, 'saveNotifyPrefs({ accountability_enabled: !notifyPrefs.accountability_enabled })')}
+      ${p.accountability_enabled ? notifyTimeRow('accountability_time', 'Alert time') : ''}
+      ${settingsToggle('Morning digest', 'Who is due back today, who leaves today, and who is overdue or FTR.',
+                       p.digest_enabled, 'saveNotifyPrefs({ digest_enabled: !notifyPrefs.digest_enabled })')}
+      ${p.digest_enabled ? notifyTimeRow('digest_time', 'Digest time') : ''}`;
+  }
+  return `<section class="soldier-card"><h3>Email notifications</h3>${inner}</section>`;
 }
 
 // One place decides which sidebar entry is lit, derived from the open page.
@@ -7700,6 +7856,51 @@ function syncAbsenceEditMode() {
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').style.display = editing ? 'none' : '';
   document.getElementById('clearScheduleBtn').style.display = 'none';
+  document.getElementById('repeatRow').style.display = editing ? 'none' : '';
+}
+
+// ─── Repeating absences ───
+// The server expands the rule into ordinary absences (one per occurrence), so
+// all the modal sends is the rule. Weekdays are Monday = 0, Python's order.
+function resetRepeat() {
+  document.getElementById('repeatKind').value = '';
+  document.getElementById('repeatUntil').value = '';
+  document.getElementById('repeatEveryN').value = '7';
+  document.querySelectorAll('#repeatWeekdays input').forEach(i => { i.checked = false; });
+  syncRepeatControls();
+}
+
+function syncRepeatControls() {
+  const kind = document.getElementById('repeatKind').value;
+  document.getElementById('repeatWeekdays').style.display = kind === 'weekly' ? 'flex' : 'none';
+  document.getElementById('repeatEvery').style.display = kind === 'interval' ? 'flex' : 'none';
+  document.getElementById('repeatUntilRow').style.display = kind ? 'block' : 'none';
+  const boxes = [...document.querySelectorAll('#repeatWeekdays input')];
+  if (kind === 'weekly' && awayFrom && !boxes.some(b => b.checked)) {
+    const [y, m, d] = awayFrom.split('-').map(Number);
+    boxes[(new Date(y, m - 1, d).getDay() + 6) % 7].checked = true;
+  }
+}
+
+function repeatRule() {
+  const kind = document.getElementById('repeatKind').value;
+  if (!kind || editingAbsenceId !== null) return undefined;
+  const rule = { type: kind, until: document.getElementById('repeatUntil').value };
+  if (kind === 'weekly') {
+    rule.weekdays = [...document.querySelectorAll('#repeatWeekdays input:checked')].map(i => Number(i.value));
+  } else {
+    rule.every = parseInt(document.getElementById('repeatEveryN').value, 10) || 0;
+  }
+  return rule;
+}
+
+async function removeAbsenceSeries(seriesId) {
+  if (!await confirmDialog('Remove the rest of this repeating absence?',
+      'Every occurrence that has not started yet is removed. One already under way, and past ones, stay.', 'Remove')) return;
+  const res = await api('DELETE', `/schedules/series/${encodeURIComponent(seriesId)}`);
+  if (!res) return;
+  await load();
+  renderProfileAbsences();
 }
 
 async function removeAbsence(eventId) {
@@ -7739,8 +7940,19 @@ async function renderProfileAbsences() {
     return;
   }
   const labels = STATUS_LABELS;
+  // A repeating absence offers "remove the rest" once, on its next occurrence.
+  const seriesLeft = {};
+  all.filter(ev => ev.series_id && ev.state === 'scheduled')
+     .forEach(ev => { seriesLeft[ev.series_id] = (seriesLeft[ev.series_id] || 0) + 1; });
+  const seriesOffered = new Set();
   list.innerHTML = groups.filter(([, evs]) => evs.length).map(([title, evs, removable]) => {
     const rows = evs.map(ev => {
+      let seriesBtn = '';
+      if (removable && ev.state === 'scheduled' && seriesLeft[ev.series_id] > 1 && !seriesOffered.has(ev.series_id)) {
+        seriesOffered.add(ev.series_id);
+        seriesBtn = `<button class="btn-small btn-danger" data-series="${escapeHtml(ev.series_id)}"
+                       onclick="removeAbsenceSeries(this.dataset.series)">Remove rest (${seriesLeft[ev.series_id]})</button>`;
+      }
       const range = (ev.from_date || ev.to_date)
         ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
       const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
@@ -7748,6 +7960,7 @@ async function renderProfileAbsences() {
         ? `<div class="abs-row-actions">
              <button class="btn-small btn-edit" onclick="openAbsenceModal(${ev.id})">Edit</button>
              <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
+             ${seriesBtn}
            </div>` : '';
       return `<div class="scheduled-event-row">
         <div>
@@ -8486,6 +8699,7 @@ function openTdyLeave(i) {
   editingAbsenceId = null;
   editingAbsenceNotes = '';
   syncAbsenceEditMode();   // restores anything the edit mode hid
+  resetRepeat();
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
 
@@ -8547,7 +8761,7 @@ async function saveBulkTdyLeave() {
   const notesVal = bulkAbsenceNotes();
   const results = await Promise.all(ids.map(id =>
     api('POST', `/personnel/${id}/schedule`, {
-      status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal
+      status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal, recurrence: repeatRule()
     })
   ));
   const failed = results.filter(r => !r || r.error).length;
@@ -8604,7 +8818,8 @@ async function saveTdyLeave() {
     status: awayStatus,
     from_date: awayFrom,
     to_date: awayTo,
-    notes: notesVal
+    notes: notesVal,
+    recurrence: repeatRule()
   });
   if (!event || event.error) {
     showToast(event && event.error ? event.error : 'Could not save absence.');
@@ -8813,6 +9028,11 @@ function openImportModal() {
   document.getElementById('importText').value = '';
   document.getElementById('importPreviewWrap').style.display = 'none';
   document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('confirmImportBtn').textContent = 'Add to Roster';
+  importTable = null; importPreview = null; importMapping = [];
+  document.getElementById('importMapping').innerHTML = '';
+  document.getElementById('importDupsRow').style.display = 'none';
+  document.getElementById('importIncludeDups').checked = false;
   document.getElementById('importModal').classList.add('active');
   document.getElementById('importText').focus();
 }
@@ -8845,7 +9065,214 @@ function parseImportLine(line) {
   return null;
 }
 
+// ─── Spreadsheet import: CSV/TSV with a header row ───
+// The browser only splits the file and maps its columns; what a row MEANS
+// (rank spelling, which unit, duplicate or not) is POST /api/personnel/import's
+// call, asked with dry_run for the preview so it cannot promise what the real
+// import then refuses. Target keys other than name/unit are server fields.
+const IMPORT_TARGETS = [
+  ['', '— ignore —'], ['rank', 'Rank'], ['last', 'Last name'], ['first', 'First name'],
+  ['name', 'Name (Last, First)'], ['unit', 'Unit / section'],
+  ['phone', 'Phone'], ['email', 'Email'], ['dod_id', 'DoD ID'], ['dob', 'Date of birth'],
+  ['mos', 'MOS'], ['section', 'Section (profile field)'], ['clearance', 'Clearance'],
+  ['date_of_rank', 'Date of rank'], ['ets_date', 'ETS date'],
+  ['emergency_name', 'Emergency contact'], ['emergency_phone', 'Emergency phone'],
+  ['next_of_kin', 'Next of kin'], ['spouse_dependents', 'Spouse / dependents'],
+  ['address_street', 'Street'], ['address_street2', 'Street 2'], ['address_city', 'City'],
+  ['address_state', 'State'], ['address_zip', 'ZIP'],
+  ['medical_date', 'Medical date'], ['dental_date', 'Dental date'],
+];
+const IMPORT_HEADER_ALIASES = {
+  grade: 'rank', rnk: 'rank', lastname: 'last', lname: 'last', surname: 'last',
+  firstname: 'first', fname: 'first', givenname: 'first',
+  fullname: 'name', soldier: 'name', lastfirst: 'name', namelastfirst: 'name',
+  section: 'unit', squad: 'unit', platoon: 'unit', team: 'unit',
+  cell: 'phone', mobile: 'phone', cellphone: 'phone', phonenumber: 'phone',
+  emailaddress: 'email', dodid: 'dod_id', edipi: 'dod_id', dateofbirth: 'dob',
+  dor: 'date_of_rank', ets: 'ets_date',
+};
+let importTable = null, importMapping = [], importPreview = null, importSeq = 0, importTimer = null;
+
+// RFC 4180-ish: quoted cells may hold the delimiter, "" and newlines. The
+// delimiter is a tab if the first line has one (a paste out of Excel), else a
+// comma. Blank lines are dropped.
+function parseDelimited(text) {
+  const src = String(text || '').replace(/^\uFEFF/, '');
+  const firstLine = src.split(/\r?\n/).find(l => l.trim()) || '';
+  const delim = firstLine.includes('\t') ? '\t' : ',';
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  const endRow = () => { row.push(cell); cell = ''; if (row.some(c => c.trim())) rows.push(row); row = []; };
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch !== '"') cell += ch;
+      else if (src[i + 1] === '"') { cell += '"'; i++; }
+      else quoted = false;
+    } else if (ch === '"' && !cell.trim()) { quoted = true; cell = ''; }
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && src[i + 1] === '\n') i++; endRow(); }
+    else cell += ch;
+  }
+  endRow();
+  return rows;
+}
+
+function guessImportColumn(header) {
+  const key = String(header || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!key) return '';
+  if (IMPORT_HEADER_ALIASES[key]) return IMPORT_HEADER_ALIASES[key];
+  const squash = v => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const hit = IMPORT_TARGETS.find(([k, label]) => k && k !== 'section' && (squash(k) === key || squash(label) === key));
+  return hit ? hit[0] : '';
+}
+
+// A header row that names the soldier is a spreadsheet; anything else is the
+// old one-person-per-line paste.
+function importTableMode(table) {
+  if (!table.length || table[0].length < 2) return false;
+  const guesses = table[0].map(guessImportColumn);
+  return guesses.includes('name') || (guesses.includes('last') && guesses.includes('first'));
+}
+
+// Rows for the server: {rank, last, first, unit, <profile field>...}. A Name
+// column is "Last, First" — or, with no comma, "LAST FIRST [MI]", the alpha
+// roster's own order.
+function mapImportRows(table, mapping) {
+  return table.slice(1).map(cells => {
+    const row = {};
+    mapping.forEach((target, i) => {
+      const v = String(cells[i] == null ? '' : cells[i]).trim();
+      if (!target || !v) return;
+      if (target === 'name') {
+        const comma = v.indexOf(',');
+        const parts = comma >= 0 ? [v.slice(0, comma), v.slice(comma + 1)] : [v.split(/\s+/)[0], v.split(/\s+/).slice(1).join(' ')];
+        row.last = parts[0].trim();
+        row.first = parts[1].trim();
+      } else {
+        row[target] = v;
+      }
+    });
+    return row;
+  }).filter(r => Object.keys(r).length);
+}
+
+async function loadImportFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { alert('That file is too big to import (2 MB at most).'); input.value = ''; return; }
+  document.getElementById('importText').value = await file.text();
+  input.value = '';
+  previewImport();
+}
+
+function renderImportMapping() {
+  const el = document.getElementById('importMapping');
+  const options = sel => IMPORT_TARGETS.map(([k, label]) =>
+    `<option value="${k}"${k === sel ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  el.innerHTML = '<div class="import-map-title">Columns</div><div class="import-map-grid">'
+    + importTable[0].map((h, i) => `<label class="import-map-col"><span>${escapeHtml(h.trim() || `Column ${i + 1}`)}</span>`
+      + `<select onchange="setImportMapping(${i}, this.value)">${options(importMapping[i] || '')}</select></label>`).join('')
+    + '</div>';
+  document.getElementById('importDupsRow').style.display = 'flex';
+}
+
+function setImportMapping(i, value) {
+  importMapping[i] = value;
+  scheduleImportDryRun();
+}
+
+function scheduleImportDryRun() {
+  clearTimeout(importTimer);
+  importTimer = setTimeout(runImportDryRun, 250);
+}
+
+async function runImportDryRun() {
+  if (!importTable || !currentUnit) return;
+  const rows = mapImportRows(importTable, importMapping);
+  const seq = ++importSeq;
+  const res = rows.length ? await api('POST', '/personnel/import', {
+    unit_id: currentUnit.id, rows, dry_run: true,
+    include_duplicates: document.getElementById('importIncludeDups').checked,
+  }) : null;
+  if (seq !== importSeq) return;   // a newer edit is already on its way
+  importPreview = res && res.rows ? { rows, verdicts: res.rows, counts: res.counts } : null;
+  renderImportTablePreview();
+}
+
+function renderImportTablePreview() {
+  const wrap = document.getElementById('importPreviewWrap');
+  const errEl = document.getElementById('importError');
+  const table = document.getElementById('importPreviewTable');
+  const btn = document.getElementById('confirmImportBtn');
+  wrap.style.display = 'block';
+  if (!importPreview) {
+    errEl.textContent = 'Map at least a rank and a name column.';
+    table.innerHTML = '';
+    btn.disabled = true;
+    btn.textContent = 'Add to Roster';
+    return;
+  }
+  const { verdicts, counts } = importPreview;
+  errEl.textContent = [
+    counts.error ? `${counts.error} row(s) have errors and will be left out.` : '',
+    counts.duplicate ? `${counts.duplicate} likely duplicate(s) will be skipped.` : '',
+  ].filter(Boolean).join(' ');
+  const statusText = v => v.action === 'error' ? escapeHtml(v.error || 'Error')
+    : v.action === 'duplicate' ? 'Likely duplicate — skipped'
+    : v.duplicate ? 'Duplicate — importing anyway' : 'New';
+  const unitText = v => {
+    const name = escapeHtml(v.unit_name || '');
+    if (v.unit_ambiguous) return `${name} <span class="import-flag">⚠ "${escapeHtml(v.unit_label)}" matches more than one unit</span>`;
+    if (!v.unit_matched) return `${name} <span class="import-flag">⚠ "${escapeHtml(v.unit_label)}" not found</span>`;
+    return name;
+  };
+  table.innerHTML = '<tr><th>Status</th><th>Rank</th><th>Name</th><th>Unit</th></tr>'
+    + verdicts.map(v => `<tr class="${v.action === 'error' ? 'import-row-error' : v.action === 'duplicate' ? 'import-row-dup' : ''}">`
+      + `<td>${statusText(v)}</td><td>${escapeHtml(v.rank || '')}</td>`
+      + `<td>${escapeHtml(v.last || '')}${v.first ? ', ' + escapeHtml(v.first) : ''}</td><td>${unitText(v)}</td></tr>`).join('');
+  btn.disabled = !counts.add;
+  btn.textContent = `Import ${counts.add}`;
+}
+
+async function confirmTableImport() {
+  const btn = document.getElementById('confirmImportBtn');
+  if (!importPreview || !importPreview.counts.add) return;
+  btn.disabled = true;
+  const rows = importPreview.rows.filter((_, i) => importPreview.verdicts[i].action !== 'error');
+  const res = await api('POST', '/personnel/import', {
+    unit_id: currentUnit.id, rows,
+    include_duplicates: document.getElementById('importIncludeDups').checked,
+  });
+  if (!res) { btn.disabled = false; return; }   // api() has already said why
+  closeImportModal();
+  await load();
+  render();
+}
+
 function previewImport() {
+  const table = parseDelimited(document.getElementById('importText').value);
+  if (importTableMode(table)) {
+    // Keep a mapping the user has adjusted while they fix a cell; only a new
+    // header row is guessed afresh.
+    if (!importTable || importTable[0].join('\u0001') !== table[0].join('\u0001')) {
+      importMapping = table[0].map(guessImportColumn);
+      importTable = table;
+      renderImportMapping();
+    }
+    importTable = table;
+    scheduleImportDryRun();
+    return;
+  }
+  if (importTable) {
+    importTable = null; importPreview = null;
+    document.getElementById('importMapping').innerHTML = '';
+    document.getElementById('importDupsRow').style.display = 'none';
+  }
+  previewLineImport();
+}
+
+function previewLineImport() {
   const lines = document.getElementById('importText').value.split('\n');
   const parsed = [], errors = [];
   lines.forEach((line, idx) => {
@@ -8870,6 +9297,7 @@ function previewImport() {
 }
 
 async function confirmImport() {
+  if (importTable) return confirmTableImport();
   const lines = document.getElementById('importText').value.split('\n');
   const adds = [];
   lines.forEach(line => {
@@ -9548,6 +9976,8 @@ function openBulkStatusModal(status) {
   document.getElementById('awayFromInput').value = '';
   document.getElementById('awayToInput').value = '';
   setAwayStatus(status);
+  resetRepeat();
+  document.getElementById('repeatRow').style.display = '';
   // The per-soldier scheduled-events list doesn't apply to a bulk edit.
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').innerHTML = '';
@@ -9768,6 +10198,115 @@ async function deleteDutyEntry(id) {
   }
   currentDutyEntries = currentDutyEntries.filter(row => row.id !== id);
   renderDutyRoster();
+}
+
+// ─── Duty rotation ───
+// The server proposes (POST /duty/rotation writes nothing) and the leader can
+// change any pick before one POST /duty/bulk saves the lot. The fairness rule
+// is duty_rotation.propose() on the server, not here.
+let rotationData = null;
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function openRotationModal() {
+  const duty = document.getElementById('rotDuty');
+  duty.innerHTML = document.getElementById('dutyType').innerHTML;
+  duty.value = document.getElementById('dutyType').value;
+  const from = document.getElementById('dutyDate').value || getTodayStr();
+  document.getElementById('rotFrom').value = from;
+  document.getElementById('rotTo').value = addDaysStr(from, 13);
+  document.getElementById('rotPool').innerHTML = [...personnel].sort(rankSort).map(p =>
+    `<label><input type="checkbox" value="${p.id}" checked> ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</label>`).join('')
+    || '<div class="duty-meta">No personnel loaded</div>';
+  rotationData = null;
+  renderRotationProposal();
+  document.getElementById('dutyModal').classList.remove('active');
+  document.getElementById('rotationModal').classList.add('active');
+}
+
+function closeRotationModal() {
+  document.getElementById('rotationModal').classList.remove('active');
+  openDutyRoster();
+}
+
+function rotPoolAll(on) {
+  document.querySelectorAll('#rotPool input').forEach(i => { i.checked = on; });
+}
+
+async function proposeRotation() {
+  const res = await api('POST', '/duty/rotation', {
+    unit_id: currentUnit.id,
+    duty_type: document.getElementById('rotDuty').value,
+    from: document.getElementById('rotFrom').value,
+    to: document.getElementById('rotTo').value,
+    separate_weekends: document.getElementById('rotWeekends').checked,
+    holidays: document.getElementById('rotHolidays').value.split(/[\s,]+/).filter(Boolean),
+    person_ids: [...document.querySelectorAll('#rotPool input:checked')].map(i => Number(i.value)),
+  });
+  if (!res) return;   // api() has said why
+  rotationData = res;
+  renderRotationProposal();
+}
+
+function rotationWarn(e) {
+  const away = e.person_id && rotationData.away[e.date] && rotationData.away[e.date][String(e.person_id)];
+  if (away) return `⚠ Away this date — ${escapeHtml(away)}`;
+  if (!e.person_id && e.reason === 'nobody free') return '⚠ Nobody in the pool is free';
+  return '';
+}
+
+function renderRotationProposal() {
+  const list = document.getElementById('rotProposal');
+  const btn = document.getElementById('rotSaveBtn');
+  if (!rotationData) { list.style.display = 'none'; list.innerHTML = ''; btn.disabled = true; return; }
+  list.style.display = '';
+  const pool = rotationData.pool;
+  list.innerHTML = rotationData.proposal.map((e, i) => {
+    const [y, m, d] = e.date.split('-').map(Number);
+    const when = `${WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()]} ${formatDateShort(e.date)}`
+      + (e.category === 'weekend' ? ' <span class="rot-tag">weekend / holiday</span>' : '');
+    if (e.existing) {
+      return `<div class="duty-row"><div><div class="duty-title">${when}</div>
+        <div class="duty-meta">Already on the roster: ${escapeHtml(e.existing)}</div></div></div>`;
+    }
+    const options = ['<option value="">— nobody —</option>'].concat(pool.map(p => {
+      const away = rotationData.away[e.date] && rotationData.away[e.date][String(p.id)] ? ' — away' : '';
+      return `<option value="${p.id}"${p.id === e.person_id ? ' selected' : ''}>${escapeHtml(`${p.rank} ${p.last}, ${p.first}${away}`)}</option>`;
+    })).join('');
+    const warn = rotationWarn(e);
+    return `<div class="duty-row rot-row"><div><div class="duty-title">${when}</div>
+      <select aria-label="Who takes ${escapeHtml(e.date)}" onchange="rotPick(${i}, this.value)">${options}</select>
+      <div class="duty-warn" id="rotWarn${i}"${warn ? '' : ' style="display:none"'}>${warn}</div></div></div>`;
+  }).join('');
+  syncRotationSave();
+}
+
+function rotPick(i, value) {
+  const e = rotationData.proposal[i];
+  e.person_id = value ? Number(value) : null;
+  const warn = document.getElementById(`rotWarn${i}`);
+  warn.innerHTML = rotationWarn(e);
+  warn.style.display = warn.innerHTML ? '' : 'none';
+  syncRotationSave();
+}
+
+function syncRotationSave() {
+  const n = rotationData ? rotationData.proposal.filter(e => e.person_id && !e.existing).length : 0;
+  const btn = document.getElementById('rotSaveBtn');
+  btn.disabled = !n;
+  btn.textContent = n ? `Save ${n} turn${n === 1 ? '' : 's'}` : 'Save rotation';
+}
+
+async function saveRotation() {
+  if (!rotationData) return;
+  const entries = rotationData.proposal.filter(e => e.person_id && !e.existing)
+    .map(e => ({ date: e.date, duty_type: rotationData.duty_type, person_id: e.person_id }));
+  if (!entries.length) return;
+  const res = await api('POST', '/duty/bulk', { unit_id: currentUnit.id, entries });
+  if (!res) return;
+  const clashes = (res.entries || []).filter(x => x.conflict).length;
+  document.getElementById('dutyDate').value = entries[0].date;
+  closeRotationModal();
+  if (clashes) alert(`${clashes} of the saved turns fall on an absence. They were still saved.`);
 }
 
 // ─── Audit log ───
@@ -10276,6 +10815,7 @@ function closeAdmin() {
 // ─── Event Listeners ───
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
 document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
+document.getElementById('rotationModal').addEventListener('click', function(e) { if (e.target === this) closeRotationModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
@@ -10292,6 +10832,7 @@ const MODAL_CLOSERS = {
   addModal: () => closeAddModal(), importModal: () => closeImportModal(),
   tdyLeaveModal: () => closeTdyLeaveModal(), historyModal: () => closeHistory(),
   dutyModal: () => closeDutyRoster(), listEditModal: () => closeListEdit(),
+  rotationModal: () => closeRotationModal(),
   confirmModal: () => settleConfirm(false), userMgmtModal: () => closeUserMgmt(),
   personDetailsModal: () => closePersonDetails(), inviteModal: () => closeInviteModal(),
   inviteLinkModal: () => closeInviteLinkModal(), userEditModal: () => closeUserEdit(),
@@ -11485,6 +12026,7 @@ async function doLogout() {
     await clerk.signOut({ redirectUrl: window.location.origin + window.location.pathname });
   }
   await fetch('/api/logout', { method: 'POST' });
+  notifyPrefs = null;   // the next account's, not this one's
   showLoginScreen();
 }
 
@@ -11812,6 +12354,7 @@ function goHome() {
 
 // ─── People & invites ───
 let editingUserId = null;
+let editingUserRole = null;   // the role the row had when the modal opened
 // Whether the edit-access modal was opened over the all-people modal (rather
 // than from a unit row), which is where Cancel and Save have to put it back.
 let userEditCameFromMgmt = false;
@@ -12020,6 +12563,7 @@ async function openUserEditModal(userId) {
   const users = await api('GET', '/users');
   if (!users) return;
   const u = users.find(x => x.id === userId);
+  editingUserRole = u ? u.role : null;
   if (u) {
     document.getElementById('userEditUsername').value = u.username;
     // Their unit is not in the tree this browser loaded, so none of the options
@@ -12053,6 +12597,17 @@ async function saveUserEdit() {
   }
   const unit_id = Number(document.getElementById('userUnit').value);
   const role = document.getElementById('userRole').value;
+  // Owner is a root-only role, so moving an owner below the root has to make
+  // them a leader in the same request. Say so before it happens.
+  if (editingUserRole === 'owner' && role !== 'owner') {
+    const unit = unitById(unit_id);
+    const where = unit_id !== currentUser.root_id && unit ? ` of ${unitLabel(unit)}` : '';
+    const ok = await confirmDialog(`Make ${username} a leader${where}?`,
+      'Owner is a role held only at the top of the organization. As a leader they keep that unit and everything ' +
+      'under it, but can no longer grant owner, restore backups, remove users or change the time zone.',
+      'Make leader');
+    if (!ok) return;
+  }
   const result = await api('PUT', `/users/${editingUserId}`, { username, unit_id, role });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;

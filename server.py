@@ -1,5 +1,7 @@
 import base64
 import binascii
+import hmac
+import html
 import json
 import logging
 import mimetypes
@@ -29,6 +31,7 @@ from psycopg.rows import dict_row
 import stripe
 
 import billing_rules
+import duty_rotation
 
 app = Flask(__name__, static_folder=None)
 # The marketing screenshots are .webp, which the stdlib table on older
@@ -493,6 +496,7 @@ def init_db():
                 notes      TEXT DEFAULT '',
                 created_at TEXT DEFAULT (to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
                 state      TEXT DEFAULT 'scheduled',
+                series_id  TEXT,
                 FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
             )
         ''')
@@ -575,6 +579,32 @@ def init_db():
             CREATE TABLE IF NOT EXISTS stripe_events (
                 event_id    TEXT PRIMARY KEY,
                 received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        ''')
+
+        # ── Email notifications ──
+        # One row per account that has opted in to anything. Tenant data.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS notification_prefs (
+                user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                root_id                INTEGER NOT NULL,
+                accountability_enabled BOOLEAN NOT NULL DEFAULT false,
+                accountability_time    TEXT NOT NULL DEFAULT '09:00',
+                digest_enabled         BOOLEAN NOT NULL DEFAULT false,
+                digest_time            TEXT NOT NULL DEFAULT '06:00'
+            )
+        ''')
+        # One row per (account, rule, duty day) ever attempted: the claim that
+        # makes a send at-most-once whatever the timer does. Not exported.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS notification_sends (
+                user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                root_id  INTEGER NOT NULL,
+                rule     TEXT NOT NULL,
+                duty_day TEXT NOT NULL,
+                sent_at  TEXT NOT NULL,
+                result   TEXT NOT NULL DEFAULT 'claimed',
+                PRIMARY KEY (user_id, rule, duty_day)
             )
         ''')
 
@@ -670,6 +700,12 @@ def init_db():
         scols = _columns(cur, 'scheduled_events')
         if 'location' not in scols:
             cur.execute("ALTER TABLE scheduled_events ADD COLUMN location TEXT DEFAULT ''")
+        # A repeating absence is expanded into ordinary rows at booking time;
+        # series_id only ties them together so the rest can be cancelled at once.
+        if scols and 'series_id' not in scols:
+            cur.execute('ALTER TABLE scheduled_events ADD COLUMN series_id TEXT')
+        cur.execute('CREATE INDEX IF NOT EXISTS scheduled_events_series ON scheduled_events (series_id) '
+                    'WHERE series_id IS NOT NULL')
         if scols and 'state' not in scols:
             cur.execute("ALTER TABLE scheduled_events ADD COLUMN state TEXT DEFAULT 'scheduled'")
             # Old-model rows whose whole window already passed were never activated
@@ -2975,6 +3011,159 @@ PROFILE_FIELDS = (
 )
 
 
+# ── Alpha-roster import ──
+# POST /api/personnel/import takes rows the client has already split out of a
+# CSV/TSV and mapped to columns. The server is the one place that decides what
+# a row means — rank spelling, which unit, duplicate or not — so the preview
+# is the same code with dry_run on, and cannot promise something the real
+# import then refuses.
+
+# Same order as RANK_ORDER in index.html.
+RANKS = ('COL', 'LTC', 'MAJ', 'CPT', '1LT', '2LT',
+         'CW5', 'CW4', 'CW3', 'CW2', 'WO1',
+         'CSM', 'SGM', '1SG', 'MSG', 'SFC', 'SSG', 'SGT', 'CPL',
+         'SPC', 'PFC', 'PV2', 'PVT')
+# Keys are what normalize_rank() leaves after upper-casing and dropping
+# spaces, dots and hyphens ("Sp-4" -> "SP4"). Only spellings with one meaning:
+# a bare "LT" could be either lieutenant, so it stays an error.
+RANK_ALIASES = {
+    'PV1': 'PVT', 'PRIVATE': 'PVT', 'SP4': 'SPC', 'SPEC': 'SPC', 'SPECIALIST': 'SPC',
+    '1STLT': '1LT', '2NDLT': '2LT', 'FIRSTLT': '1LT', 'SECONDLT': '2LT',
+    '1STSGT': '1SG', 'FIRSTSGT': '1SG', '1STSG': '1SG',
+    'SERGEANT': 'SGT', 'CORPORAL': 'CPL', 'CAPTAIN': 'CPT', 'MAJOR': 'MAJ', 'COLONEL': 'COL',
+    'CWO2': 'CW2', 'CWO3': 'CW3', 'CWO4': 'CW4', 'CWO5': 'CW5', 'W01': 'WO1',
+}
+IMPORT_MAX_ROWS = 500
+# The profile columns an alpha roster plausibly carries. Not weapons_qual (JSON),
+# flags or the legacy free-text address; those are entered on the soldier page.
+IMPORT_PROFILE_FIELDS = (
+    'phone', 'email', 'dod_id', 'dob', 'mos', 'section', 'clearance', 'date_of_rank', 'ets_date',
+    'emergency_name', 'emergency_phone', 'next_of_kin', 'spouse_dependents',
+    'address_street', 'address_street2', 'address_city', 'address_state', 'address_zip',
+    'medical_date', 'dental_date',
+)
+
+
+def normalize_rank(raw):
+    """A rank off a spreadsheet as the app spells it, or None."""
+    key = re.sub(r'[\s.\-]', '', raw if isinstance(raw, str) else '').upper()
+    key = RANK_ALIASES.get(key, key)
+    return key if key in RANKS else None
+
+
+def _unit_gate(conn, raw):
+    """(unit_id, None), or (None, response): 404 for a unit RLS does not hand
+    over (another tenant's, or none at all), 403 for one in this tenant but
+    outside the caller's subtree."""
+    try:
+        unit_id = int(raw)
+    except (TypeError, ValueError):
+        return None, (jsonify({'error': 'unit_id is required.'}), 400)
+    if _unit_row(conn, unit_id) is None:
+        return None, (jsonify({'error': 'Not found'}), 404)
+    if not can_access(unit_id):
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return unit_id, None
+
+
+def _name_key(last, first):
+    """Rank-agnostic identity for duplicate detection."""
+    return (' '.join(last.lower().split()), ' '.join(first.lower().split()))
+
+
+def _import_row(r, default_unit, unit_by_label, unit_name, seen, include_dups):
+    """One row's verdict. Mutates `seen` when the row will be added, so a
+    repeat further down the same file reads as a duplicate of it."""
+    if not isinstance(r, dict) or any(v is not None and not isinstance(v, str) for v in r.values()):
+        return {'error': 'Every cell must be text.', 'action': 'error'}
+    raw_rank = (r.get('rank') or '').strip()
+    last, first = (r.get('last') or '').strip(), (r.get('first') or '').strip()
+    rank = normalize_rank(raw_rank)
+    error = None
+    if rank is None:
+        error = f'Unknown rank "{raw_rank}".' if raw_rank else 'Rank is missing.'
+    else:
+        bad = _name_errors({'last': last, 'first': first})
+        error = bad and bad['error']
+    label = (r.get('unit') or '').strip()
+    matches = unit_by_label.get(label.lower(), set()) if label else set()
+    target = next(iter(matches)) if len(matches) == 1 else default_unit
+    profile = {f: r[f].strip() for f in IMPORT_PROFILE_FIELDS if (r.get(f) or '').strip()}
+    if not error:
+        errors = validation.validate_profile(profile)
+        if errors:
+            error = f'{errors[0][0]}: {errors[0][1]}'
+    key = _name_key(last, first)
+    duplicate = key in seen
+    action = 'error' if error else ('duplicate' if duplicate and not include_dups else 'add')
+    if action == 'add':
+        seen.add(key)
+    return {'rank': rank or raw_rank, 'last': last, 'first': first, 'unit_id': target,
+            'unit_name': unit_name.get(target, ''), 'unit_label': label,
+            'unit_matched': not label or len(matches) == 1, 'unit_ambiguous': len(matches) > 1,
+            'duplicate': duplicate, 'profile': profile, 'error': error, 'action': action}
+
+
+@app.route('/api/personnel/import', methods=['POST'])
+@attached_required
+def import_personnel():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    default_unit, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    rows = data.get('rows')
+    if not isinstance(rows, list) or not rows:
+        return jsonify({'error': 'Nothing to import.'}), 400
+    if len(rows) > IMPORT_MAX_ROWS:
+        return jsonify({'error': f'Import {IMPORT_MAX_ROWS} rows or fewer at a time.'}), 400
+    include_dups = data.get('include_duplicates') is True
+
+    # Units are matched only inside the caller's subtree, so a row can never
+    # name its way past can_access; an unmatched or ambiguous label falls back
+    # to the unit the import was started from and says so.
+    subtree = list(current_subtree())
+    units = conn.execute('SELECT id, name, slug FROM units WHERE id = ANY(%s)', (subtree,)).fetchall()
+    unit_by_label, unit_name = {}, {}
+    for u in units:
+        unit_name[u['id']] = u['name']
+        for label in {u['name'].strip().lower(), u['slug'].lower()}:
+            unit_by_label.setdefault(label, set()).add(u['id'])
+    seen = {_name_key(p['last'] or '', p['first'] or '') for p in conn.execute(
+        'SELECT last, first FROM personnel WHERE unit_id = ANY(%s)', (subtree,)).fetchall()}
+
+    out = []
+    for i, r in enumerate(rows):
+        verdict = _import_row(r, default_unit, unit_by_label, unit_name, seen, include_dups)
+        verdict['index'] = i
+        out.append(verdict)
+    counts = {k: sum(1 for v in out if v['action'] == k) for k in ('add', 'duplicate', 'error')}
+    if data.get('dry_run') is True:
+        return jsonify({'rows': out, 'counts': counts})
+    if counts['error']:
+        return jsonify({'error': f'{counts["error"]} row(s) have errors; fix or leave them out first.',
+                        'rows': out, 'counts': counts}), 400
+
+    # One request is one transaction: a failure part-way leaves nothing behind.
+    added = []
+    for v in out:
+        if v['action'] != 'add':
+            continue
+        person_id = conn.execute(
+            'INSERT INTO personnel (rank, last, first, unit_id, root_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+            (v['rank'], v['last'], v['first'], v['unit_id'], _root())).fetchone()['id']
+        if v['profile']:
+            cols = ['person_id', 'root_id', *v['profile']]
+            conn.execute(f'INSERT INTO personnel_profile ({", ".join(cols)}) '
+                         f'VALUES ({", ".join(["%s"] * len(cols))})',
+                         (person_id, _root(), *v['profile'].values()))
+        added.append(person_id)
+    log_action('IMPORT_PERSONNEL', f'{len(added)} added, {counts["duplicate"]} duplicates skipped', default_unit)
+    people = conn.execute('SELECT * FROM personnel WHERE id = ANY(%s) ORDER BY id', (added,)).fetchall()
+    return jsonify({'added': len(added), 'skipped_duplicates': counts['duplicate'],
+                    'people': [dict(p) for p in people]}), 201
+
+
 @app.route('/api/personnel/<int:person_id>/profile', methods=['GET'])
 @attached_required
 def get_profile(person_id):
@@ -3079,6 +3268,8 @@ def add_scheduled_event(person_id):
     from_date, to_date, err = _absence_window(data, status, app_today())
     if err:
         return jsonify({'error': err}), 400
+    if data.get('recurrence'):
+        return _add_absence_series(conn, person, status, from_date, to_date, data)
 
     # created_at comes from app_stamp(), not the column DEFAULT: the DEFAULT's
     # now() runs in the db container, whose timezone is UTC, which would stamp
@@ -3110,6 +3301,117 @@ def add_scheduled_event(person_id):
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['unit_id'])
     return jsonify(dict(row)), 201
+
+
+# ── Repeating absences ──
+# Expanded into individual scheduled_events rows when booked, so every
+# occurrence is an ordinary absence: the lifecycle, availability, duty
+# conflicts and the soldier's history need no idea that repeats exist.
+RECURRENCE_MAX_OCCURRENCES = 60
+RECURRENCE_MAX_DAYS = 183
+SERIES_ID_RE = re.compile(r'[0-9a-f]{32}')
+
+
+def expand_recurrence(rec, from_date, to_date, today):
+    """([(from, to), ...], error) for a recurrence rule. Pure.
+
+    rec is {'type': 'weekly', 'weekdays': [0..6, Monday = 0], 'until'} or
+    {'type': 'interval', 'every': N, 'until'}. Each occurrence keeps the first
+    window's length; `until` is the last day an occurrence may START on.
+    """
+    if not isinstance(rec, dict):
+        return None, 'recurrence must be an object.'
+    if not to_date:
+        return None, 'A repeating absence needs an end date.'
+    until_raw = rec.get('until')
+    try:
+        until = date.fromisoformat(until_raw)
+        if until.isoformat() != until_raw:
+            raise ValueError
+    except (TypeError, ValueError):
+        return None, 'Choose the date the repeats stop (YYYY-MM-DD).'
+    start, end = date.fromisoformat(from_date), date.fromisoformat(to_date)
+    if until < start:
+        return None, 'The repeats stop before the absence starts.'
+    if until > date.fromisoformat(today) + timedelta(days=RECURRENCE_MAX_DAYS):
+        return None, f'Repeats can run at most {RECURRENCE_MAX_DAYS} days ahead.'
+    length = end - start
+    kind = rec.get('type')
+    if kind == 'weekly':
+        days = rec.get('weekdays')
+        if not isinstance(days, list) or not days or \
+                not all(isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 6 for d in days):
+            return None, 'Pick at least one weekday.'
+        starts = [start + timedelta(days=i) for i in range((until - start).days + 1)
+                  if (start + timedelta(days=i)).weekday() in days]
+    elif kind == 'interval':
+        every = rec.get('every')
+        if not isinstance(every, int) or isinstance(every, bool) or not 1 <= every <= RECURRENCE_MAX_DAYS:
+            return None, f'Repeat every 1 to {RECURRENCE_MAX_DAYS} days.'
+        starts = [start + timedelta(days=i) for i in range(0, (until - start).days + 1, every)]
+    else:
+        return None, 'recurrence type must be weekly or interval.'
+    if not starts:
+        return None, 'No dates match that pattern.'
+    if len(starts) > RECURRENCE_MAX_OCCURRENCES:
+        return None, f'That makes {len(starts)} absences; {RECURRENCE_MAX_OCCURRENCES} is the most one booking can make.'
+    # One soldier can only be on one absence at a time; overlapping repeats
+    # would file all but one as history the day they begin.
+    if any(b <= a + length for a, b in zip(starts, starts[1:])):
+        return None, 'Each repeat has to end before the next one begins.'
+    return [(s.isoformat(), (s + length).isoformat()) for s in starts], None
+
+
+def _add_absence_series(conn, person, status, from_date, to_date, data):
+    windows, err = expand_recurrence(data.get('recurrence'), from_date, to_date, app_today())
+    if err:
+        return jsonify({'error': err}), 400
+    series_id = secrets.token_hex(16)
+    created = []
+    # Same double-tap guard as a single booking, row by row: a repeat of this
+    # request finds every window already live and creates nothing.
+    for f, t in windows:
+        row = conn.execute(
+            'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, location, '
+            'state, created_at, series_id) '
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s, %s) "
+            "ON CONFLICT (person_id, status, from_date, to_date) WHERE state != 'completed' "
+            'DO NOTHING RETURNING id',
+            (person['id'], person['unit_id'], person['root_id'], status, f, t,
+             data.get('notes', ''), data.get('location', ''), app_stamp(), series_id)).fetchone()
+        if row:
+            created.append(row['id'])
+    if not created:
+        return jsonify({'series_id': None, 'created': 0, 'skipped': len(windows)}), 200
+    _sync_person_status(conn, person['id'], app_today())
+    log_action('SCHEDULE_SERIES', f'{person["rank"]} {person["last"]}: {status} x{len(created)} '
+                                  f'{windows[0][0]} - {windows[-1][1]}', person['unit_id'])
+    return jsonify({'series_id': series_id, 'created': len(created),
+                    'skipped': len(windows) - len(created)}), 201
+
+
+@app.route('/api/schedules/series/<series_id>', methods=['DELETE'])
+@attached_required
+def delete_absence_series(series_id):
+    """Cancel what is left of a repeating absence: the occurrences that have
+    not started. A running one and the history stay; they are single rows."""
+    if not SERIES_ID_RE.fullmatch(series_id):
+        return jsonify({'error': 'Not found'}), 404
+    conn = get_db()
+    row = conn.execute('SELECT person_id, unit_id FROM scheduled_events WHERE series_id = %s LIMIT 1',
+                       (series_id,)).fetchone()
+    if row is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not can_access(row['unit_id']):
+        return jsonify({'error': 'Forbidden'}), 403
+    today = app_today()
+    # States first, so an occurrence that began today is running, not "remaining".
+    _sync_person_status(conn, row['person_id'], today)
+    n = conn.execute("DELETE FROM scheduled_events WHERE series_id = %s AND state = 'scheduled'",
+                     (series_id,)).rowcount
+    _sync_person_status(conn, row['person_id'], today)
+    log_action('DELETE_SERIES', f'person {row["person_id"]}: {n} remaining occurrence(s) removed', row['unit_id'])
+    return jsonify({'deleted': n})
 
 
 @app.route('/api/directory', methods=['GET'])
@@ -3629,6 +3931,159 @@ def delete_duty(entry_id):
     return jsonify({'success': True})
 
 
+# ── Duty rotation ──
+# POST /api/duty/rotation proposes (writes nothing); POST /api/duty/bulk saves
+# whatever the leader kept of it, in one transaction. The fairness rule itself
+# is duty_rotation.propose(), pure and tested on its own.
+ROTATION_MAX_DAYS = 92
+ROTATION_MAX_POOL = 200
+DUTY_BULK_MAX = 200
+DUTY_TYPE_MAX_LEN = 40
+
+
+def _iso_day(value):
+    """value if it is a canonical YYYY-MM-DD, else None."""
+    try:
+        return value if isinstance(value, str) and date.fromisoformat(value).isoformat() == value else None
+    except ValueError:
+        return None
+
+
+def _duty_type(value):
+    value = value.strip() if isinstance(value, str) else ''
+    return value if 0 < len(value) <= DUTY_TYPE_MAX_LEN else None
+
+
+def _pool_in_unit(conn, unit_id, raw_ids):
+    """The soldiers named by raw_ids, all of whom must be in unit_id's subtree
+    (the add_duty rule), or None."""
+    if not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > ROTATION_MAX_POOL \
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in raw_ids):
+        return None
+    ids = list(dict.fromkeys(raw_ids))
+    rows = conn.execute('SELECT id, rank, last, first, unit_id FROM personnel WHERE id = ANY(%s) AND unit_id = ANY(%s)',
+                        (ids, list(subtree_ids(conn, unit_id)))).fetchall()
+    by_id = {r['id']: r for r in rows}
+    return [by_id[i] for i in ids] if len(by_id) == len(ids) else None
+
+
+@app.route('/api/duty/rotation', methods=['POST'])
+@attached_required
+def propose_duty_rotation():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    unit_id, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    duty_type = _duty_type(data.get('duty_type'))
+    start, end = _iso_day(data.get('from')), _iso_day(data.get('to'))
+    if not duty_type:
+        return jsonify({'error': 'Name the duty.'}), 400
+    if not start or not end or end < start:
+        return jsonify({'error': 'Choose a date range (YYYY-MM-DD, end on or after start).'}), 400
+    span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    if span > ROTATION_MAX_DAYS:
+        return jsonify({'error': f'Plan {ROTATION_MAX_DAYS} days or fewer at a time.'}), 400
+    holidays = data.get('holidays') or []
+    if not isinstance(holidays, list) or not all(_iso_day(h) for h in holidays):
+        return jsonify({'error': 'Holidays must be dates (YYYY-MM-DD).'}), 400
+    pool = _pool_in_unit(conn, unit_id, data.get('person_ids'))
+    if pool is None:
+        return jsonify({'error': f'Pick 1 to {ROTATION_MAX_POOL} soldiers from this unit.'}), 400
+    pool_ids = [p['id'] for p in pool]
+    days = [(date.fromisoformat(start) + timedelta(days=i)).isoformat() for i in range(span)]
+
+    # Every earlier turn of this duty counts, wherever it was filed: a duty
+    # row follows its soldier when they move.
+    history = [(r['person_id'], r['date']) for r in conn.execute(
+        'SELECT person_id, date FROM duty_roster WHERE person_id = ANY(%s) AND duty_type = %s AND date < %s',
+        (pool_ids, duty_type, start)).fetchall()]
+    existing = {}
+    for r in conn.execute(
+            'SELECT date, rank, last, first FROM duty_roster WHERE unit_id = ANY(%s) AND duty_type = %s '
+            'AND date >= %s AND date <= %s ORDER BY id', (list(subtree_ids(conn, unit_id)), duty_type, start, end)):
+        existing.setdefault(r['date'], r)
+    # The availability rule, whatever the state: a completed row still
+    # answers for the days it covers (see get_availability).
+    absences = {}
+    for e in conn.execute(
+            "SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND (from_date = '' OR from_date <= %s) "
+            "AND (to_date = '' OR to_date >= %s) ORDER BY from_date, id", (pool_ids, end, start)).fetchall():
+        absences.setdefault(e['person_id'], []).append(e)
+
+    proposal = duty_rotation.propose(days, pool_ids, history, absences, holidays,
+                                     data.get('separate_weekends', True) is not False, set(existing))
+    away = {}
+    for d in days:
+        for pid, rows in absences.items():
+            covering = [r for r in rows if duty_rotation.covers(r, d)]
+            if covering:
+                away.setdefault(d, {})[str(pid)] = _conflict_from(covering[-1])['label']
+    for entry in proposal:
+        if entry['date'] in existing:
+            x = existing[entry['date']]
+            entry['existing'] = f'{x["rank"]} {x["last"]}, {x["first"]}'.strip()
+    tally = {}
+    for pid, d in history:
+        cat = duty_rotation.category(d, set(holidays), data.get('separate_weekends', True) is not False)
+        tally.setdefault(str(pid), {}).setdefault(cat, 0)
+        tally[str(pid)][cat] += 1
+    return jsonify({'duty_type': duty_type, 'proposal': proposal, 'away': away, 'history': tally,
+                    'pool': [{'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']} for p in pool]})
+
+
+@app.route('/api/duty/bulk', methods=['POST'])
+@attached_required
+def add_duty_bulk():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    unit_id, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    entries = data.get('entries')
+    if not isinstance(entries, list) or not entries or len(entries) > DUTY_BULK_MAX:
+        return jsonify({'error': f'Save 1 to {DUTY_BULK_MAX} duty entries at a time.'}), 400
+    clean = []
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            return jsonify({'error': f'Entry {i + 1} is not an entry.'}), 400
+        day, duty_type = _iso_day(e.get('date')), _duty_type(e.get('duty_type'))
+        notes = e.get('notes', '')
+        if not day or not duty_type or not isinstance(notes, str):
+            return jsonify({'error': f'Entry {i + 1} needs a date (YYYY-MM-DD) and a duty.'}), 400
+        clean.append((day, duty_type, e.get('person_id'), notes.strip()[:200]))
+    pool = _pool_in_unit(conn, unit_id, [c[2] for c in clean])
+    if pool is None:
+        return jsonify({'error': 'Every entry needs a soldier from this unit.'}), 400
+    person = {p['id']: p for p in pool}
+    events = {}
+    for e in conn.execute("SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND state != 'completed' "
+                          'ORDER BY from_date, id', (list(person),)).fetchall():
+        events.setdefault(e['person_id'], []).append(e)
+
+    created, skipped, conflicts = [], 0, 0
+    for day, duty_type, pid, notes in clean:
+        p = person[pid]
+        # A double-tapped Save must not book every turn twice.
+        if conn.execute('SELECT 1 FROM duty_roster WHERE date = %s AND duty_type = %s AND person_id = %s',
+                        (day, duty_type, pid)).fetchone():
+            skipped += 1
+            continue
+        row = dict(conn.execute(
+            'INSERT INTO duty_roster (date, unit_id, root_id, duty_type, person_id, rank, last, first, notes) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *',
+            (day, p['unit_id'], _root(), duty_type, pid, p['rank'], p['last'], p['first'], notes)).fetchone())
+        # Warn, never block — the same rule as a single entry.
+        row['conflict'] = _conflict_among(events.get(pid, []), day)
+        conflicts += bool(row['conflict'])
+        created.append(row)
+    if created:
+        log_action('ADD_DUTY_ROTATION', f'{len(created)} turns of {", ".join(sorted({c[1] for c in clean}))} '
+                                        f'{clean[0][0]} - {clean[-1][0]}'
+                                        + (f' ({conflicts} CONFLICT)' if conflicts else ''), unit_id)
+    return jsonify({'created': len(created), 'skipped': skipped, 'entries': created}), 201 if created else 200
+
+
 # ── Report history ──
 
 def _import_timestamp(value):
@@ -3796,14 +4251,21 @@ def export_backup():
         # able to claim someone else's subscription.
         users = conn.execute(
             'SELECT u.username, u.email, u.full_name, u.clerk_user_id, u.unit_id, u.role, '
-            's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at '
+            's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at, '
+            'n.accountability_enabled AS notify_accountability_enabled, '
+            'n.accountability_time AS notify_accountability_time, '
+            'n.digest_enabled AS notify_digest_enabled, n.digest_time AS notify_digest_time '
             'FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id '
+            'LEFT JOIN notification_prefs n ON n.user_id = u.id '
             "WHERE u.clerk_user_id != '' AND u.unit_id = ANY(%s) ORDER BY u.id", (ids,)).fetchall()
         payload['users'] = with_unit(users)
         for row in payload['users']:
             for k in ('trial_started_at', 'trial_ends_at', 'extended_at'):
                 if row.get(k) is not None:
                     row[k] = row[k].isoformat()
+            if row['notify_accountability_enabled'] is None:
+                for k in NOTIFY_BACKUP_KEYS:
+                    row.pop(k)
     log_action('BACKUP_EXPORT', f'{len(payload["personnel"])} personnel, {len(units)} units')
     body = json.dumps(payload, indent=2)
     return Response(body, mimetype='application/json',
@@ -3982,7 +4444,12 @@ def import_backup():
         cols = ', '.join(f'"{c}"' for c in d)
         conn.execute(f'INSERT INTO personnel_profile ({cols}) VALUES ({", ".join(["%s"] * len(d))}) '
                      'ON CONFLICT (person_id) DO NOTHING', tuple(d.values()))
-    insert_rows('scheduled_events', attached(payload.get('scheduled_events', []), True))
+    # series_id is only a grouping key, but the file is user input: anything
+    # that is not one this app would mint is dropped, keeping the absence.
+    events = [dict(r, series_id=r['series_id'] if isinstance(r.get('series_id'), str)
+                   and SERIES_ID_RE.fullmatch(r['series_id']) else None)
+              for r in payload.get('scheduled_events', [])]
+    insert_rows('scheduled_events', attached(events, True))
     insert_rows('duty_roster', attached(payload.get('duty_roster', []), False))
     insert_rows('report_history', payload.get('report_history', []))
     for s in payload.get('settings', []):
@@ -4072,6 +4539,14 @@ def import_backup():
                      _restored_stamp(u.get('trial_started_at'), ceiling),
                      _restored_stamp(u.get('trial_ends_at'), ceiling) or ceiling,
                      u.get('extended_at') or None))
+            # Notification preferences ride on the user row too; the file is
+            # user input, so they pass the same check a PUT does or are left out.
+            if any(k in u for k in NOTIFY_BACKUP_KEYS):
+                prefs, bad = _notify_prefs_from({k[len('notify_'):]: u.get(k) for k in NOTIFY_BACKUP_KEYS if k in u})
+                if bad:
+                    skipped_rows += 1
+                else:
+                    _save_notify_prefs(conn, new_id, root_id, prefs)
         except psycopg.Error:
             conn.execute('ROLLBACK TO SAVEPOINT u')
             skipped_users.append(u.get('username'))
@@ -4094,6 +4569,248 @@ def import_backup():
     return jsonify({'success': True, 'personnel': n_people, 'units_created': created_units,
                     'skipped_units': sorted(u for u in skipped_units if u),
                     'skipped_rows': skipped_rows, 'skipped_users': skipped_users})
+
+
+# ── Email notifications ──
+# Inert unless RESEND_API_KEY and NOTIFY_FROM are both set. There is no
+# background worker: POST /api/cron/notify is driven by a systemd timer
+# (scripts/platoon-notify.timer) every five minutes and authenticated only by
+# the CRON_SECRET header. It has no session and no tenant, so it asks the one
+# SECURITY DEFINER function auth_notify_roots() which roots have anybody
+# opted in, then declares each tenant in turn and does everything else under
+# RLS like any request would.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
+NOTIFY_FROM = os.environ.get('NOTIFY_FROM', '').strip()
+CRON_SECRET = os.environ.get('CRON_SECRET', '').strip()
+RESEND_API_URL = 'https://api.resend.com/emails'
+RESEND_TIMEOUT = 10
+NOTIFY_RULES = ('accountability', 'digest')
+NOTIFY_BACKUP_KEYS = ('notify_accountability_enabled', 'notify_accountability_time',
+                      'notify_digest_enabled', 'notify_digest_time')
+HHMM_RE = re.compile(r'([01][0-9]|2[0-3]):[0-5][0-9]')
+NOTIFY_DEFAULTS = {'accountability_enabled': False, 'accountability_time': '09:00',
+                   'digest_enabled': False, 'digest_time': '06:00'}
+
+
+def email_enabled():
+    return bool(RESEND_API_KEY and NOTIFY_FROM)
+
+
+def _notify_prefs_from(data):
+    """(prefs, error) from a request body or a backup row: every key optional,
+    booleans must be booleans and times HH:MM."""
+    prefs = {}
+    for key, default in NOTIFY_DEFAULTS.items():
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(default, bool) and not isinstance(value, bool):
+            return None, f'{key} must be true or false.'
+        if isinstance(default, str) and not (isinstance(value, str) and HHMM_RE.fullmatch(value)):
+            return None, f'{key} must be a time (HH:MM, 24-hour).'
+        prefs[key] = value
+    return prefs, None
+
+
+def _load_notify_prefs(conn, user_id):
+    row = conn.execute('SELECT * FROM notification_prefs WHERE user_id = %s', (user_id,)).fetchone()
+    return {k: row[k] for k in NOTIFY_DEFAULTS} if row else dict(NOTIFY_DEFAULTS)
+
+
+def _save_notify_prefs(conn, user_id, root_id, prefs):
+    merged = {**_load_notify_prefs(conn, user_id), **prefs}
+    conn.execute(
+        'INSERT INTO notification_prefs (user_id, root_id, accountability_enabled, accountability_time, '
+        'digest_enabled, digest_time) VALUES (%s, %s, %s, %s, %s, %s) '
+        'ON CONFLICT (user_id) DO UPDATE SET accountability_enabled = EXCLUDED.accountability_enabled, '
+        'accountability_time = EXCLUDED.accountability_time, digest_enabled = EXCLUDED.digest_enabled, '
+        'digest_time = EXCLUDED.digest_time',
+        (user_id, root_id, merged['accountability_enabled'], merged['accountability_time'],
+         merged['digest_enabled'], merged['digest_time']))
+    return merged
+
+
+@app.route('/api/me/notifications', methods=['GET'])
+@attached_required
+def get_notify_prefs():
+    return jsonify({**_load_notify_prefs(get_db(), g.current_user['id']),
+                    'email_enabled': email_enabled(), 'email': g.current_user.get('email') or ''})
+
+
+@app.route('/api/me/notifications', methods=['PUT'])
+@attached_required
+def put_notify_prefs():
+    prefs, err = _notify_prefs_from(request.get_json(silent=True) or {})
+    if err:
+        return jsonify({'error': err}), 400
+    merged = _save_notify_prefs(get_db(), g.current_user['id'], _root(), prefs)
+    log_action('NOTIFY_PREFS', ', '.join(f'{k}={v}' for k, v in merged.items()), g.current_user['unit_id'])
+    return jsonify({**merged, 'email_enabled': email_enabled(), 'email': g.current_user.get('email') or ''})
+
+
+def cron_secret_required(f):
+    """The timer's only credential. 404 while CRON_SECRET is unset, so an
+    instance that never configured it does not even admit the route exists."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not CRON_SECRET:
+            return jsonify({'error': 'Not found'}), 404
+        given = request.headers.get('X-Cron-Secret', '')
+        if not hmac.compare_digest(given.encode(), CRON_SECRET.encode()):
+            return jsonify({'error': 'Forbidden'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _send_email(to, subject, text, html_body):
+    """One message through Resend's HTTP API. True on a 2xx; raises otherwise.
+    Tests replace this."""
+    req = Request(RESEND_API_URL, method='POST', data=json.dumps({
+        'from': NOTIFY_FROM, 'to': [to], 'subject': subject, 'text': text, 'html': html_body}).encode(),
+        headers={'Authorization': f'Bearer {RESEND_API_KEY}', 'Content-Type': 'application/json',
+                 # Cloudflare fronts some APIs and refuses urllib's default agent (1010).
+                 'User-Agent': 'platoon-accountability/1.0 (+https://platoonmanager.com)'})
+    with urlopen(req, timeout=RESEND_TIMEOUT) as resp:
+        return 200 <= resp.status < 300
+
+
+def _who(p):
+    return f'{p["rank"] or ""} {p["last"] or ""}, {p["first"] or ""}'.strip()
+
+
+def _render_email(title, sections, link):
+    """(text, html) for a title and [(heading, [line, ...]), ...]. Every
+    string is data and is escaped for the HTML half."""
+    text = [title, '']
+    body = [f'<h2 style="font-family:sans-serif">{html.escape(title)}</h2>']
+    for heading, lines in sections:
+        text.append(heading)
+        text.extend(f'  {line}' for line in lines)
+        text.append('')
+        body.append(f'<h3 style="font-family:sans-serif">{html.escape(heading)}</h3><ul>'
+                    + ''.join(f'<li>{html.escape(line)}</li>' for line in lines) + '</ul>')
+    text.append(link)
+    body.append(f'<p><a href="{html.escape(link, quote=True)}">{html.escape(link)}</a></p>')
+    text.append('\nYou get this because you turned it on under Preferences.')
+    body.append('<p style="color:#667085;font-size:12px">You get this because you turned it on '
+                'under Preferences.</p>')
+    return '\n'.join(text), ''.join(body)
+
+
+def _accountability_email(conn, unit, ids, today, hhmm):
+    people = conn.execute('SELECT rank, last, first, status, present_date FROM personnel WHERE unit_id = ANY(%s) '
+                          'ORDER BY rank, last, first', (list(ids),)).fetchall()
+    missing = [p for p in people if p['status'] == 'present' and p['present_date'] != today]
+    if not missing:
+        return None
+    title = f'Accountability not complete: {unit["name"]}, {today}'
+    text, body = _render_email(
+        title, [(f'{len(missing)} of {len(people)} still unaccounted for at {hhmm}', [_who(p) for p in missing])],
+        f'{APP_URL}/{unit["slug"]}/accountability')
+    return title, text, body
+
+
+def _digest_email(conn, unit, ids, today):
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    # Same-day states are noise here: every "late" yesterday would be "back today".
+    same_day = ('late', 'excused')
+    events = conn.execute(
+        'SELECT s.status, s.from_date, s.to_date, s.state, p.rank, p.last, p.first FROM scheduled_events s '
+        'JOIN personnel p ON p.id = s.person_id WHERE s.unit_id = ANY(%s) AND s.status != ALL(%s) '
+        'AND (s.to_date = %s OR s.from_date = %s) ORDER BY p.rank, p.last, p.first',
+        (list(ids), list(same_day), yesterday, today)).fetchall()
+    back = [f'{_who(e)} ({ABSENCE_LABELS.get(e["status"], e["status"])} ended {_short_date(e["to_date"])})'
+            for e in events if e['to_date'] == yesterday]
+    leaving = [f'{_who(e)} ({ABSENCE_LABELS.get(e["status"], e["status"])}'
+               + (f' until {_short_date(e["to_date"])})' if e['to_date'] else ', open-ended)')
+               for e in events if e['from_date'] == today and e['state'] != 'completed']
+    # "Overdue" cannot be an active row past its end (reconciliation completes
+    # it), so it is the roster's own word: an absence still cached past its
+    # end date, or FTR.
+    overdue = [f'{_who(p)} ({ABSENCE_LABELS.get(p["status"], p["status"])}'
+               + (f', due back after {_short_date(p["to_date"])})' if p['status'] != 'ftr' else ')')
+               for p in conn.execute(
+                   'SELECT rank, last, first, status, to_date FROM personnel WHERE unit_id = ANY(%s) '
+                   "AND (status = 'ftr' OR (status = ANY(%s) AND to_date != '' AND to_date < %s)) "
+                   'ORDER BY rank, last, first', (list(ids), list(ABSENCE_STATUSES), today)).fetchall()]
+    sections = [(h, lines) for h, lines in (('Due back today', back), ('Starting an absence today', leaving),
+                                            ('Overdue or FTR', overdue)) if lines]
+    if not sections:
+        return None
+    title = f'Morning digest: {unit["name"]}, {today}'
+    text, body = _render_email(title, sections, f'{APP_URL}/{unit["slug"]}/accountability')
+    return title, text, body
+
+
+def _notify_root(conn, root_id, totals):
+    """Every due rule of every opted-in account in one tenant. Commits as it
+    goes: a claim is committed BEFORE the send, so a crash or a second timer
+    run can never mail the same thing twice (at-most-once, by design — a
+    missed alert beats a flood)."""
+    def declare():
+        set_tenant(conn, root_id)
+    declare()
+    g.tz = _tenant_timezone(conn, root_id)
+    now = app_now()
+    today, hhmm = now.date().isoformat(), now.strftime('%H:%M')
+    _reconcile_absences(conn, today)   # what a roster read would do first
+    prefs = conn.execute(
+        'SELECT n.*, u.email, u.unit_id FROM notification_prefs n JOIN users u ON u.id = n.user_id '
+        "WHERE u.unit_id IS NOT NULL AND u.email != '' AND u.clerk_user_id != '' "
+        'AND (n.accountability_enabled OR n.digest_enabled) ORDER BY n.user_id').fetchall()
+    for p in prefs:
+        for rule in NOTIFY_RULES:
+            if not p[f'{rule}_enabled'] or hhmm < p[f'{rule}_time']:
+                continue
+            if conn.execute('SELECT 1 FROM notification_sends WHERE user_id = %s AND rule = %s AND duty_day = %s',
+                            (p['user_id'], rule, today)).fetchone():
+                continue
+            unit = _unit_row(conn, p['unit_id'])
+            ids = subtree_ids(conn, p['unit_id'])
+            message = (_accountability_email(conn, unit, ids, today, hhmm) if rule == 'accountability'
+                       else _digest_email(conn, unit, ids, today))
+            if message is None and rule == 'accountability':
+                continue   # complete for now; a soldier added later is still worth an alert
+            claimed = conn.execute(
+                'INSERT INTO notification_sends (user_id, root_id, rule, duty_day, sent_at, result) '
+                'VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING user_id',
+                (p['user_id'], root_id, rule, today, app_stamp(), 'claimed' if message else 'nothing to send'))
+            conn.commit()
+            declare()
+            if not claimed.fetchone() or message is None:
+                continue
+            subject, text, body = message
+            try:
+                ok = _send_email(p['email'], subject.replace('\n', ' '), text, body)
+            except Exception as exc:
+                app.logger.warning('notification %s for user %s failed: %s', rule, p['user_id'], exc)
+                ok = False
+            conn.execute('UPDATE notification_sends SET result = %s WHERE user_id = %s AND rule = %s AND duty_day = %s',
+                         ('sent' if ok else 'failed', p['user_id'], rule, today))
+            conn.commit()
+            declare()
+            totals['sent' if ok else 'failed'] += 1
+
+
+@app.route('/api/cron/notify', methods=['POST'])
+@cron_secret_required
+def cron_notify():
+    if not email_enabled():
+        return jsonify({'email': 'disabled', 'roots': 0, 'sent': 0, 'failed': 0})
+    conn = get_db()
+    set_tenant(conn, None)
+    roots = [r['root_id'] for r in conn.execute('SELECT auth_notify_roots() AS root_id').fetchall()]
+    totals = {'email': 'enabled', 'roots': len(roots), 'sent': 0, 'failed': 0}
+    for root_id in roots:
+        try:
+            _notify_root(conn, root_id, totals)
+            conn.commit()
+        except Exception:
+            # One tenant's bad data must not stop everyone else's alerts.
+            conn.rollback()
+            app.logger.exception('notifications for root %s failed', root_id)
+    set_tenant(conn, None)
+    return jsonify(totals)
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])
