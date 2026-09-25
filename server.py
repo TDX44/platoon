@@ -1,5 +1,7 @@
 import base64
 import binascii
+import hmac
+import html
 import json
 import logging
 import mimetypes
@@ -577,6 +579,32 @@ def init_db():
             CREATE TABLE IF NOT EXISTS stripe_events (
                 event_id    TEXT PRIMARY KEY,
                 received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        ''')
+
+        # ── Email notifications ──
+        # One row per account that has opted in to anything. Tenant data.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS notification_prefs (
+                user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                root_id                INTEGER NOT NULL,
+                accountability_enabled BOOLEAN NOT NULL DEFAULT false,
+                accountability_time    TEXT NOT NULL DEFAULT '09:00',
+                digest_enabled         BOOLEAN NOT NULL DEFAULT false,
+                digest_time            TEXT NOT NULL DEFAULT '06:00'
+            )
+        ''')
+        # One row per (account, rule, duty day) ever attempted: the claim that
+        # makes a send at-most-once whatever the timer does. Not exported.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS notification_sends (
+                user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                root_id  INTEGER NOT NULL,
+                rule     TEXT NOT NULL,
+                duty_day TEXT NOT NULL,
+                sent_at  TEXT NOT NULL,
+                result   TEXT NOT NULL DEFAULT 'claimed',
+                PRIMARY KEY (user_id, rule, duty_day)
             )
         ''')
 
@@ -4212,14 +4240,21 @@ def export_backup():
         # able to claim someone else's subscription.
         users = conn.execute(
             'SELECT u.username, u.email, u.full_name, u.clerk_user_id, u.unit_id, u.role, '
-            's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at '
+            's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at, '
+            'n.accountability_enabled AS notify_accountability_enabled, '
+            'n.accountability_time AS notify_accountability_time, '
+            'n.digest_enabled AS notify_digest_enabled, n.digest_time AS notify_digest_time '
             'FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id '
+            'LEFT JOIN notification_prefs n ON n.user_id = u.id '
             "WHERE u.clerk_user_id != '' AND u.unit_id = ANY(%s) ORDER BY u.id", (ids,)).fetchall()
         payload['users'] = with_unit(users)
         for row in payload['users']:
             for k in ('trial_started_at', 'trial_ends_at', 'extended_at'):
                 if row.get(k) is not None:
                     row[k] = row[k].isoformat()
+            if row['notify_accountability_enabled'] is None:
+                for k in NOTIFY_BACKUP_KEYS:
+                    row.pop(k)
     log_action('BACKUP_EXPORT', f'{len(payload["personnel"])} personnel, {len(units)} units')
     body = json.dumps(payload, indent=2)
     return Response(body, mimetype='application/json',
@@ -4493,6 +4528,14 @@ def import_backup():
                      _restored_stamp(u.get('trial_started_at'), ceiling),
                      _restored_stamp(u.get('trial_ends_at'), ceiling) or ceiling,
                      u.get('extended_at') or None))
+            # Notification preferences ride on the user row too; the file is
+            # user input, so they pass the same check a PUT does or are left out.
+            if any(k in u for k in NOTIFY_BACKUP_KEYS):
+                prefs, bad = _notify_prefs_from({k[len('notify_'):]: u.get(k) for k in NOTIFY_BACKUP_KEYS if k in u})
+                if bad:
+                    skipped_rows += 1
+                else:
+                    _save_notify_prefs(conn, new_id, root_id, prefs)
         except psycopg.Error:
             conn.execute('ROLLBACK TO SAVEPOINT u')
             skipped_users.append(u.get('username'))
@@ -4515,6 +4558,248 @@ def import_backup():
     return jsonify({'success': True, 'personnel': n_people, 'units_created': created_units,
                     'skipped_units': sorted(u for u in skipped_units if u),
                     'skipped_rows': skipped_rows, 'skipped_users': skipped_users})
+
+
+# ── Email notifications ──
+# Inert unless RESEND_API_KEY and NOTIFY_FROM are both set. There is no
+# background worker: POST /api/cron/notify is driven by a systemd timer
+# (scripts/platoon-notify.timer) every five minutes and authenticated only by
+# the CRON_SECRET header. It has no session and no tenant, so it asks the one
+# SECURITY DEFINER function auth_notify_roots() which roots have anybody
+# opted in, then declares each tenant in turn and does everything else under
+# RLS like any request would.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
+NOTIFY_FROM = os.environ.get('NOTIFY_FROM', '').strip()
+CRON_SECRET = os.environ.get('CRON_SECRET', '').strip()
+RESEND_API_URL = 'https://api.resend.com/emails'
+RESEND_TIMEOUT = 10
+NOTIFY_RULES = ('accountability', 'digest')
+NOTIFY_BACKUP_KEYS = ('notify_accountability_enabled', 'notify_accountability_time',
+                      'notify_digest_enabled', 'notify_digest_time')
+HHMM_RE = re.compile(r'([01][0-9]|2[0-3]):[0-5][0-9]')
+NOTIFY_DEFAULTS = {'accountability_enabled': False, 'accountability_time': '09:00',
+                   'digest_enabled': False, 'digest_time': '06:00'}
+
+
+def email_enabled():
+    return bool(RESEND_API_KEY and NOTIFY_FROM)
+
+
+def _notify_prefs_from(data):
+    """(prefs, error) from a request body or a backup row: every key optional,
+    booleans must be booleans and times HH:MM."""
+    prefs = {}
+    for key, default in NOTIFY_DEFAULTS.items():
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(default, bool) and not isinstance(value, bool):
+            return None, f'{key} must be true or false.'
+        if isinstance(default, str) and not (isinstance(value, str) and HHMM_RE.fullmatch(value)):
+            return None, f'{key} must be a time (HH:MM, 24-hour).'
+        prefs[key] = value
+    return prefs, None
+
+
+def _load_notify_prefs(conn, user_id):
+    row = conn.execute('SELECT * FROM notification_prefs WHERE user_id = %s', (user_id,)).fetchone()
+    return {k: row[k] for k in NOTIFY_DEFAULTS} if row else dict(NOTIFY_DEFAULTS)
+
+
+def _save_notify_prefs(conn, user_id, root_id, prefs):
+    merged = {**_load_notify_prefs(conn, user_id), **prefs}
+    conn.execute(
+        'INSERT INTO notification_prefs (user_id, root_id, accountability_enabled, accountability_time, '
+        'digest_enabled, digest_time) VALUES (%s, %s, %s, %s, %s, %s) '
+        'ON CONFLICT (user_id) DO UPDATE SET accountability_enabled = EXCLUDED.accountability_enabled, '
+        'accountability_time = EXCLUDED.accountability_time, digest_enabled = EXCLUDED.digest_enabled, '
+        'digest_time = EXCLUDED.digest_time',
+        (user_id, root_id, merged['accountability_enabled'], merged['accountability_time'],
+         merged['digest_enabled'], merged['digest_time']))
+    return merged
+
+
+@app.route('/api/me/notifications', methods=['GET'])
+@attached_required
+def get_notify_prefs():
+    return jsonify({**_load_notify_prefs(get_db(), g.current_user['id']),
+                    'email_enabled': email_enabled(), 'email': g.current_user.get('email') or ''})
+
+
+@app.route('/api/me/notifications', methods=['PUT'])
+@attached_required
+def put_notify_prefs():
+    prefs, err = _notify_prefs_from(request.get_json(silent=True) or {})
+    if err:
+        return jsonify({'error': err}), 400
+    merged = _save_notify_prefs(get_db(), g.current_user['id'], _root(), prefs)
+    log_action('NOTIFY_PREFS', ', '.join(f'{k}={v}' for k, v in merged.items()), g.current_user['unit_id'])
+    return jsonify({**merged, 'email_enabled': email_enabled(), 'email': g.current_user.get('email') or ''})
+
+
+def cron_secret_required(f):
+    """The timer's only credential. 404 while CRON_SECRET is unset, so an
+    instance that never configured it does not even admit the route exists."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not CRON_SECRET:
+            return jsonify({'error': 'Not found'}), 404
+        given = request.headers.get('X-Cron-Secret', '')
+        if not hmac.compare_digest(given.encode(), CRON_SECRET.encode()):
+            return jsonify({'error': 'Forbidden'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _send_email(to, subject, text, html_body):
+    """One message through Resend's HTTP API. True on a 2xx; raises otherwise.
+    Tests replace this."""
+    req = Request(RESEND_API_URL, method='POST', data=json.dumps({
+        'from': NOTIFY_FROM, 'to': [to], 'subject': subject, 'text': text, 'html': html_body}).encode(),
+        headers={'Authorization': f'Bearer {RESEND_API_KEY}', 'Content-Type': 'application/json',
+                 # Cloudflare fronts some APIs and refuses urllib's default agent (1010).
+                 'User-Agent': 'platoon-accountability/1.0 (+https://platoonmanager.com)'})
+    with urlopen(req, timeout=RESEND_TIMEOUT) as resp:
+        return 200 <= resp.status < 300
+
+
+def _who(p):
+    return f'{p["rank"] or ""} {p["last"] or ""}, {p["first"] or ""}'.strip()
+
+
+def _render_email(title, sections, link):
+    """(text, html) for a title and [(heading, [line, ...]), ...]. Every
+    string is data and is escaped for the HTML half."""
+    text = [title, '']
+    body = [f'<h2 style="font-family:sans-serif">{html.escape(title)}</h2>']
+    for heading, lines in sections:
+        text.append(heading)
+        text.extend(f'  {line}' for line in lines)
+        text.append('')
+        body.append(f'<h3 style="font-family:sans-serif">{html.escape(heading)}</h3><ul>'
+                    + ''.join(f'<li>{html.escape(line)}</li>' for line in lines) + '</ul>')
+    text.append(link)
+    body.append(f'<p><a href="{html.escape(link, quote=True)}">{html.escape(link)}</a></p>')
+    text.append('\nYou get this because you turned it on under Preferences.')
+    body.append('<p style="color:#667085;font-size:12px">You get this because you turned it on '
+                'under Preferences.</p>')
+    return '\n'.join(text), ''.join(body)
+
+
+def _accountability_email(conn, unit, ids, today, hhmm):
+    people = conn.execute('SELECT rank, last, first, status, present_date FROM personnel WHERE unit_id = ANY(%s) '
+                          'ORDER BY rank, last, first', (list(ids),)).fetchall()
+    missing = [p for p in people if p['status'] == 'present' and p['present_date'] != today]
+    if not missing:
+        return None
+    title = f'Accountability not complete: {unit["name"]}, {today}'
+    text, body = _render_email(
+        title, [(f'{len(missing)} of {len(people)} still unaccounted for at {hhmm}', [_who(p) for p in missing])],
+        f'{APP_URL}/{unit["slug"]}/accountability')
+    return title, text, body
+
+
+def _digest_email(conn, unit, ids, today):
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    # Same-day states are noise here: every "late" yesterday would be "back today".
+    same_day = ('late', 'excused')
+    events = conn.execute(
+        'SELECT s.status, s.from_date, s.to_date, s.state, p.rank, p.last, p.first FROM scheduled_events s '
+        'JOIN personnel p ON p.id = s.person_id WHERE s.unit_id = ANY(%s) AND s.status != ALL(%s) '
+        'AND (s.to_date = %s OR s.from_date = %s) ORDER BY p.rank, p.last, p.first',
+        (list(ids), list(same_day), yesterday, today)).fetchall()
+    back = [f'{_who(e)} ({ABSENCE_LABELS.get(e["status"], e["status"])} ended {_short_date(e["to_date"])})'
+            for e in events if e['to_date'] == yesterday]
+    leaving = [f'{_who(e)} ({ABSENCE_LABELS.get(e["status"], e["status"])}'
+               + (f' until {_short_date(e["to_date"])})' if e['to_date'] else ', open-ended)')
+               for e in events if e['from_date'] == today and e['state'] != 'completed']
+    # "Overdue" cannot be an active row past its end (reconciliation completes
+    # it), so it is the roster's own word: an absence still cached past its
+    # end date, or FTR.
+    overdue = [f'{_who(p)} ({ABSENCE_LABELS.get(p["status"], p["status"])}'
+               + (f', due back after {_short_date(p["to_date"])})' if p['status'] != 'ftr' else ')')
+               for p in conn.execute(
+                   'SELECT rank, last, first, status, to_date FROM personnel WHERE unit_id = ANY(%s) '
+                   "AND (status = 'ftr' OR (status = ANY(%s) AND to_date != '' AND to_date < %s)) "
+                   'ORDER BY rank, last, first', (list(ids), list(ABSENCE_STATUSES), today)).fetchall()]
+    sections = [(h, lines) for h, lines in (('Due back today', back), ('Starting an absence today', leaving),
+                                            ('Overdue or FTR', overdue)) if lines]
+    if not sections:
+        return None
+    title = f'Morning digest: {unit["name"]}, {today}'
+    text, body = _render_email(title, sections, f'{APP_URL}/{unit["slug"]}/accountability')
+    return title, text, body
+
+
+def _notify_root(conn, root_id, totals):
+    """Every due rule of every opted-in account in one tenant. Commits as it
+    goes: a claim is committed BEFORE the send, so a crash or a second timer
+    run can never mail the same thing twice (at-most-once, by design — a
+    missed alert beats a flood)."""
+    def declare():
+        set_tenant(conn, root_id)
+    declare()
+    g.tz = _tenant_timezone(conn, root_id)
+    now = app_now()
+    today, hhmm = now.date().isoformat(), now.strftime('%H:%M')
+    _reconcile_absences(conn, today)   # what a roster read would do first
+    prefs = conn.execute(
+        'SELECT n.*, u.email, u.unit_id FROM notification_prefs n JOIN users u ON u.id = n.user_id '
+        "WHERE u.unit_id IS NOT NULL AND u.email != '' AND u.clerk_user_id != '' "
+        'AND (n.accountability_enabled OR n.digest_enabled) ORDER BY n.user_id').fetchall()
+    for p in prefs:
+        for rule in NOTIFY_RULES:
+            if not p[f'{rule}_enabled'] or hhmm < p[f'{rule}_time']:
+                continue
+            if conn.execute('SELECT 1 FROM notification_sends WHERE user_id = %s AND rule = %s AND duty_day = %s',
+                            (p['user_id'], rule, today)).fetchone():
+                continue
+            unit = _unit_row(conn, p['unit_id'])
+            ids = subtree_ids(conn, p['unit_id'])
+            message = (_accountability_email(conn, unit, ids, today, hhmm) if rule == 'accountability'
+                       else _digest_email(conn, unit, ids, today))
+            if message is None and rule == 'accountability':
+                continue   # complete for now; a soldier added later is still worth an alert
+            claimed = conn.execute(
+                'INSERT INTO notification_sends (user_id, root_id, rule, duty_day, sent_at, result) '
+                'VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING user_id',
+                (p['user_id'], root_id, rule, today, app_stamp(), 'claimed' if message else 'nothing to send'))
+            conn.commit()
+            declare()
+            if not claimed.fetchone() or message is None:
+                continue
+            subject, text, body = message
+            try:
+                ok = _send_email(p['email'], subject.replace('\n', ' '), text, body)
+            except Exception as exc:
+                app.logger.warning('notification %s for user %s failed: %s', rule, p['user_id'], exc)
+                ok = False
+            conn.execute('UPDATE notification_sends SET result = %s WHERE user_id = %s AND rule = %s AND duty_day = %s',
+                         ('sent' if ok else 'failed', p['user_id'], rule, today))
+            conn.commit()
+            declare()
+            totals['sent' if ok else 'failed'] += 1
+
+
+@app.route('/api/cron/notify', methods=['POST'])
+@cron_secret_required
+def cron_notify():
+    if not email_enabled():
+        return jsonify({'email': 'disabled', 'roots': 0, 'sent': 0, 'failed': 0})
+    conn = get_db()
+    set_tenant(conn, None)
+    roots = [r['root_id'] for r in conn.execute('SELECT auth_notify_roots() AS root_id').fetchall()]
+    totals = {'email': 'enabled', 'roots': len(roots), 'sent': 0, 'failed': 0}
+    for root_id in roots:
+        try:
+            _notify_root(conn, root_id, totals)
+            conn.commit()
+        except Exception:
+            # One tenant's bad data must not stop everyone else's alerts.
+            conn.rollback()
+            app.logger.exception('notifications for root %s failed', root_id)
+    set_tenant(conn, None)
+    return jsonify(totals)
 
 
 @app.route('/api/activate-scheduled', methods=['POST'])

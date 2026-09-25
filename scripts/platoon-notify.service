@@ -1,0 +1,15 @@
+[Unit]
+Description=Send due Platoon Manager email notifications
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tdx44
+WorkingDirectory=/opt/homelab/platoon
+# CRON_SECRET comes from the same .env the app container reads. The app answers
+# on the host's :5000 (docker-compose.yml); going through the tunnel would work
+# too but would put the secret on the public path for no reason.
+EnvironmentFile=/opt/homelab/platoon/.env
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 120 \
+  -X POST -H "X-Cron-Secret: ${CRON_SECRET}" http://127.0.0.1:5000/api/cron/notify

@@ -74,6 +74,7 @@
   .import-row-error td { color: var(--cp-red); }
   .import-row-dup td { opacity: 0.6; }
   .repeat-row { margin-top: 10px; }
+  .notify-time { width: auto; min-width: 7em; }
   .repeat-days { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 0.85em; }
   .repeat-days label { display: flex; align-items: center; gap: 4px; margin: 0; min-height: 32px; }
   .repeat-every { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.85em; }
@@ -5378,7 +5379,8 @@ function renderSettings() {
         <h3>Appearance</h3>
         ${settingsToggle('Dark mode', 'Easier on the eyes in a dark hangar. Also on the moon and sun button in the top bar.',
                          isDark, 'toggleTheme();renderSettings()')}
-      </section>`;
+      </section>
+      ${notifyCardHtml()}`;
   } else if (settingsSection === 'billing') {
     body = billingPageHtml(currentUser && currentUser.billing, billingDetails, billingUsage());
   } else if (settingsSection === 'people') {
@@ -5423,6 +5425,51 @@ function renderSettings() {
       <p class="settings-lead">${escapeHtml(meta.lead)}</p>
     </div>
     <div class="${settingsSection === 'billing' ? 'billing-page' : 'soldier-cards settings-cards'}">${body}</div>`;
+  if (settingsSection === 'preferences' && !notifyPrefs) loadNotifyPrefs();
+}
+
+// ─── Email notifications (Preferences) ───
+// Per account, not per unit: GET/PUT /api/me/notifications. The server sends
+// them from POST /api/cron/notify on a timer, on the unit's clock.
+let notifyPrefs = null;
+
+async function loadNotifyPrefs() {
+  notifyPrefs = { loading: true };
+  const res = await api('GET', '/me/notifications');
+  notifyPrefs = res || { failed: true };
+  if (settingsSection === 'preferences') renderSettings();
+}
+
+async function saveNotifyPrefs(change) {
+  const res = await api('PUT', '/me/notifications', change);
+  if (res) notifyPrefs = res;
+  renderSettings();
+}
+
+function notifyTimeRow(key, label) {
+  return `<div class="settings-row">
+    <div class="settings-row-text"><label class="settings-row-label" for="notify_${key}">${label}</label></div>
+    <input type="time" id="notify_${key}" class="notify-time" value="${escapeHtml(notifyPrefs[key] || '')}"
+           onchange="if (this.value) saveNotifyPrefs({ ${key}: this.value })">
+  </div>`;
+}
+
+function notifyCardHtml() {
+  const p = notifyPrefs;
+  let inner;
+  if (!p || p.loading) inner = '<div class="settings-row-hint">Loading&hellip;</div>';
+  else if (p.failed) inner = '<div class="settings-row-hint">Could not load your notification settings.</div>';
+  else if (!p.email_enabled) inner = '<div class="settings-row-hint">Email is not set up on this server yet.</div>';
+  else {
+    inner = `<div class="settings-row-hint">Sent to ${escapeHtml(p.email || 'no address on file')}, on the unit's clock (${escapeHtml(APP_TZ)}), at most once a day each.</div>
+      ${settingsToggle('Accountability not complete', 'Email me if anyone in my unit is still unaccounted for by this time.',
+                       p.accountability_enabled, 'saveNotifyPrefs({ accountability_enabled: !notifyPrefs.accountability_enabled })')}
+      ${p.accountability_enabled ? notifyTimeRow('accountability_time', 'Alert time') : ''}
+      ${settingsToggle('Morning digest', 'Who is due back today, who leaves today, and who is overdue or FTR.',
+                       p.digest_enabled, 'saveNotifyPrefs({ digest_enabled: !notifyPrefs.digest_enabled })')}
+      ${p.digest_enabled ? notifyTimeRow('digest_time', 'Digest time') : ''}`;
+  }
+  return `<section class="soldier-card"><h3>Email notifications</h3>${inner}</section>`;
 }
 
 // One place decides which sidebar entry is lit, derived from the open page.
@@ -11605,6 +11652,7 @@ async function doLogout() {
     await clerk.signOut({ redirectUrl: window.location.origin + window.location.pathname });
   }
   await fetch('/api/logout', { method: 'POST' });
+  notifyPrefs = null;   // the next account's, not this one's
   showLoginScreen();
 }
 
