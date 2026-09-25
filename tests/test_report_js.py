@@ -68,7 +68,6 @@ def run(cases, people=ROSTER):
         extract(src, r'function formatDateShort\(dateStr\) \{.*?\n\}', 'formatDateShort()'),
         extract(src, r'function lastFirst\(p\) \{.*?\n\}', 'lastFirst()'),
         extract(src, r'function reportName\(p\) \{.*?\n\}', 'reportName()'),
-        extract(src, r'const REPORT_LIST_NAMES_MAX = \d+;', 'REPORT_LIST_NAMES_MAX'),
         extract(src, r'function reportCategories\(splitLeavePass\) \{.*?\n\}', 'reportCategories()'),
         extract(src, r'const REPORT_AWAY = \[.*?\];', 'REPORT_AWAY'),
         extract(src, r'function reportBucket\(p, today\) \{.*?\n\}', 'reportBucket()'),
@@ -91,12 +90,11 @@ def run(cases, people=ROSTER):
 
 
 def main():
-    detailed = {'format': 'detailed', 'listPresent': None, 'splitLeavePass': False}
+    detailed = {'format': 'detailed', 'splitLeavePass': False}
     out = run([
         ['flat', detailed, []],
         ['tree', detailed, GROUPS],
         ['split', {**detailed, 'splitLeavePass': True}, []],
-        ['noNames', {**detailed, 'listPresent': False}, []],
         ['strengthFlat', {**detailed, 'format': 'strength'}, []],
         ['strengthTree', {**detailed, 'format': 'strength'}, GROUPS],
     ])
@@ -128,21 +126,16 @@ def main():
     split = out['split'].split('\n')
     assert 'Leave 1' in split and 'Pass 1' in split and 'Leave & Pass 2' not in split, split
 
-    no_names = out['noNames'].split('\n')
-    pdy = no_names.index('PDY 3')
-    assert no_names[pdy + 1] == '', f'present names listed with the option off: {no_names[pdy:pdy + 3]}'
-
     assert out['strengthFlat'].split('\n') == [
         'HHC', '17 Mar 2026', '',
         '9 Assigned, 3 PDY, 1 TDY, 2 Leave & Pass, 1 Late, 1 FTR, 1 Unaccounted'], out['strengthFlat']
     st = out['strengthTree'].split('\n')
     assert st[3].startswith('1st PLT: ') and st[5] == 'HQ: 1 Assigned, 1 PDY' and st[6].startswith('TOTAL: 9'), st
 
-    # A big unit leaves PDY names off by default; an explicit "on" lists them.
+    # PDY names are always listed, however big the unit.
     big = [soldier(100 + n, 'SPC', f'Z{n:02d}') for n in range(20)]
-    out = run([['auto', detailed, []], ['on', {**detailed, 'listPresent': True}, []]], people=big)
-    assert 'Z00' not in out['auto'] and 'PDY 20' in out['auto'], out['auto']
-    assert 'Z00' in out['on'], out['on']
+    out = run([['big', detailed, []]], people=big)
+    assert 'PDY 20' in out['big'] and 'Z00' in out['big'] and 'Z19' in out['big'], out['big']
 
     # An unknown status is counted as Other so the categories still add up.
     odd = [soldier(1, 'SPC', 'Odd', 'quarters')]

@@ -258,10 +258,9 @@ and runs it under node.
 **Reports** come out of one pure function, `buildReport(people, opts, ctx)`:
 `Detailed` (sections with names) or `Strength` (counts only), with a BY UNIT
 breakdown (each direct child, `HQ` for anyone directly in the unit, `TOTAL`)
-when the viewed unit has children. Options — format, list present names
-(auto: off above `REPORT_LIST_NAMES_MAX` people), Leave and Pass separate —
-live per viewer in `localStorage` (`reportOptions`). Anyone unaccounted is
-never dropped: `generateReport()` asks first — include them on an Unaccounted
+when the viewed unit has children. PDY names are always listed in Detailed.
+Options — format, and Leave and Pass separate — live per viewer in
+`localStorage` (`reportOptions`). Anyone unaccounted is never dropped: `generateReport()` asks first — include them on an Unaccounted
 line, or go mark them. `saveToHistory()` posts one `report_history` row per
 distinct text per unit per duty day, so reopening or copying the same report
 saves nothing new. Tests: `tests/test_report_js.py`.

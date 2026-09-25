@@ -4379,8 +4379,6 @@
         <button type="button" data-fmt="detailed" aria-pressed="true" onclick="setReportOption('format', 'detailed')">Detailed</button>
         <button type="button" data-fmt="strength" aria-pressed="false" onclick="setReportOption('format', 'strength')">Strength</button>
       </div>
-      <label class="report-opt"><input type="checkbox" id="rptListPresent"
-             onchange="setReportOption('listPresent', this.checked)"> List present names</label>
       <label class="report-opt"><input type="checkbox" id="rptSplitLP"
              onchange="setReportOption('splitLeavePass', this.checked)"> Leave and Pass separate</label>
     </div>
@@ -9366,11 +9364,9 @@ function reportName(p) {
 }
 
 // ─── Report options ───
-// Per viewer and per browser: the format they send, whether PDY names are
-// listed, and whether Leave and Pass get a line each. listPresent left unset
-// means "auto": names are listed for a small unit and left off a big one.
+// Per viewer and per browser: the format they send and whether Leave and Pass
+// get a line each. PDY names are always listed in the detailed format.
 const REPORT_OPTS_KEY = 'reportOptions';
-const REPORT_LIST_NAMES_MAX = 15;
 let reportOptions = loadReportOptions();
 
 function loadReportOptions() {
@@ -9378,7 +9374,6 @@ function loadReportOptions() {
   try { raw = JSON.parse(localStorage.getItem(REPORT_OPTS_KEY) || '{}') || {}; } catch (e) { raw = {}; }
   return {
     format: raw.format === 'strength' ? 'strength' : 'detailed',
-    listPresent: typeof raw.listPresent === 'boolean' ? raw.listPresent : null,
     splitLeavePass: raw.splitLeavePass === true,
   };
 }
@@ -9484,12 +9479,9 @@ function buildReport(people, opts, ctx) {
   if (breakdown.length) lines.push('', 'BY UNIT', ...breakdown);
 
   const inBucket = keys => people.filter(p => keys.includes(reportBucket(p, ctx.today)));
-  const listPresent = opts.listPresent === null || opts.listPresent === undefined
-    ? people.length <= REPORT_LIST_NAMES_MAX : !!opts.listPresent;
-
   const present = inBucket(['pdy']).sort(rankSort);
   lines.push('', `PDY ${present.length}`);
-  if (listPresent) present.forEach(p => lines.push(reportName(p)));
+  present.forEach(p => lines.push(reportName(p)));
 
   const sections = [
     ...(split ? [['Leave', ['leave'], endDateSort], ['Pass', ['pass'], endDateSort]]
@@ -9528,11 +9520,6 @@ function renderReport() {
     reportOptions.format === 'strength' ? 'Strength Report' : 'Detailed Report';
   document.querySelectorAll('#reportFormat [data-fmt]').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.fmt === reportOptions.format)));
-  const listBox = document.getElementById('rptListPresent');
-  listBox.checked = reportOptions.listPresent === null
-    ? personnel.length <= REPORT_LIST_NAMES_MAX : reportOptions.listPresent;
-  // Present names only exist in the detailed format.
-  listBox.closest('label').hidden = reportOptions.format === 'strength';
   document.getElementById('rptSplitLP').checked = reportOptions.splitLeavePass;
   return text;
 }
