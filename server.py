@@ -4394,6 +4394,13 @@ def import_backup():
         now takes a fresh id instead, and id_map says which."""
         nonlocal skipped_rows
         allowed = columns_of(table)
+        # Explicit ids never advance the sequence, so wind it past the file's
+        # ids first: a fallback nextval() must not land on an id a row of this
+        # same restore is about to claim (it collided and was silently skipped).
+        file_ids = [r['id'] for r in rows if isinstance(r.get('id'), int) and not isinstance(r['id'], bool)]
+        if file_ids:
+            seq = f"pg_get_serial_sequence('{table}', 'id')"
+            conn.execute(f'SELECT setval({seq}, GREATEST(nextval({seq}), %s), true)', (max(file_ids),))
         n = 0
         for r in rows:
             uid = unit_id_for(r)

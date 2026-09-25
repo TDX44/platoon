@@ -479,6 +479,37 @@ def test_another_organizations_export_restores_while_it_still_exists():
     assert c.post('/api/backup/restore', json=exported).status_code == 200
 
 
+def test_a_fresh_id_never_lands_on_an_id_this_restore_just_used():
+    """A row whose file id is taken falls back to the sequence. Explicit ids do
+    not advance the sequence, so if an earlier row of the same restore claimed
+    the very id the sequence would hand out next, the fallback collided and
+    the row was silently counted as skipped."""
+    a = dbharness.make_tree('Holder Co')
+    seed_data(a)
+    b = dbharness.make_tree('Fresh Co')
+    conn = dbharness.owner_conn()
+    try:
+        taken = conn.execute('SELECT id FROM personnel WHERE root_id = %s LIMIT 1', (a['root'],)).fetchone()['id']
+        name = conn.execute("SELECT pg_get_serial_sequence('personnel', 'id') AS s").fetchone()['s']
+        seq = conn.execute(f'SELECT last_value, is_called FROM {name}').fetchone()
+    finally:
+        conn.close()
+    next_id = seq['last_value'] + 1 if seq['is_called'] else seq['last_value']
+    c = server.app.test_client()
+    dbharness.as_user(dbharness.make_user(b['root'], 'owner'))
+    backup = {'version': 3, 'units': [], 'personnel_profile': [], 'scheduled_events': [],
+              'duty_roster': [], 'report_history': [], 'settings': [], 'users': [],
+              'personnel': [
+                  {'id': next_id, 'unit': b['child_slug'], 'rank': 'SGT', 'last': 'Explicit', 'first': 'A',
+                   'status': 'present'},
+                  {'id': taken, 'unit': b['child_slug'], 'rank': 'SPC', 'last': 'Fallback', 'first': 'B',
+                   'status': 'present'},
+              ]}
+    r = c.post('/api/backup/restore', json=backup)
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['personnel'] == 2 and r.get_json()['skipped_rows'] == 0, r.get_json()
+
+
 def test_a_restore_refuses_values_the_app_itself_would_refuse():
     """The file is user input. A role that is not a role, a zone that is not a
     zone and a status that is not a status each drop their own row."""
@@ -534,6 +565,7 @@ def main():
         test_dependents_of_a_skipped_person_are_skipped_too()
         test_a_username_owned_by_another_tree_is_skipped_not_fatal()
         test_another_organizations_export_restores_while_it_still_exists()
+        test_a_fresh_id_never_lands_on_an_id_this_restore_just_used()
         test_a_restore_refuses_values_the_app_itself_would_refuse()
         print('ok')
     finally:
