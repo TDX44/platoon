@@ -244,6 +244,31 @@ def check_label():
     assert conflict(partial, '2026-09-10')['label'] == 'on TDY from 7SEP'
 
 
+def check_list_is_batched(client):
+    """GET /api/duty used to run one scheduled_events query per row. It must
+    give the same answers as _duty_conflict without calling it per row."""
+    url = f"/api/duty?unit={T['child']}"
+    expected = [(e['id'], e['conflict']) for e in client.get(url).get_json()]
+    assert any(c for _, c in expected), 'expected at least one conflicting row to compare'
+    real = server._duty_conflict
+
+    def per_row(*a):
+        raise AssertionError('GET /api/duty called _duty_conflict per row')
+    server._duty_conflict = per_row
+    try:
+        got = [(e['id'], e['conflict']) for e in client.get(url).get_json()]
+    finally:
+        server._duty_conflict = real
+    conn = dbharness.owner_conn()
+    try:
+        for entry_id, c in got:
+            row = conn.execute('SELECT person_id, date FROM duty_roster WHERE id = %s', (entry_id,)).fetchone()
+            assert c == real(conn, row['person_id'], row['date']), (entry_id, c)
+    finally:
+        conn.close()
+    assert got == expected
+
+
 def main():
     try:
         client = setup()
@@ -255,6 +280,7 @@ def main():
         check_bounds()
         check_matches_lifecycle()
         check_label()
+        check_list_is_batched(client)
         print('ok')
     finally:
         dbharness.teardown(_schema)

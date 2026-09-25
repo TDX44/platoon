@@ -326,6 +326,16 @@ def check_units_is_open_to_the_unattached(client):
     assert r.get_json() == [], r.get_json()
 
 
+def check_audit_limit_is_clamped(client):
+    """?limit= is a number off the URL: a negative one was handed straight to
+    LIMIT, which Postgres refuses, and the audit page answered 500."""
+    t = dbharness.make_tree('Audit Co')
+    dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
+    for limit in ('-5', '0', '1', '999999', 'abc'):
+        r = client.get(f'/api/audit?limit={limit}')
+        assert r.status_code == 200, (limit, r.status_code)
+
+
 def main():
     check_no_fixed_platoons_remain()
     check_tables()
@@ -341,6 +351,7 @@ def main():
     check_auth_config(client)
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()
+    check_audit_limit_is_clamped(client)
     check_units_is_open_to_the_unattached(client)
     print('ok')
     dbharness.teardown(_schema)

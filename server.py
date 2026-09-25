@@ -3392,7 +3392,7 @@ def get_audit():
     else:
         ids = current_subtree()
     try:
-        limit = min(int(request.args.get('limit', 200)), 5000)
+        limit = max(1, min(int(request.args.get('limit', 200)), 5000))
     except ValueError:
         limit = 200
     conn = get_db()
@@ -3457,6 +3457,11 @@ def _duty_conflict(conn, person_id, date_str):
         "SELECT * FROM scheduled_events WHERE person_id = %s AND state != 'completed' "
         'ORDER BY from_date, id', (person_id,)
     ).fetchall()
+    return _conflict_among(rows, date_str)
+
+
+def _conflict_among(rows, date_str):
+    """The conflict among one soldier's live rows (ordered from_date, id)."""
     # Newest window wins when two overlap, the same tie-break _sync_person_status uses.
     covering = [r for r in rows if _derive_state(r, date_str) == 'active']
     return _conflict_from(covering[-1]) if covering else None
@@ -3481,10 +3486,19 @@ def get_duty():
             'SELECT * FROM duty_roster WHERE unit_id = ANY(%s) ORDER BY date DESC, duty_type, id LIMIT 90',
             (list(ids),)
         ).fetchall()
+    # One query for every soldier on the page, not one per row.
+    events = {}
+    person_ids = list({r['person_id'] for r in rows if r['person_id']})
+    if person_ids:
+        for e in conn.execute(
+                "SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND state != 'completed' "
+                'ORDER BY from_date, id', (person_ids,)).fetchall():
+            events.setdefault(e['person_id'], []).append(e)
     out = []
     for r in rows:
         entry = dict(r)
-        entry['conflict'] = _duty_conflict(conn, entry['person_id'], entry['date'])
+        entry['conflict'] = (_conflict_among(events.get(entry['person_id'], []), entry['date'])
+                             if entry['person_id'] and entry['date'] else None)
         out.append(entry)
     return jsonify(out)
 
