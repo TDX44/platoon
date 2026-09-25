@@ -129,8 +129,14 @@ def check_cron(client):
     assert SENT == [], 'nothing is due before 06:30'
 
     FIXED['at'] = (9, 30)
+    # Out of time budget: nothing is claimed, so the next tick sends it all.
+    server.NOTIFY_RUN_BUDGET = -1
     r = cron(client).get_json()
-    assert r['sent'] == 2 and r['failed'] == 0, r
+    server.NOTIFY_RUN_BUDGET = 15
+    assert r['sent'] == 0 and r['deferred'] == 2 and SENT == [], r
+    assert not sql("SELECT 1 FROM notification_sends WHERE user_id = %s", (A_LEADER['id'],))
+    r = cron(client).get_json()
+    assert r['sent'] == 2 and r['failed'] == 0 and r['deferred'] == 0, r
     by_subject = {m['subject'].split(':')[0]: m for m in SENT}
     acc, dig = by_subject['Accountability not complete'], by_subject['Morning digest']
     assert all(m['to'] == A_LEADER['email'] for m in SENT)

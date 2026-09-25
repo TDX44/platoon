@@ -4593,6 +4593,11 @@ NOTIFY_FROM = os.environ.get('NOTIFY_FROM', '').strip()
 CRON_SECRET = os.environ.get('CRON_SECRET', '').strip()
 RESEND_API_URL = 'https://api.resend.com/emails'
 RESEND_TIMEOUT = 10
+# ponytail: a cron run sends serially inside one gunicorn request (30s worker
+# timeout). No new send starts after this many seconds; whatever is left is
+# unclaimed and goes on the next 5-minute tick. Move sending to a queue if a
+# tick ever routinely defers.
+NOTIFY_RUN_BUDGET = 15
 NOTIFY_RULES = ('accountability', 'digest')
 NOTIFY_BACKUP_KEYS = ('notify_accountability_enabled', 'notify_accountability_time',
                       'notify_digest_enabled', 'notify_digest_time')
@@ -4783,6 +4788,9 @@ def _notify_root(conn, root_id, totals):
                        else _digest_email(conn, unit, ids, today))
             if message is None and rule == 'accountability':
                 continue   # complete for now; a soldier added later is still worth an alert
+            if message is not None and time.monotonic() > totals['deadline']:
+                totals['deferred'] += 1   # unclaimed, so the next tick sends it
+                continue
             claimed = conn.execute(
                 'INSERT INTO notification_sends (user_id, root_id, rule, duty_day, sent_at, result) '
                 'VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING user_id',
@@ -4812,7 +4820,8 @@ def cron_notify():
     conn = get_db()
     set_tenant(conn, None)
     roots = [r['root_id'] for r in conn.execute('SELECT auth_notify_roots() AS root_id').fetchall()]
-    totals = {'email': 'enabled', 'roots': len(roots), 'sent': 0, 'failed': 0}
+    totals = {'email': 'enabled', 'roots': len(roots), 'sent': 0, 'failed': 0, 'deferred': 0,
+              'deadline': time.monotonic() + NOTIFY_RUN_BUDGET}
     for root_id in roots:
         try:
             _notify_root(conn, root_id, totals)
@@ -4822,6 +4831,7 @@ def cron_notify():
             conn.rollback()
             app.logger.exception('notifications for root %s failed', root_id)
     set_tenant(conn, None)
+    totals.pop('deadline')
     return jsonify(totals)
 
 
