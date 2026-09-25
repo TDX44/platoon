@@ -3398,14 +3398,23 @@
     gap: 14px; flex-wrap: wrap;
     padding: 22px 28px 6px;
   }
-  body .dash-header .dash-title-input.edit-unit-name {
-    font-size: 1.45em; font-weight: 700; color: var(--dash-text);
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
-    padding: 2px 8px; margin: -2px 0 0 -8px; width: min(440px, 100%);
-    font-family: inherit; text-align: left;
+  .dash-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .dash-title {
+    font-size: 1.45em; font-weight: 700; color: var(--dash-text); margin: 0;
+    line-height: 1.25; overflow-wrap: anywhere; min-width: 0;
   }
-  .dash-title-input.edit-unit-name:hover, .dash-title-input.edit-unit-name:focus {
-    border-color: var(--dash-border); background: var(--dash-card); outline: none;
+  .dash-title-edit {
+    flex: none; width: 36px; height: 36px; border-radius: var(--cp-radius);
+    background: none; border: 1px solid transparent; color: var(--dash-muted);
+    cursor: pointer; font-size: 1em; font-family: inherit;
+  }
+  .dash-title-edit:hover, .dash-title-edit:focus-visible { border-color: var(--dash-border); color: var(--dash-accent); }
+  .dash-title-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
+  .dash-title-form[hidden], .dash-title-row[hidden] { display: none; }
+  .dash-title-form input {
+    font-size: 1.1em; font-weight: 600; font-family: inherit; color: var(--dash-text);
+    background: var(--cp-input); border: 1px solid var(--dash-border); border-radius: var(--cp-radius);
+    padding: 6px 10px; width: min(360px, 100%); min-width: 0;
   }
   .dash-asof { display: flex; align-items: center; gap: 6px; color: var(--dash-muted); font-size: 0.85em; margin-top: 2px; }
   .dash-refresh {
@@ -3752,7 +3761,7 @@
        which also drops the safe-area inset every other screen gets from it. */
     .dash-header { padding: 12px 14px 4px; }
     .dash-header-title { width: 100%; }
-    body .dash-header .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
+    .dash-title { font-size: 1.05em; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
     .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
     .dash-row-needs .dash-row-mobiledetail { grid-column: 3 / -1; }
@@ -3970,7 +3979,17 @@
 
 <header class="dash-header">
   <div class="dash-header-title">
-    <input type="text" class="edit-unit-name dash-title-input" id="unitName" value="" />
+    <div class="dash-title-row" id="unitTitleRow">
+      <h1 class="dash-title" id="unitName"></h1>
+      <button type="button" class="dash-title-edit" id="unitRenameBtn" hidden
+              onclick="openHeaderRename()" title="Rename unit" aria-label="Rename unit">&#9998;</button>
+    </div>
+    <form class="dash-title-form" id="unitRenameForm" hidden onsubmit="event.preventDefault();saveHeaderRename()">
+      <input type="text" id="unitRenameInput" maxlength="80" aria-label="Unit name"
+             onkeydown="if (event.key === 'Escape') { event.stopPropagation(); closeHeaderRename(); }">
+      <button type="submit" class="dash-btn dash-btn-primary dash-btn-sm">Save</button>
+      <button type="button" class="dash-btn dash-btn-ghost dash-btn-sm" onclick="closeHeaderRename()">Cancel</button>
+    </form>
     <div class="dash-asof">As of <span id="dashAsOf">&mdash;</span>
       <button class="dash-refresh" onclick="refreshData()" title="Refresh data" aria-label="Refresh data">&#8635;</button>
     </div>
@@ -4719,6 +4738,7 @@ createInvite = singleFlight(createInvite);
 createUnitInvite = singleFlight(createUnitInvite);
 createChildUnit = singleFlight(createChildUnit);
 saveUnitRename = singleFlight(saveUnitRename);
+saveHeaderRename = singleFlight(saveHeaderRename);
 createRootUnit = singleFlight(createRootUnit);
 extendTrial = singleFlight(extendTrial);
 startCheckout = singleFlight(startCheckout);
@@ -4779,7 +4799,7 @@ async function load() {
     // Anyone who left the roster (deleted, moved out) leaves the selection too.
     bulkSelected = new Set([...bulkSelected].filter(id => personnel.some(p => p.id === id)));
     if (settings.unit_name) {
-      document.getElementById('unitName').value = settings.unit_name;
+      setUnitTitle(settings.unit_name);
     }
     // The organization owns the duty day; adopt it before anything renders a
     // date, so an admin changing it elsewhere reaches this device on next load.
@@ -4815,13 +4835,44 @@ function loadFailed(unitId) {
   render();
 }
 
-async function saveUnit() {
-  const name = document.getElementById('unitName').value;
+// The header title is a heading, not a live input: renaming is an explicit
+// Edit -> Save, offered to whoever the Units page offers Rename to (an owner,
+// or anyone for a unit that is not the root).
+function headerUnitName() {
+  return document.getElementById('unitName').textContent || unitLabel(currentUnit) || 'Accountability';
+}
+function mayRenameUnit(u) {
+  if (!u || !currentUser) return false;
+  return currentUser.role === 'owner' || u.id !== currentUser.root_id;
+}
+function setUnitTitle(name) {
+  document.getElementById('unitName').textContent = name || '';
+  document.getElementById('unitRenameBtn').hidden = !mayRenameUnit(currentUnit);
+  closeHeaderRename();
+}
+function openHeaderRename() {
+  if (!mayRenameUnit(currentUnit)) return;
+  const input = document.getElementById('unitRenameInput');
+  input.value = document.getElementById('unitName').textContent;
+  document.getElementById('unitTitleRow').hidden = true;
+  document.getElementById('unitRenameForm').hidden = false;
+  input.focus();
+  input.select();
+}
+function closeHeaderRename() {
+  document.getElementById('unitRenameForm').hidden = true;
+  document.getElementById('unitTitleRow').hidden = false;
+}
+async function saveHeaderRename() {
+  const name = document.getElementById('unitRenameInput').value.trim();
+  if (!name) return;
   // The name is the unit's own, not a setting — rename it where it lives, then
   // re-pull the tree so the home screen and every label agree with the header.
   const saved = await api('PUT', `/units/${currentUnit.id}`, { name });
   if (!saved) return;
   await reloadUnits();
+  setUnitTitle(name);
+  showToast('Unit renamed.', 'success');
 }
 
 async function apiUpdate(p) {
@@ -4954,7 +5005,7 @@ function renderReportPreview(counts, total) {
   const todayStr = getTodayStr();
   const nextWeek = addDaysStr(todayStr, 7);
   const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek).length;
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
+  const unitName = headerUnitName();
   const rows = [
     ['Assigned', total, ''],
     ['Needs Action', counts.unaccounted || 0, counts.unaccounted ? 'warn' : ''],
@@ -6128,7 +6179,7 @@ async function saveUnitRename(id) {
   if (!saved) return;
   unitRenameFor = null;
   await refreshUnitsPage();
-  if (id === currentUnit.id) document.getElementById('unitName').value = currentUnit.name;
+  if (id === currentUnit.id) setUnitTitle(currentUnit.name);
 }
 
 async function deleteUnit(id) {
@@ -8680,7 +8731,7 @@ function showReportModal(title, text, historyUnitName) {
 function generateStrengthReport() {
   if (reportBlockedByUnaccounted()) return;
 
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
+  const unitName = headerUnitName();
   const roster = personnel;
   const byStatus = [
     ['TDY',     roster.filter(p => p.status === 'tdy').length],
@@ -8700,7 +8751,7 @@ function generateStrengthReport() {
 function generateReport() {
   if (reportBlockedByUnaccounted()) return;
 
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
+  const unitName = headerUnitName();
   const today = formatDate(new Date());
 
   const present = personnel.filter(p => isPresentToday(p)).sort(rankSort);
@@ -9910,11 +9961,6 @@ function closeAdmin() {
 }
 
 // ─── Event Listeners ───
-let unitNameTimer;
-document.getElementById('unitName').addEventListener('input', () => {
-  clearTimeout(unitNameTimer);
-  unitNameTimer = setTimeout(saveUnit, 500);
-});
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
 document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
@@ -11361,6 +11407,7 @@ function selectUnitById(id) { const u = unitById(id); if (u) selectUnit(u); }
 function selectUnit(unit, push = true, pendingSoldier = null) {
   if (!unit) { loadHome(); return; }
   currentUnit = unit;
+  setUnitTitle(unit.name);
   pendingSoldierId = pendingSoldier;
   if (personnelUnitId !== unit.id) {
     personnel = [];
