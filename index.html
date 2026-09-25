@@ -6165,10 +6165,10 @@ function closeDirectoryPage(push = true) {
 let availability = { from: '', to: '', data: null, error: '', req: 0 };
 
 // rpISO() formats a Date the way every date input here expects.
+// Offsets from the unit's duty day, not the device's: a phone abroad must
+// offer the same "Tomorrow" as the roster does.
 function availDateStr(offset) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return rpISO(d);
+  return addDaysStr(getTodayStr(), offset);
 }
 
 async function openAvailability(push = true) {
@@ -7915,7 +7915,7 @@ function rpOpen(event, fromId, toId, which) {
   const toEl = toId ? document.getElementById(toId) : null;
   const single = !toEl;
   const anchor = input.closest('.date-pick-row') || input;
-  const start = rpParse(fromEl.value) || new Date();
+  const start = rpParse(fromEl.value) || appDate();
   rp = {
     fromEl, toEl, single, anchor,
     view: new Date(start.getFullYear(), start.getMonth(), 1),
@@ -7973,7 +7973,7 @@ function rpTitleHTML(view) {
 
 function rpMonthHTML(base, offset) {
   const view = new Date(base.getFullYear(), base.getMonth() + offset, 1);
-  const from = rp.fromEl.value, to = rp.toEl ? rp.toEl.value : '', today = rpISO(new Date());
+  const from = rp.fromEl.value, to = rp.toEl ? rp.toEl.value : '', today = getTodayStr();
   const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < view.getDay(); i++) cells.push('<div class="rp-d empty"></div>');
