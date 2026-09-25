@@ -107,6 +107,21 @@ port 53682 falls inside that machine's reserved range 53613-53712. So this copy
 refreshes only while that PC is on; prodsrv02 + prodsrv04 remain authoritative.
 The destination is one variable (`PLATOON_BACKUP_DEST`) if it ever moves.
 
+## Monitoring
+
+`scripts/healthcheck.sh` runs every 5 minutes on prodsrv02 (`platoon-health.timer`,
+reading `.env`). It emails the operator (`ALERT_EMAIL`, else the first
+`PLATFORM_ADMIN_EMAILS` address) through Resend when the public app or the marketing
+site doesn't return 200, when the app logs a traceback or `WORKER TIMEOUT`, or when
+`backups/LAST_BACKUP` is stale or not OK. The same failure is re-sent at most hourly,
+and one more email is sent on recovery; state is kept in `backups/.health-state`.
+
+A dead prodsrv02 can't report itself, so the Cloudflare Worker `platoon-uptime`
+(PlatoonManager account, source in `scripts/uptime-worker.js`, KV `platoon-uptime`)
+checks the same two URLs from outside every 5 minutes. It alerts after two failures
+in a row and once more on recovery. It is deployed through the Cloudflare API, not
+from this repo, so redeploy it by hand if you edit the file.
+
 ## Architecture
 
 Two files hold essentially the entire app:
