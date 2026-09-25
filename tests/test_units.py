@@ -116,8 +116,30 @@ def test_root_rename_and_delete_are_owner_only():
     assert c.delete(f"/api/units/{t['root']}").status_code == 409, 'root with a child cannot go'
 
 
+def test_listing_carries_todays_accountability_per_unit():
+    """The home screen's cards read present / unaccounted off GET /api/units.
+    Each unit counts its own people only, on the unit's duty day, and an
+    absence is neither."""
+    t = dbharness.make_tree('Hotel Co')
+    today = server.app_today()
+    conn = dbharness.owner_conn()
+    for unit, status, pdate in ((t['child'], 'present', today), (t['child'], 'present', ''),
+                                (t['child'], 'present', '2000-01-01'), (t['child'], 'tdy', ''),
+                                (t['root'], 'present', today)):
+        conn.execute('INSERT INTO personnel (rank, last, first, unit_id, root_id, status, present_date) '
+                     "VALUES ('SPC', 'X', 'Y', %s, %s, %s, %s)", (unit, t['root'], status, pdate))
+    conn.commit()
+    conn.close()
+    dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
+    by_id = {u['id']: u for u in server.app.test_client().get('/api/units').get_json()}
+    child, root = by_id[t['child']], by_id[t['root']]
+    assert (child['count'], child['present'], child['unaccounted']) == (4, 1, 2), child
+    assert (root['count'], root['present'], root['unaccounted']) == (1, 1, 0), root
+
+
 def main():
     try:
+        test_listing_carries_todays_accountability_per_unit()
         test_unattached_user_can_only_create_a_root()
         test_children_slugs_rename_delete()
         test_leader_is_confined_to_subtree_and_cannot_touch_root()

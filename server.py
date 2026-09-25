@@ -2538,12 +2538,23 @@ def list_units():
     ids = current_subtree()
     if not ids:
         return jsonify([])
+    # Today's accountability per unit for the home screen's cards, off the
+    # same status cache the roster reads, so reconcile it first the way
+    # GET /api/personnel does. present/unaccounted are the unit's own people;
+    # the client rolls them up the tree like `count`.
+    today = app_today()
+    _reconcile_absences(conn, today)
     rows = conn.execute(
-        'SELECT u.*, (SELECT COUNT(*) FROM personnel p WHERE p.unit_id = u.id) AS n '
-        'FROM units u WHERE u.id = ANY(%s) ORDER BY u.parent_id NULLS FIRST, u.name', (list(ids),)
+        'SELECT u.*, c.n, c.present, c.unaccounted FROM units u, LATERAL ('
+        "  SELECT COUNT(*) AS n,"
+        "         COUNT(*) FILTER (WHERE p.status = 'present' AND p.present_date = %s) AS present,"
+        "         COUNT(*) FILTER (WHERE p.status = 'present' AND p.present_date IS DISTINCT FROM %s) AS unaccounted"
+        '  FROM personnel p WHERE p.unit_id = u.id) c '
+        'WHERE u.id = ANY(%s) ORDER BY u.parent_id NULLS FIRST, u.name', (today, today, list(ids))
     ).fetchall()
     logos = _resolved_logos(conn)
-    return jsonify([_unit_json(r, r['n'], logos) for r in rows])
+    return jsonify([dict(_unit_json(r, r['n'], logos), present=r['present'], unaccounted=r['unaccounted'])
+                    for r in rows])
 
 
 @app.route('/api/units', methods=['POST'])
