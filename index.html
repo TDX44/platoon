@@ -4385,7 +4385,6 @@
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
       <button class="btn-small btn-generate" id="copyReportBtn" onclick="copyReport()">Copy to Clipboard</button>
-      <button class="btn-small btn-edit" id="shareReportBtn" onclick="shareReport()" hidden>Share</button>
       <button class="btn-small btn-cancel" onclick="closeReport()">Close</button>
     </div>
   </div>
@@ -9558,7 +9557,6 @@ async function generateReport(format) {
     saveReportOptions();
   }
   const text = renderReport();
-  document.getElementById('shareReportBtn').hidden = !navigator.share;
   document.getElementById('reportModal').classList.add('active');
   saveToHistory(text, headerUnitName());
   return true;
@@ -9568,17 +9566,6 @@ function copyReport() {
   const text = document.getElementById('reportText').textContent;
   saveToHistory(text, headerUnitName());
   copyWithFeedback(text, document.getElementById('copyReportBtn'), 'Copy to Clipboard');
-}
-
-async function shareReport() {
-  const text = document.getElementById('reportText').textContent;
-  if (!navigator.share) return;
-  try {
-    await navigator.share({ text });
-    saveToHistory(text, headerUnitName());
-  } catch (e) {
-    if (!e || e.name !== 'AbortError') showToast('Could not share the report.');
-  }
 }
 
 // Try modern clipboard API first, fallback for Firefox / non-HTTPS
