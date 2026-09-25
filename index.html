@@ -4109,7 +4109,7 @@
 
 <!-- Add / Edit Person Modal -->
 <div class="modal-overlay" id="addModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="modalTitle">Add Person</h2>
     <label>Rank</label>
     <select id="addRank">
@@ -4145,7 +4145,7 @@
 
 <!-- Import Modal -->
 <div class="modal-overlay" id="importModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>Import Personnel List</h2>
     <p class="import-hint">
       Paste one person per line. Accepted formats:<br>
@@ -4167,7 +4167,7 @@
 
 <!-- TDY / Leave Modal -->
 <div class="modal-overlay" id="tdyLeaveModal">
-  <div class="modal modal-xl">
+  <div class="modal modal-xl" role="dialog" aria-modal="true">
     <h2 id="tdyLeaveTitle">TDY / Leave</h2>
 
     <label>Status Type</label>
@@ -4238,7 +4238,7 @@
 
 <!-- Report Modal -->
 <div class="report-overlay" id="reportModal">
-  <div class="report-box">
+  <div class="report-box" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
     <h2 id="reportTitle">Accountability Report</h2>
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
@@ -4251,7 +4251,7 @@
 
 <!-- Report History Modal -->
 <div class="modal-overlay" id="historyModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>&#128337; Report History</h2>
     <div class="history-list" id="historyList"></div>
     <div class="modal-buttons">
@@ -4274,7 +4274,7 @@
 
 <!-- Duty Roster Modal -->
 <div class="modal-overlay" id="dutyModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>Duty Roster</h2>
     <div class="duty-form">
       <div>
@@ -4312,7 +4312,7 @@
 
 
 <div class="modal-overlay" id="listEditModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="listEditTitle">Rename</h2>
     <label for="listEditInput">Name</label>
     <input type="text" id="listEditInput" onkeydown="if (event.key === 'Enter') saveListEdit()">
@@ -4327,7 +4327,7 @@
 <!-- The one confirmation modal. Every destructive action asks through
      confirmDialog() below; nothing calls the browser's native confirm(). -->
 <div class="modal-overlay" id="confirmModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="confirmTitle">Are you sure?</h2>
     <div id="confirmBody"></div>
     <div class="modal-buttons">
@@ -9898,7 +9898,76 @@ document.getElementById('reportModal').addEventListener('click', function(e) { i
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
 document.getElementById('listEditModal').addEventListener('click', function(e) { if (e.target === this) closeListEdit(); });
 document.getElementById('confirmModal').addEventListener('click', function(e) { if (e.target === this) settleConfirm(false); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && confirmResolve) settleConfirm(false); });
+
+// ─── Modals: one Escape, focus in and back ───
+// Every modal opens and closes by toggling .active, each from its own code, so
+// this sits beside them rather than in front: Escape closes only the topmost
+// one, through its own close function (they reset state a bare class removal
+// would leave behind), and a MutationObserver moves focus into a modal as it
+// opens and hands it back to whatever opened it when it closes.
+const MODAL_CLOSERS = {
+  addModal: () => closeAddModal(), importModal: () => closeImportModal(),
+  tdyLeaveModal: () => closeTdyLeaveModal(), historyModal: () => closeHistory(),
+  dutyModal: () => closeDutyRoster(), listEditModal: () => closeListEdit(),
+  confirmModal: () => settleConfirm(false), userMgmtModal: () => closeUserMgmt(),
+  personDetailsModal: () => closePersonDetails(), inviteModal: () => closeInviteModal(),
+  inviteLinkModal: () => closeInviteLinkModal(), userEditModal: () => closeUserEdit(),
+  resetConfirmModal: () => closeResetConfirm(), restoreModal: () => closeRestoreModal(),
+  sessionWarnModal: () => extendSession(), reportModal: () => closeReport(),
+};
+const MODAL_SELECTOR = '.modal-overlay, .report-overlay';
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function topModal() {
+  const open = [...document.querySelectorAll(MODAL_SELECTOR)].filter(m => m.classList.contains('active'));
+  // Highest z-index wins; on a tie the later one in the document paints on top.
+  let top = null, topZ = -Infinity;
+  for (const m of open) {
+    const z = parseInt(getComputedStyle(m).zIndex, 10) || 0;
+    if (z >= topZ) { top = m; topZ = z; }
+  }
+  return top;
+}
+
+// True when Escape was spent closing a modal, so nothing else acts on it.
+function closeTopModal() {
+  const m = topModal();
+  if (!m) return false;
+  const close = MODAL_CLOSERS[m.id];
+  if (close) close(); else m.classList.remove('active');
+  return true;
+}
+
+const _modalOpener = new Map();
+// The observer runs after the open function, which may already have focused a
+// field inside the modal — so the opener is the element focused before that.
+let _lastFocus = null, _prevFocus = null;
+document.addEventListener('focusin', e => { _prevFocus = _lastFocus; _lastFocus = e.target; });
+new MutationObserver(records => {
+  for (const r of records) {
+    const m = r.target;
+    if (!m.matches(MODAL_SELECTOR)) continue;
+    const open = m.classList.contains('active');
+    const was = (r.oldValue || '').split(/\s+/).includes('active');
+    if (open === was) continue;
+    if (open) {
+      _modalOpener.set(m, m.contains(document.activeElement) ? _prevFocus : document.activeElement);
+      // An open function that already focused a field (savePerson's name box,
+      // the confirm OK button) keeps it; otherwise the first control gets it.
+      if (!m.contains(document.activeElement)) {
+        const first = m.querySelector(FOCUSABLE);
+        if (first) first.focus({ preventScroll: true });
+      }
+    } else {
+      const back = _modalOpener.get(m);
+      _modalOpener.delete(m);
+      if (back && back.isConnected && typeof back.focus === 'function' &&
+          (m.contains(document.activeElement) || document.activeElement === document.body)) {
+        back.focus({ preventScroll: true });
+      }
+    }
+  }
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
 
 // ─── Billing ───
 // Pure renderers over currentUser.billing (the payload /api/me carries), run
@@ -11614,6 +11683,7 @@ async function deleteUser(userId, username) {
 
 // ─── Init ───
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && closeTopModal()) return;
   if (e.key === 'Escape') exitFormation();
   userMenuKey(e);
   // "/" (or Ctrl/Cmd-K) jumps to search, unless the key is being typed into something.
@@ -11919,7 +11989,7 @@ initApp();
 
 <!-- User Management Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userMgmtModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>People &amp; invites</h2>
     <p class="modal-sub">Who can sign in, and which unit they lead.</p>
     <div class="modal-section">
@@ -11941,7 +12011,7 @@ initApp();
 
 <!-- Person Details Modal (global — opened from the directory's ⋯ menu) -->
 <div class="modal-overlay" id="personDetailsModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2 id="personDetailsTitle">Person</h2>
     <div id="personDetailsBody" class="person-details"></div>
     <div class="modal-buttons">
@@ -11954,7 +12024,7 @@ initApp();
 
 <!-- New Invite Modal (global) -->
 <div class="modal-overlay" id="inviteModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>New Invite Link</h2>
     <label>Who is it for? (optional)</label>
     <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
@@ -11973,7 +12043,7 @@ initApp();
 </div>
 
 <div class="modal-overlay" id="inviteLinkModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>Invite Link Ready</h2>
     <p style="font-size:0.85em;color:var(--cp-text-weak);margin:0 0 10px;">Works once, expires in 7 days. Send it however you like — they create their own account with it.</p>
     <input type="text" class="invite-link-field" id="inviteLinkValue" readonly onclick="this.select()" />
@@ -11986,7 +12056,7 @@ initApp();
 
 <!-- Edit User Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userEditModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="userEditTitle">Edit Access</h2>
     <label>Display Name</label>
     <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
@@ -12006,7 +12076,7 @@ initApp();
 
 <!-- Reset Confirmation Modal -->
 <div class="modal-overlay" id="resetConfirmModal">
-  <div class="modal" style="max-width:360px;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:360px;">
     <h2>&#9888; Reset Day</h2>
     <p style="font-size:0.9em;color:#b2bec3;margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
     <div id="resetSummary" style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;line-height:1.8;"></div>
@@ -12019,7 +12089,7 @@ initApp();
 
 <!-- Import Backup Modal -->
 <div class="modal-overlay" id="restoreModal">
-  <div class="modal" style="max-width:380px;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:380px;">
     <h2>&#128228; Import Backup</h2>
     <p style="font-size:0.85em;color:#ff7675;margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
     <label style="display:block;margin-bottom:6px;">Select backup file (.json)</label>
@@ -12034,7 +12104,7 @@ initApp();
 
 <!-- Session Timeout Warning Modal -->
 <div class="modal-overlay" id="sessionWarnModal" style="z-index:9999;">
-  <div class="modal" style="max-width:320px;text-align:center;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:320px;text-align:center;">
     <h2>&#9201; Session Expiring</h2>
     <p style="color:#b2bec3;margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
     <button class="btn-login" onclick="extendSession()">Stay Signed In</button>
