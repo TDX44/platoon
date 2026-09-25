@@ -339,9 +339,11 @@ still PUTs `status='tdy'` and must stay a no-op. That route accepts **only**
 `POST .../schedule`) and never writes `from_date`/`to_date`/`notes` from the
 body while an absence is cached. `POST .../schedule` is
 idempotent on (person, status, from_date, to_date) so a double-tapped Save
-cannot book the same absence twice — enforced by the unique index
-`scheduled_events_dedupe` and `ON CONFLICT DO NOTHING`, so two racing requests
-cannot both insert. Both schedule routes take canonical `YYYY-MM-DD` dates
+cannot book the same absence twice — enforced by the partial unique index
+`scheduled_events_live_dedupe` (`WHERE state != 'completed'`) and `ON
+CONFLICT DO NOTHING`, so two racing requests cannot both insert. Only **live**
+rows count: a completed one is history, so late, marked present, then late
+again the same day books a second absence. Both schedule routes take canonical `YYYY-MM-DD` dates
 only, with the end on or after the start; a blank end on `late`/`excused`
 means the start day.
 

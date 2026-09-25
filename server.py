@@ -685,21 +685,27 @@ def init_db():
                 "UPDATE scheduled_events SET state = 'completed' "
                 "WHERE to_date != '' AND to_date < %s", (app_today(),)
             )
-        # One person, status and window is one absence (the double-tap guard
-        # on POST .../schedule). Rows from before the guard can repeat, so
-        # file them down to one first: the row carrying the roster (active),
-        # else a live one, else the oldest. Only a double-tapped Save ever made
+        # One person, status and window is one LIVE absence (the double-tap
+        # guard on POST .../schedule). A completed row is history and never
+        # blocks a new booking: late, marked present, then late again the same
+        # day is a second absence. Live rows from before the guard can repeat,
+        # so file them down to one first: the row carrying the roster
+        # (active), else the oldest. Only a double-tapped Save ever made
         # these, so the copies are the same absence and nothing is lost.
-        if not cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'scheduled_events_dedupe' "
+        # The first version of this index covered completed rows too; it is
+        # replaced here.
+        cur.execute('DROP INDEX IF EXISTS scheduled_events_dedupe')
+        if not cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'scheduled_events_live_dedupe' "
                            'AND schemaname = current_schema()').fetchone():
             cur.execute(
                 'DELETE FROM scheduled_events WHERE id IN ('
                 ' SELECT id FROM (SELECT id, ROW_NUMBER() OVER ('
                 '  PARTITION BY person_id, status, from_date, to_date'
-                "  ORDER BY (state = 'active') DESC, (state = 'completed'), id) AS n"
-                ' FROM scheduled_events) ranked WHERE n > 1)')
-            cur.execute('CREATE UNIQUE INDEX scheduled_events_dedupe '
-                        'ON scheduled_events (person_id, status, from_date, to_date)')
+                "  ORDER BY (state = 'active') DESC, id) AS n"
+                " FROM scheduled_events WHERE state != 'completed') ranked WHERE n > 1)")
+            cur.execute('CREATE UNIQUE INDEX scheduled_events_live_dedupe '
+                        'ON scheduled_events (person_id, status, from_date, to_date) '
+                        "WHERE state != 'completed'")
         # Duty entries predate person_id and stored only a name snapshot.
         # Deliberately not a foreign key: deleting a soldier must not erase
         # history. The one-off backfill that linked the old snapshots to
@@ -3069,12 +3075,14 @@ def add_scheduled_event(person_id):
     #
     # A double-tapped Save used to insert a second identical row — four of
     # them once. The same person, status and window is never a real second
-    # absence, so the unique index scheduled_events_dedupe refuses it (two
-    # racing requests included) and the caller gets the row that exists.
+    # absence, so the partial unique index scheduled_events_live_dedupe
+    # refuses it (two racing requests included) and the caller gets the live
+    # row that exists. A completed one does not count: that absence is over.
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, location, state, created_at) '
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) "
-        'ON CONFLICT (person_id, status, from_date, to_date) DO NOTHING RETURNING id',
+        "ON CONFLICT (person_id, status, from_date, to_date) WHERE state != 'completed' "
+        'DO NOTHING RETURNING id',
         (person_id, person['unit_id'], person['root_id'], status, from_date, to_date,
          data.get('notes', ''), data.get('location', ''), app_stamp())
     )
@@ -3082,7 +3090,7 @@ def add_scheduled_event(person_id):
     if inserted is None:
         dup = conn.execute(
             'SELECT * FROM scheduled_events WHERE person_id = %s AND status = %s '
-            'AND from_date = %s AND to_date = %s',
+            "AND from_date = %s AND to_date = %s AND state != 'completed'",
             (person_id, status, from_date, to_date)
         ).fetchone()
         return jsonify(dict(dup)), 200
@@ -3282,7 +3290,7 @@ def update_scheduled_event(event_id):
     notes = data.get('notes', '')
     clash = conn.execute(
         'SELECT 1 FROM scheduled_events WHERE person_id = %s AND status = %s '
-        'AND from_date = %s AND to_date = %s AND id != %s',
+        "AND from_date = %s AND to_date = %s AND id != %s AND state != 'completed'",
         (row['person_id'], status, from_date, to_date, event_id)
     ).fetchone()
     if clash:
@@ -3918,8 +3926,8 @@ def import_backup():
                 d.pop('id')
                 new_id = insert_one(table, d)
             if new_id is None:
-                # Only scheduled_events_dedupe gets here: the file repeats an
-                # absence it already holds.
+                # Only scheduled_events_live_dedupe gets here: the file
+                # repeats a live absence it already holds.
                 skipped_rows += 1
                 continue
             if id_map is not None and 'id' in r:

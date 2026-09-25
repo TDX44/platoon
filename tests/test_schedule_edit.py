@@ -347,20 +347,34 @@ def main():
         r = c.put(f'/api/schedules/{eid}', json={'status': status, 'from_date': day(0), 'to_date': ''})
         assert r.get_json()['to_date'] == day(0), r.get_json()
 
-    # 17. The double-tap guard is a unique index, so two racing Saves cannot
-    #     both insert. init_db() dedupes what is already there before adding
-    #     it, keeping the row that is carrying the roster.
+    # 17. The double-tap guard is a unique index over LIVE rows, so two racing
+    #     Saves cannot both insert, while a finished absence never blocks a new
+    #     one on the same dates. init_db() replaces the old full index and
+    #     dedupes live rows first, keeping the one carrying the roster.
     clear()
     conn = dbharness.owner_conn()
-    conn.execute('DROP INDEX scheduled_events_dedupe')
+    conn.execute('DROP INDEX scheduled_events_live_dedupe')
+    conn.execute('CREATE UNIQUE INDEX scheduled_events_dedupe '
+                 'ON scheduled_events (person_id, status, from_date, to_date)')
+    conn.commit(); conn.close()
+    server.init_db()
+    conn = dbharness.owner_conn()
+    names = {r['indexname'] for r in conn.execute(
+        "SELECT indexname FROM pg_indexes WHERE tablename = 'scheduled_events' "
+        'AND schemaname = current_schema()').fetchall()}
+    conn.close()
+    assert 'scheduled_events_dedupe' not in names and 'scheduled_events_live_dedupe' in names, names
+
+    conn = dbharness.owner_conn()
+    conn.execute('DROP INDEX scheduled_events_live_dedupe')
     ids = [conn.execute(
         'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, state) '
         "VALUES (%s, %s, %s, 'tdy', %s, %s, %s) RETURNING id",
         (PID, T['child'], T['root'], day(-1), day(3), st)).fetchone()['id']
-        for st in ('completed', 'active', 'active')]
+        for st in ('completed', 'scheduled', 'active', 'active')]
     conn.commit(); conn.close()
     server.init_db()
-    assert states() == [(ids[1], 'active')], states()
+    assert states() == [(ids[0], 'completed'), (ids[2], 'active')], states()
     conn = dbharness.owner_conn()
     try:
         conn.execute(
@@ -375,6 +389,23 @@ def main():
     other = add_event('scheduled', 5, 8)
     r = c.put(f'/api/schedules/{other}', json={'status': 'tdy', 'from_date': day(-1), 'to_date': day(3)})
     assert r.status_code == 409, r.status_code
+
+    # late -> present -> late again, all today: the second late is a new
+    # absence, not the finished one handed back.
+    clear()
+    body = {'status': 'late', 'from_date': day(0), 'to_date': day(0), 'notes': 'traffic'}
+    first = c.post(f'/api/personnel/{PID}/schedule', json=body)
+    assert first.status_code == 201, first.get_json()
+    assert c.put(f'/api/personnel/{PID}', json={'status': 'present'}).status_code == 200
+    again = c.post(f'/api/personnel/{PID}/schedule', json={**body, 'notes': 'left again'})
+    assert again.status_code == 201, (again.status_code, again.get_json())
+    assert again.get_json()['id'] != first.get_json()['id']
+    assert states() == [(first.get_json()['id'], 'completed'), (again.get_json()['id'], 'active')], states()
+    row = next(p for p in c.get(ROSTER).get_json() if p['id'] == PID)
+    assert row['status'] == 'late' and row['notes'] == 'left again', row
+    # ...and a double tap on that second late is still one row.
+    assert c.post(f'/api/personnel/{PID}/schedule', json=body).status_code == 200
+    assert len(states()) == 2, states()
 
     # 18. Every roster read reconciles, so it must only touch the people whose
     #     rows would actually change today, not the whole tenant each time.
