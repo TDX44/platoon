@@ -165,15 +165,15 @@ def test_helpers_under_node(src, node):
 
 
 def test_the_page_says_what_it_does(src):
-    """The rename, and the one-step invite the Units page now carries."""
-    assert 'Manage Access' not in src, \
-        'the old title is still on screen somewhere — it is "People & invites" now'
-    for name in ('openUserMgmt', 'refreshUserList', 'userMgmtModal'):
-        assert name in src, f'{name} was renamed; the ids and function names stay put'
-    assert src.count('People &amp; invites') + src.count('People & invites') >= 3, \
-        'the account menu, the Settings nav and the modal heading all carry the new name'
-    assert "Also on each unit's row under Units." in src, \
-        'the Settings row does not point at the new home for this'
+    """Access is a settings page now, not a modal over the settings page."""
+    assert 'Manage Access' not in src, 'the old title is still on screen somewhere'
+    for name in ('openUserMgmt', 'refreshUserList', 'userMgmtModal', 'userEditCameFromMgmt'):
+        assert name not in src, f'{name} is left over from the People & invites modal'
+    people = extract(src, r"\} else if \(settingsSection === 'people'\) \{.*?</section>`;", 'the Access section')
+    assert 'accessUserList' in people and 'inviteListWrap' in people and 'openInviteModal()' in people, \
+        'Settings → Access does not carry the accounts, the open invites and the new-invite button'
+    opener = extract(src, r'function openSettings\(.*?\n\}', 'openSettings()')
+    assert 'loadAccessPage()' in opener, 'opening Settings → Access does not load its lists'
 
     units = extract(src, r'function renderUnits\(\) \{.*?\n\}', 'renderUnits()')
     assert 'Invite leader' in units, 'the unit row has no one-step invite'
@@ -308,6 +308,56 @@ def test_user_text_never_becomes_code(src):
     assert 'addEventListener(' in wire, 'the unit-row chips have no handlers'
 
 
+ACCESS_ROWS = [
+    {'id': 11, 'username': 'boss', 'full_name': 'Alice Owner', 'email': 'a@x.mil', 'unit_id': 1,
+     'unit_name': 'HHC', 'role': 'owner', 'editable': False},
+    {'id': 13, 'username': 'psg', 'full_name': 'Bravo <b>Jones</b>', 'email': 'b@x.mil', 'unit_id': 2,
+     'unit_name': '1st Platoon', 'role': 'leader', 'editable': True},
+    {'id': 15, 'username': 'me', 'full_name': 'Me Myself', 'email': 'me@x.mil', 'unit_id': 2,
+     'unit_name': '1st Platoon', 'role': 'leader', 'editable': True},
+]
+
+ACCESS_DRIVER = r'''
+const out = {};
+const count = (h, s) => h.split(s).length - 1;
+const all = accessUsersHtml(ROWS, '', 15, true);
+out.groups = count(all, 'class="access-group"');
+out.edits = count(all, 'access-edit-btn');
+out.removes = count(all, 'user-del-btn');
+out.you = count(all, '(you)');
+out.escaped = all.includes('Bravo &lt;b&gt;') && !all.includes('<b>Jones');
+out.leaderRemoves = count(accessUsersHtml(ROWS, '', 15, false), 'user-del-btn');
+const hit = accessUsersHtml(ROWS, 'hhc', 15, true);
+out.searchUnit = count(hit, 'class="user-row"');
+out.searchMiss = accessUsersHtml(ROWS, 'nobody', 15, true).includes('No account matches');
+console.log(JSON.stringify(out));
+'''
+
+
+def test_access_page_under_node(src, node):
+    js = '\n'.join([
+        'const ROWS = ' + json.dumps(ACCESS_ROWS) + ';',
+        extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
+        extract(src, r"const ICON_PENCIL  = '[^']+';", 'ICON_PENCIL'),
+        extract(src, r"const ICON_REMOVE  = '[^']+';", 'ICON_REMOVE'),
+        extract(src, r'function accessUsersHtml\(.*?\n\}', 'accessUsersHtml()'),
+        ACCESS_DRIVER,
+    ])
+    path = os.path.join(tempfile.mkdtemp(), 'access_page.js')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(js)
+    proc = subprocess.run([node, path], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out['groups'] == 2, f'rows are grouped by unit, one heading per run: {out}'
+    assert out['edits'] == 2, f'only editable rows get an edit button: {out}'
+    assert out['removes'] == 1, f'an owner may remove an editable row, never their own: {out}'
+    assert out['leaderRemoves'] == 0, 'only an owner is offered Remove'
+    assert out['you'] == 1, 'the signed-in account is marked (you)'
+    assert out['escaped'], 'a display name reached the markup unescaped'
+    assert out['searchUnit'] == 1 and out['searchMiss'], f'search matches unit names and says when nothing does: {out}'
+
+
 def test_the_inline_script_still_parses(src, node):
     path = os.path.join(tempfile.mkdtemp(), 'spa.js')
     with open(path, 'w', encoding='utf-8') as fh:
@@ -322,6 +372,7 @@ def main():
     assert node, 'node is required to run the frontend rules (it ships with the CI image)'
     test_helpers_under_node(src, node)
     test_the_page_says_what_it_does(src)
+    test_access_page_under_node(src, node)
     test_the_page_never_claims_what_it_could_not_load(src)
     test_every_access_write_refreshes_the_page(src)
     test_an_invite_says_what_it_grants(src)

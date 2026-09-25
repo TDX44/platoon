@@ -2432,17 +2432,39 @@ def admin_set_billing_mode(user_id):
 
 
 # ── User management ──
-# Everything here is bounded twice: RLS keeps a caller inside their own root,
-# and current_subtree()/can_access() keep them inside their own branch of it.
+# RLS keeps a caller inside their own root. Reading the account list is
+# org-wide; every write is also bounded by current_subtree()/can_access().
 
 @app.route('/api/users', methods=['GET'])
 @attached_required
 def get_users():
+    """Every account in the organization, not just the caller's subtree.
+
+    Accounts are org-wide readable (who leads which unit is not soldier data);
+    RLS still bounds this to the caller's own tenant. Writes stay subtree-gated,
+    and `editable` mirrors update_user()'s own gates so the UI never offers an
+    edit the server would refuse. Rows come in unit-tree order (depth-first,
+    siblings by name — how the page groups them), owners first within a unit.
+    """
     conn = get_db()
+    order = {}
+    units = conn.execute('SELECT id, parent_id, name FROM units').fetchall()
+    kids = {}
+    for u in sorted(units, key=lambda u: u['name'].lower()):
+        kids.setdefault(u['parent_id'], []).append(u['id'])
+    stack = list(reversed(kids.get(None, [])))
+    while stack:
+        uid = stack.pop()
+        order[uid] = len(order)
+        stack.extend(reversed(kids.get(uid, [])))
     rows = conn.execute(
-        "SELECT * FROM users WHERE clerk_user_id != '' AND unit_id = ANY(%s) ORDER BY username",
-        (list(current_subtree()),)).fetchall()
-    return jsonify([_user_json(conn, dict(r)) for r in rows])
+        "SELECT * FROM users WHERE clerk_user_id != '' AND unit_id IS NOT NULL").fetchall()
+    owner = is_owner(g.current_user)
+    rows = sorted(rows, key=lambda r: (order.get(r['unit_id'], len(order)), r['role'] != 'owner',
+                                       (r['full_name'] or r['username'] or '').lower()))
+    return jsonify([{**_user_json(conn, dict(r)),
+                     'editable': can_access(r['unit_id']) and (r['role'] != 'owner' or owner)}
+                    for r in rows])
 
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])

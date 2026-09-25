@@ -2114,6 +2114,18 @@
     text-align: left; width: 100%; box-sizing: border-box;
   }
   .soldier-card .settings-row:first-of-type { border-top: none; }
+  /* Settings → Access: every account in the org, grouped by unit. */
+  .access-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 18px 10px; }
+  .settings-cards .access-card-head h3 { padding: 0; margin: 0; }
+  .access-card-head .directory-search, .access-card-head .dash-btn { margin-left: auto; }
+  .access-list .user-row { padding: 10px 18px; }
+  .access-list .modal-empty { padding: 4px 18px 12px; }
+  .access-group {
+    padding: 10px 18px 4px; font-size: 0.78em; font-weight: 650;
+    color: var(--cp-muted); text-transform: uppercase; letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--cp-hairline);
+  }
+  .access-you { color: var(--cp-muted); font-size: 0.72em; font-weight: 400; }
   .settings-row-text { flex: 1 1 160px; min-width: 0; }
   .settings-logo-preview {
     flex: 0 0 auto; width: 46px; height: 46px; object-fit: contain;
@@ -5234,7 +5246,7 @@ const SETTINGS_SECTIONS = {
   preferences: { title: 'Preferences', lead: 'How Platoon Manager looks on this device.' },
   billing:     { title: 'Billing', lead: 'Your plan, payment method and invoices.' },
   general:     { title: 'General', lead: 'The unit’s logo and the organization’s duty day.' },
-  people:      { title: 'Access', lead: 'Who leads which unit, and the links that bring new leaders in.' },
+  people:      { title: 'Access', lead: 'Every account in the organization, and the links that bring new leaders in. You can change the ones in your own units.' },
   data:        { title: 'Data & backup', lead: 'Records, exports, backups and the daily reset.' },
 };
 let settingsSection = 'general';
@@ -5252,7 +5264,9 @@ function openSettings(push = true, section = null) {
   document.body.classList.add('settings-active');
   if (push) pushAppRoute(currentUnit, settingsSection === 'general' ? 'settings' : `settings/${settingsSection}`);
   if (settingsSection === 'billing') loadBillingDetails();
+  if (settingsSection === 'people') { accessUsers = null; accessQuery = ''; }
   renderSettings();
+  if (settingsSection === 'people') loadAccessPage();
   syncNavActive();
   window.scrollTo({ top: 0 });
 }
@@ -5511,11 +5525,24 @@ function renderSettings() {
   } else if (settingsSection === 'billing') {
     body = billingPageHtml(currentUser && currentUser.billing, billingDetails, billingUsage());
   } else if (settingsSection === 'people') {
+    // Drawn empty and filled by loadAccessPage(): the search box must not be
+    // rebuilt on every keystroke, so only the lists are repainted.
     body = `
       <section class="soldier-card">
-        <h3>Leaders</h3>
-        ${settingsNavRow('People &amp; invites', "Who leads which unit, and invite links. Also on each unit's row under Units.", 'openUserMgmt()')}
-        ${settingsRow('Invite a leader', 'A single-use link for one unit and one role.', 'Invite', 'openInviteModal()')}
+        <div class="access-card-head">
+          <h3>Accounts</h3>
+          <input type="search" class="directory-search" id="accessSearch" placeholder="Search name, email or unit…"
+                 aria-label="Search accounts" autocomplete="off" value="${escapeHtml(accessQuery)}"
+                 oninput="accessQuery = this.value; renderAccessUsers()" />
+        </div>
+        <div id="accessUserList" class="access-list"></div>
+      </section>
+      <section class="soldier-card">
+        <div class="access-card-head">
+          <h3>Open invites</h3>
+          <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openInviteModal()">New invite</button>
+        </div>
+        <div id="inviteListWrap" class="access-list"></div>
       </section>`;
   } else if (settingsSection === 'data') {
     body = `
@@ -6276,9 +6303,15 @@ function unitLeaderChips(unitId, byUnit, state) {
   if (state === 'failed') return `<span class="unit-chip unit-chip-none">Couldn't load access</span>`;
   const list = (byUnit || {})[unitId] || [];
   if (!list.length) return '<span class="unit-chip unit-chip-none">No leader yet</span>';
-  return list.map(u => `<button type="button" class="unit-chip unit-chip-user${
-    u.role === 'owner' ? ' unit-chip-owner' : ''}" data-uid="${u.id}" title="Edit access">${
-    escapeHtml(u.full_name || u.username || '')}${u.role === 'owner' ? ' · owner' : ''}</button>`).join('');
+  // Only a row the server would let this caller change is a button (an owner,
+  // seen by a leader, is not); the rest are plain chips.
+  return list.map(u => {
+    const text = `${escapeHtml(u.full_name || u.username || '')}${u.role === 'owner' ? ' · owner' : ''}`;
+    const cls = `unit-chip${u.role === 'owner' ? ' unit-chip-owner' : ''}`;
+    return u.editable
+      ? `<button type="button" class="${cls} unit-chip-user" data-uid="${u.id}" title="Edit access">${text}</button>`
+      : `<span class="${cls}">${text}</span>`;
+  }).join('');
 }
 
 // The invites still out for that unit, under its leaders. Tokens and labels are
@@ -6325,7 +6358,7 @@ function unitInviteForm(u, isOwner) {
 }
 
 function wireUnitRowActions(view) {
-  const known = new Set((Array.isArray(unitUsers) ? unitUsers : []).map(u => String(u.id)));
+  const known = new Set((Array.isArray(unitUsers) ? unitUsers : []).filter(u => u.editable).map(u => String(u.id)));
   view.querySelectorAll('.unit-chip-user').forEach(btn => {
     btn.addEventListener('click', () => {
       if (known.has(btn.dataset.uid)) openUserEditModal(Number(btn.dataset.uid));
@@ -10839,7 +10872,7 @@ const MODAL_CLOSERS = {
   tdyLeaveModal: () => closeTdyLeaveModal(), historyModal: () => closeHistory(),
   dutyModal: () => closeDutyRoster(), listEditModal: () => closeListEdit(),
   rotationModal: () => closeRotationModal(),
-  confirmModal: () => settleConfirm(false), userMgmtModal: () => closeUserMgmt(),
+  confirmModal: () => settleConfirm(false),
   personDetailsModal: () => closePersonDetails(), inviteModal: () => closeInviteModal(),
   inviteLinkModal: () => closeInviteLinkModal(), userEditModal: () => closeUserEdit(),
   resetConfirmModal: () => closeResetConfirm(), restoreModal: () => closeRestoreModal(),
@@ -12391,56 +12424,72 @@ function goHome() {
   loadHome();
 }
 
-// ─── People & invites ───
+// ─── Settings → Access ───
 let editingUserId = null;
 let editingUserRole = null;   // the role the row had when the modal opened
-// Whether the edit-access modal was opened over the all-people modal (rather
-// than from a unit row), which is where Cancel and Save have to put it back.
-let userEditCameFromMgmt = false;
 
-async function openUserMgmt() {
-  document.getElementById('userMgmtModal').classList.add('active');
-  await refreshUserList();
+// Settings → Access. Every account in the organization, read-only outside the
+// caller's subtree: GET /api/users says per row whether it is `editable`, by the
+// same rules PUT /api/users/<id> enforces. null until loaded, ACCESS_FAILED on
+// a failed fetch — see accessLoadState().
+let accessUsers = null;
+let accessQuery = '';
+
+function accessPageOpen() {
+  return document.body.classList.contains('settings-active') && settingsSection === 'people';
+}
+
+async function loadAccessPage() {
+  renderAccessUsers();
+  const users = await api('GET', '/users');
+  if (!accessPageOpen()) return;
+  accessUsers = users || ACCESS_FAILED;
+  renderAccessUsers();
   await refreshInviteList();
 }
-function closeUserMgmt() { document.getElementById('userMgmtModal').classList.remove('active'); }
 
-async function refreshUserList() {
-  const users = await api('GET', '/users');
-  if (!users) return;
-  const wrap = document.getElementById('userListWrap');
-  if (!users.length) {
-    wrap.innerHTML = '<p class="modal-empty">No one yet. Create an invite link below to add someone.</p>';
-    return;
-  }
-  const isOwner = !!(currentUser && currentUser.role === 'owner');
-  wrap.innerHTML = users.map(u => {
-    const isSelf = currentUser && u.id === currentUser.id;
-    const rawLabel = u.full_name || u.username;
-    const label = escapeHtml(rawLabel);
-    // Clerk sets username to the email address for email sign-ups, which
-    // rendered as "someone@gmail.com • @someone@gmail.com". Only show the
-    // handle when it actually says something the line above does not.
-    const handle = u.username && u.username !== u.full_name && u.username !== u.email
-      ? `@${u.username}` : '';
+// Pure (tests/test_access_ux_js.py runs it under node). The rows arrive in
+// unit-tree order, so a group is a run of one unit_id.
+function accessUsersHtml(users, query, selfId, isOwner) {
+  const q = String(query || '').trim().toLowerCase();
+  const shown = q ? users.filter(u => [u.full_name, u.username, u.email, u.unit_name]
+    .some(v => String(v || '').toLowerCase().includes(q))) : users;
+  if (!shown.length) return `<p class="modal-empty">${q ? 'No account matches that search.' : 'No one yet.'}</p>`;
+  let lastUnit;
+  return shown.map(u => {
+    const head = u.unit_id !== lastUnit ? `<div class="access-group">${escapeHtml(u.unit_name || '')}</div>` : '';
+    lastUnit = u.unit_id;
+    const isSelf = selfId != null && u.id === selfId;
+    const label = escapeHtml(u.full_name || u.username);
+    // Clerk sets username to the email address for email sign-ups; only show
+    // the handle when it says something the email does not.
+    const handle = u.username && u.username !== u.full_name && u.username !== u.email ? `@${u.username}` : '';
     const meta = [u.email, handle].filter(Boolean).join(' • ');
-    const unit = unitLabel(unitById(u.unit_id));
-    const badges = unit
-      ? `<span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(unit)} \u00b7 ${escapeHtml(u.role || '')}</span>`
-      : `<span style="color:var(--cp-muted);font-size:0.78em">No access</span>`;
-    return `<div class="user-row">
+    const role = u.role === 'owner' ? 'Owner' : 'Leader';
+    return `${head}<div class="user-row">
       <div class="user-row-name-block">
-        <div class="user-row-name">${label}${isSelf ? ' <span style="color:var(--cp-muted);font-size:0.72em">(you)</span>' : ''}</div>
+        <div class="user-row-name">${label}${isSelf ? ' <span class="access-you">(you)</span>' : ''}</div>
         ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
-      <div class="user-row-badges">${badges}</div>
-      <button class="row-icon-btn" onclick="openUserEditModal(${u.id})" title="Edit access" aria-label="Edit access for ${label}">${ICON_PENCIL}</button>
-      ${!isSelf && isOwner ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access">${ICON_REMOVE}</button>` : ''}
+      <div class="user-row-badges"><span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${role}</span></div>
+      ${u.editable ? `<button class="row-icon-btn access-edit-btn" data-uid="${u.id}" title="Edit access" aria-label="Edit access for ${label}">${ICON_PENCIL}</button>` : ''}
+      ${u.editable && isOwner && !isSelf ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access for ${label}">${ICON_REMOVE}</button>` : ''}
     </div>`;
   }).join('');
-  // Attach delete handlers here instead of inline onclick — user display names
-  // must never be interpolated into executable attributes.
-  const byId = Object.fromEntries(users.map(u => [String(u.id), u]));
+}
+
+function renderAccessUsers() {
+  const wrap = document.getElementById('accessUserList');
+  if (!wrap) return;
+  const state = accessLoadState(accessUsers);
+  if (state === 'pending') { wrap.innerHTML = '<p class="modal-empty">Loading…</p>'; return; }
+  if (state === 'failed') { wrap.innerHTML = '<p class="modal-empty">Couldn’t load accounts.</p>'; return; }
+  const isOwner = !!(currentUser && currentUser.role === 'owner');
+  wrap.innerHTML = accessUsersHtml(accessUsers, accessQuery, currentUser && currentUser.id, isOwner);
+  // Handlers by id, never inline: display names must not reach executable attributes.
+  const byId = Object.fromEntries(accessUsers.map(u => [String(u.id), u]));
+  wrap.querySelectorAll('.access-edit-btn').forEach(btn =>
+    btn.addEventListener('click', () => openUserEditModal(Number(btn.dataset.uid))));
   wrap.querySelectorAll('.user-del-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const u = byId[btn.dataset.uid];
@@ -12503,7 +12552,8 @@ function renderAccessReach(unitSelectId, targetId) {
 async function refreshInviteList() {
   const invites = await api('GET', '/invites');
   const wrap = document.getElementById('inviteListWrap');
-  if (!invites) return;
+  if (!wrap) return;
+  if (!invites) { wrap.innerHTML = '<p class="modal-empty">Couldn’t load invites.</p>'; return; }
   const pending = invites.filter(i => i.status === 'pending');
   if (!pending.length) {
     wrap.innerHTML = '<p class="modal-empty">No open invites. Create one to let someone sign up.</p>';
@@ -12539,13 +12589,11 @@ function openInviteModal() {
   unitSel.innerHTML = accessUnitOptions(currentUnit ? currentUnit.id : (currentUser && currentUser.unit_id));
   syncRoleSelect('invUnit', 'invRole', 'leader');
   document.getElementById('inviteError').style.display = 'none';
-  document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('inviteModal').classList.add('active');
 }
 
 function closeInviteModal() {
   document.getElementById('inviteModal').classList.remove('active');
-  document.getElementById('userMgmtModal').classList.add('active');
 }
 
 async function createInvite() {
@@ -12561,7 +12609,6 @@ async function createInvite() {
     errEl.textContent = (result && result.error) || 'Error creating invite.'; errEl.style.display = 'block'; return;
   }
   document.getElementById('inviteModal').classList.remove('active');
-  await refreshInviteList();
   await refreshAccessViews();
   document.getElementById('inviteLinkValue').value = result.url;
   document.getElementById('inviteLinkModal').classList.add('active');
@@ -12569,7 +12616,6 @@ async function createInvite() {
 
 function closeInviteLinkModal() {
   document.getElementById('inviteLinkModal').classList.remove('active');
-  document.getElementById('userMgmtModal').classList.add('active');
 }
 
 function copyInviteLink(btn) {
@@ -12580,14 +12626,11 @@ async function revokeInvite(token) {
   if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
   const result = await api('DELETE', `/invites/${token}`);
   if (result && result.error) { showToast(result.error); return; }
-  // Only repaint the modal's list when the modal is actually on screen.
-  if (document.getElementById('userMgmtModal').classList.contains('active')) await refreshInviteList();
   await refreshAccessViews();
 }
 
 async function openUserEditModal(userId) {
   editingUserId = userId;
-  userEditCameFromMgmt = document.getElementById('userMgmtModal').classList.contains('active');
   document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
   document.getElementById('userEditUsername').disabled = false;
@@ -12609,7 +12652,13 @@ async function openUserEditModal(userId) {
     // is theirs: the browser would select the first one and Save would move them
     // there without anyone choosing it. Say so and take Save away instead. A
     // null unit_id is different — that is someone to attach, so offer the list.
-    if (u.unit_id != null && !unitById(u.unit_id)) {
+    if (!u.editable) {
+      // The server would refuse the save, so do not offer one.
+      errEl.textContent = u.role === 'owner' ? 'Only an owner can change an owner.'
+        : "This user's unit is outside your view; ask an owner to move them.";
+      errEl.style.display = 'block';
+      saveBtn.disabled = true;
+    } else if (u.unit_id != null && !unitById(u.unit_id)) {
       errEl.textContent = "This user's unit is outside your view; ask an owner to move them.";
       errEl.style.display = 'block';
       saveBtn.disabled = true;
@@ -12619,13 +12668,11 @@ async function openUserEditModal(userId) {
       renderAccessReach('userUnit', 'userReach');
     }
   }
-  document.getElementById('userMgmtModal').classList.remove('active');
   document.getElementById('userEditModal').classList.add('active');
 }
 
 function closeUserEdit() {
   document.getElementById('userEditModal').classList.remove('active');
-  if (userEditCameFromMgmt) document.getElementById('userMgmtModal').classList.add('active');
 }
 
 async function saveUserEdit() {
@@ -12652,21 +12699,20 @@ async function saveUserEdit() {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;
   }
   closeUserEdit();
-  if (userEditCameFromMgmt) await refreshUserList();
   await refreshAccessViews();
 }
 
-// Access is shown on the Units page as well as in this modal, so every write
-// to it has to redraw that page when it is the one the user is looking at.
+// Access is shown on the Units page and on Settings → Access, so every write
+// to it has to redraw whichever of the two the user is looking at.
 async function refreshAccessViews() {
   if (document.body.classList.contains('units-active')) await refreshUnitsPage();
+  if (accessPageOpen()) await loadAccessPage();
 }
 
 async function deleteUser(userId, username) {
   if (!await confirmDialog(`Remove app access for "${username}"?`, 'Their Clerk account will stay active.', 'Remove')) return;
   const result = await api('DELETE', `/users/${userId}`);
   if (result && result.error) { showToast(result.error); return; }
-  await refreshUserList();
   await refreshAccessViews();
 }
 
@@ -12701,7 +12747,6 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('DOMContentLoaded', () => {
   // These modals are defined after this script tag, so wait for the DOM.
-  document.getElementById('userMgmtModal').addEventListener('click', function(e) { if (e.target === this) closeUserMgmt(); });
   document.getElementById('userEditModal').addEventListener('click', function(e) { if (e.target === this) closeUserEdit(); });
   document.getElementById('inviteModal').addEventListener('click', function(e) { if (e.target === this) closeInviteModal(); });
   document.getElementById('inviteLinkModal').addEventListener('click', function(e) { if (e.target === this) closeInviteLinkModal(); });
@@ -12975,28 +13020,6 @@ initApp();
 </script>
 
 </div><!-- end #platoonScreen -->
-
-<!-- User Management Modal (global — works from any screen) -->
-<div class="modal-overlay" id="userMgmtModal">
-  <div class="modal modal-wide" role="dialog" aria-modal="true">
-    <h2>People &amp; invites</h2>
-    <p class="modal-sub">Who can sign in, and which unit they lead.</p>
-    <div class="modal-section">
-      <div class="modal-section-head"><h3>People</h3></div>
-      <div id="userListWrap" class="user-list"></div>
-    </div>
-    <div class="modal-section">
-      <div class="modal-section-head">
-        <h3>Open invites</h3>
-        <button class="btn-small btn-add" onclick="openInviteModal()">New invite</button>
-      </div>
-      <div id="inviteListWrap" class="invite-list"></div>
-    </div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-cancel" onclick="closeUserMgmt()">Close</button>
-    </div>
-  </div>
-</div>
 
 <!-- Person Details Modal (global — opened from the directory's ⋯ menu) -->
 <div class="modal-overlay" id="personDetailsModal">

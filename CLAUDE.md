@@ -614,6 +614,22 @@ and the route genuinely cannot tell it from one that was never there. The two
 `/api/users/<id>` routes are the exception and answer 404 either way: a user
 row is an account, and 403 would confirm which ids are real accounts.
 
+**Accounts are the one org-wide read.** `GET /api/users` lists every attached
+account in the caller's tenant (RLS still bounds it; `clerk_user_id != ''`
+and `unit_id IS NOT NULL` still apply), in unit-tree order, so anyone
+attached can see who leads which unit across the whole organization. Each
+row carries `editable` — `can_access(unit_id)`, and an owner's row only for
+an owner — mirroring `update_user()`'s gates so the UI never offers an edit
+the server would refuse. Writes did not widen: `PUT`/`DELETE
+/api/users/<id>` are gated exactly as before. Soldiers and everything else
+(personnel, absences, duty, reports, availability, audit) stay
+subtree-scoped, and so do invites (`GET /api/invites`) — they are
+credentials. The list is Settings → Access (`/<unit>/settings/people`,
+`loadAccessPage()` / `accessUsersHtml()`), a settings section, not a modal;
+edit and remove buttons appear only on `editable` rows. Any other caller of
+`/api/users` that means "people I can manage" must filter on `editable`
+(the Units page's leader chips do).
+
 **Roles** are `owner` and `leader`. Both see and edit their whole subtree
 (roster, absences, duty, reports, availability, audit log, backup export,
 creating/renaming/deleting empty units, inviting leaders, editing users)

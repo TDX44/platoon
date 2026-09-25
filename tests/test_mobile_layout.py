@@ -242,16 +242,18 @@ ADMIN_FIXTURE = {
 }
 
 # Leader chips on the Units page, one of them on a deep unit.
+# GET /api/users is the whole organization, each row saying whether the
+# caller may change it. The one read-only row is a stranger unit's leader.
 USERS_FIXTURE = [
-    USER_FIXTURE,
+    {**USER_FIXTURE, 'editable': True},
     {'id': 2, 'username': 'ray.leader', 'email': 'ray@example.invalid',
      'full_name': 'SSG Ray Fixtureton', 'unit_id': 3, 'unit_name': '2nd Platoon',
      'unit_slug': '2nd-platoon', 'role': 'leader', 'root_id': ROOT_UNIT_ID,
-     'timezone': APP_TZ, 'needs_unit': False},
+     'timezone': APP_TZ, 'needs_unit': False, 'editable': True},
     {'id': 3, 'username': 'nia.leader', 'email': 'nia@example.invalid',
      'full_name': 'SGT Nia Placeholder-Sampleford', 'unit_id': 4, 'unit_name': 'Alpha Squad',
      'unit_slug': 'alpha-squad', 'role': 'leader', 'root_id': ROOT_UNIT_ID,
-     'timezone': APP_TZ, 'needs_unit': False},
+     'timezone': APP_TZ, 'needs_unit': False, 'editable': False},
 ]
 
 # Invite chips: one long label with a Copy/Revoke pair, one owner invite.
@@ -700,6 +702,19 @@ def check_settings(page, width):
         check_no_horizontal_overflow(page, width, f'settings/{section}')
         if width < 900:
             check_tap_targets(page, width, '#settingsTabs .settings-tab', f'settings/{section} tabs')
+    # Access is a real page: every account, grouped by unit, with controls
+    # only on the rows the caller may change.
+    page.evaluate("(async () => { openSettings(true, 'people'); await loadAccessPage(); })()")
+    page.wait_for_selector('#accessUserList .user-row')
+    rows = page.evaluate("document.querySelectorAll('#accessUserList .user-row').length")
+    assert rows == len(USERS_FIXTURE), f'access @ {width}px: {rows} account rows for {len(USERS_FIXTURE)} accounts'
+    edits = page.evaluate("document.querySelectorAll('#accessUserList .access-edit-btn').length")
+    assert edits == 2, f'access @ {width}px: {edits} edit buttons, want one per editable row'
+    assert page.evaluate("location.pathname.endsWith('/settings/people')"), f'access @ {width}px: wrong URL'
+    check_no_horizontal_overflow(page, width, 'settings/people (loaded)')
+    check_nothing_clips_inside(page, width, '#accessUserList .user-row', 'access rows')
+    if width < 900:
+        check_tap_targets(page, width, '#accessUserList .row-icon-btn', 'access row buttons')
     # Personal pages come from the account menu: the main nav stays, no tabs.
     for section in PERSONAL_SECTIONS:
         page.evaluate(f"goToSettings('{section}')")

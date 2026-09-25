@@ -1,7 +1,7 @@
 """Manage Access on the unit tree — run with: python tests/test_user_admin.py
 
-Who a leader may see and change is their own subtree; who an owner may see is
-the whole root. A user in a second tree is not a 403 but a 404: row-level
+Every attached account may read the whole organization's account list; what
+a leader may change is their own subtree, and an owner's row is owner-only. A user in a second tree is not a 403 but a 404: row-level
 security hides the row, so the route cannot tell it apart from one that was
 never there.
 """
@@ -44,15 +44,29 @@ def usernames(client):
     return {u['username'] for u in client.get('/api/users').get_json()}
 
 
-def test_listing_is_the_callers_subtree():
+def test_listing_is_the_whole_org_with_editable_flags():
+    """Accounts are readable org-wide; only rows the caller could actually
+    change carry editable, and a second tree never appears at all."""
     c = server.app.test_client()
     dbharness.as_user(LEADER)
-    names = usernames(c)
-    assert names == {'sarge'}, f'a leader lists only the users inside their own subtree: {names}'
+    rows = c.get('/api/users').get_json()
+    names = [u['username'] for u in rows]
+    assert set(names) == {'boss', 'sarge'}, f'a leader lists every account in the organization: {names}'
+    assert names == ['boss', 'sarge'], f'rows come in unit-tree order, root first: {names}'
+    editable = {u['username']: u['editable'] for u in rows}
+    assert editable == {'boss': False, 'sarge': True}, \
+        f'a leader may edit only inside their subtree, never an owner: {editable}'
+    assert 'phone' not in rows[0], 'the listing grew PII it did not carry before'
+    # Read-only really is read-only: the server still refuses the write.
+    r = c.put(f"/api/users/{OWNER['id']}", json={'username': 'x'})
+    assert r.status_code == 404, f'a row outside the subtree is still not editable: {r.get_json()}'
+    assert c.delete(f"/api/users/{OWNER['id']}").status_code == 403, 'a leader still may not delete'
+
     dbharness.as_user(OWNER)
-    names = usernames(c)
-    assert names == {'boss', 'sarge'}, f'an owner lists everyone attached in the root: {names}'
-    assert 'stranger' not in names, f'a user in a second tree never appears: {names}'
+    rows = c.get('/api/users').get_json()
+    assert {u['username'] for u in rows} == {'boss', 'sarge'}, rows
+    assert all(u['editable'] for u in rows), f'an owner may edit everyone in the root: {rows}'
+    assert 'stranger' not in {u['username'] for u in rows}, 'a user in a second tree never appears'
 
 
 def test_a_local_only_account_is_never_listed():
@@ -152,7 +166,7 @@ def test_deleting_a_user_is_owner_only():
 
 def main():
     try:
-        test_listing_is_the_callers_subtree()
+        test_listing_is_the_whole_org_with_editable_flags()
         test_a_local_only_account_is_never_listed()
         test_moving_and_promoting_a_user()
         test_an_owners_row_is_owner_only_and_the_root_keeps_one()
