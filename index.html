@@ -6362,15 +6362,21 @@ function formationQueue(people, todayStr) {
   return { queue: queue.sort(rankSort), known: known.sort(rankSort) };
 }
 
-function startFormation() {
+async function startFormation() {
   if (!currentUnit) return;
+  closeDashMenus();
+  // The queue is "unaccounted today", so it must be built from today's roster,
+  // not from whatever was loaded before midnight or before someone else's edit.
+  const unitId = currentUnit.id;
+  await load();
+  if (!currentUnit || currentUnit.id !== unitId || personnelUnitId !== unitId) return;
+  if (document.body.classList.contains('formation-active')) return;   // double tap
   const split = formationQueue(personnel, getTodayStr());
   formation = {
     ids: split.queue.map(p => p.id),
     known: split.known.map(p => p.id),
     i: 0, asking: false, busy: false
   };
-  closeDashMenus();
   document.body.classList.add('formation-active');
   renderFormation();
 }
@@ -11644,6 +11650,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('popstate', () => {
+  // Formation is an overlay, not a route: Back must not leave it sitting over
+  // whatever page the popped URL opens underneath.
+  exitFormation();
   // The billing screen pushes no history, so the entry Back pops is the page
   // the user was already on and every branch below would leave #platoonScreen
   // hidden underneath it. routeAfterLogin() is the one path that re-shows a
