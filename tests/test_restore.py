@@ -434,6 +434,94 @@ def test_a_username_owned_by_another_tree_is_skipped_not_fatal():
         'the rest of the file must still land after a skipped user')
 
 
+def test_another_organizations_export_restores_while_it_still_exists():
+    """personnel and scheduled_events ids are global primary keys. Restoring
+    org A's export into org B while A still holds those ids used to raise
+    UniqueViolation and 500; the rows now land on fresh ids, with every
+    dependent row following its soldier to the new one."""
+    a = dbharness.make_tree('Source Co')
+    seed_data(a)
+    a_before = count_rows(a['root'])
+    c = server.app.test_client()
+    dbharness.as_user(dbharness.make_user(a['root'], 'owner'))
+    exported = c.get('/api/backup').get_json()
+
+    b = dbharness.make_tree('Target Co')
+    dbharness.as_user(dbharness.make_user(b['root'], 'owner'))
+    # The export's slugs are A's; B's own units have their own. Point the file
+    # at B's tree the way an owner copying one company into another would.
+    exported['units'] = []
+    for table in ('personnel', 'scheduled_events', 'duty_roster', 'report_history', 'settings'):
+        for row in exported[table]:
+            if row.get('unit'):
+                row['unit'] = b['child_slug']
+    exported['users'] = []
+    r = c.post('/api/backup/restore', json=exported)
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['personnel'] == 2 and r.get_json()['skipped_rows'] == 0, r.get_json()
+    assert count_rows(a['root']) == a_before, 'the source organization must be untouched'
+
+    conn = dbharness.owner_conn()
+    try:
+        people = {r['id'] for r in conn.execute(
+            'SELECT id FROM personnel WHERE root_id = %s', (b['root'],)).fetchall()}
+        a_people = {r['id'] for r in conn.execute(
+            'SELECT id FROM personnel WHERE root_id = %s', (a['root'],)).fetchall()}
+        linked = {t: {r['person_id'] for r in conn.execute(
+            f'SELECT person_id FROM {t} WHERE root_id = %s', (b['root'],)).fetchall()}
+            for t in ('personnel_profile', 'scheduled_events', 'duty_roster')}
+    finally:
+        conn.close()
+    assert len(people) == 2 and not people & a_people, (people, a_people)
+    for table, pids in linked.items():
+        assert pids == people, f"{table} rows must follow their soldier to B's ids: {pids} vs {people}"
+    # ...and the same file a second time is still fine (the ids are B's now).
+    assert c.post('/api/backup/restore', json=exported).status_code == 200
+
+
+def test_a_restore_refuses_values_the_app_itself_would_refuse():
+    """The file is user input. A role that is not a role, a zone that is not a
+    zone and a status that is not a status each drop their own row."""
+    t = dbharness.make_tree('Strict Co')
+    dbharness.as_user(dbharness.make_user(t['root'], 'owner'))
+    c = server.app.test_client()
+    r = c.post('/api/backup/restore', json={
+        'version': 3,
+        'units': [],
+        'personnel': [
+            {'id': 91001, 'rank': 'SGT', 'last': 'Fine', 'first': 'A', 'status': 'leave',
+             'unit': t['child_slug']},
+            {'id': 91002, 'rank': 'SGT', 'last': 'Junk', 'first': 'B', 'status': 'x"><img src=x>',
+             'unit': t['child_slug']},
+        ],
+        'personnel_profile': [{'person_id': 91002, 'phone': '1'}],
+        'settings': [{'unit': None, 'key': 'org_timezone', 'value': 'Mars/Olympus_Mons'}],
+        'users': [
+            {'username': 'wizard', 'clerk_user_id': 'clerk_wizard', 'unit': t['child_slug'], 'role': 'god'},
+            {'username': 'lowowner', 'clerk_user_id': 'clerk_lowowner', 'unit': t['child_slug'],
+             'role': 'owner'},
+            {'username': 'okleader', 'clerk_user_id': 'clerk_okleader', 'unit': t['child_slug'],
+             'role': 'leader'},
+        ],
+    })
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body['personnel'] == 1, body
+    # Junk, Junk's profile, the bad zone.
+    assert body['skipped_rows'] == 3, body
+    assert sorted(body['skipped_users']) == ['lowowner', 'wizard'], body
+    conn = dbharness.owner_conn()
+    try:
+        tz = conn.execute("SELECT value FROM settings WHERE root_id = %s AND unit_id IS NULL "
+                          "AND key = 'org_timezone'", (t['root'],)).fetchone()['value']
+        roles = {r['username']: r['role'] for r in conn.execute(
+            'SELECT username, role FROM users WHERE root_id = %s', (t['root'],)).fetchall()}
+    finally:
+        conn.close()
+    assert tz == 'America/Chicago', f'a bad zone replaced the stored one: {tz!r}'
+    assert roles.get('okleader') == 'leader' and 'wizard' not in roles and 'lowowner' not in roles, roles
+
+
 def main():
     try:
         test_export_is_scoped_to_the_callers_subtree()
@@ -445,6 +533,8 @@ def main():
         test_unknown_slugs_are_skipped_and_reported()
         test_dependents_of_a_skipped_person_are_skipped_too()
         test_a_username_owned_by_another_tree_is_skipped_not_fatal()
+        test_another_organizations_export_restores_while_it_still_exists()
+        test_a_restore_refuses_values_the_app_itself_would_refuse()
         print('ok')
     finally:
         dbharness.teardown(_SCHEMA)

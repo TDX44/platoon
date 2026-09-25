@@ -3830,15 +3830,17 @@ def import_backup():
     resync = set()
     skipped_units = set()
     skipped_rows = 0
-    # The explicit personnel ids this restore actually honoured. A dependent
-    # row's person_id is just a number out of the file, and personnel(id) is a
-    # *global* primary key: a profile or event whose person was skipped either
-    # aborts the whole restore on the foreign key, or — when that id happens to
-    # belong to another organization — lands on their soldier carrying our
-    # root_id, because referential integrity is checked outside the RLS
-    # policies. An id-less personnel row gets an id nobody in the file can name,
-    # so its dependents have nothing to attach to either.
-    restored_people = set()
+    # The file's personnel id -> the id that soldier actually got here. A
+    # dependent row's person_id is just a number out of the file, and
+    # personnel(id) is a *global* primary key: a profile or event whose person
+    # was skipped either aborts the whole restore on the foreign key, or — when
+    # that id happens to belong to another organization — lands on their
+    # soldier carrying our root_id, because referential integrity is checked
+    # outside the RLS policies. So dependents are only ever written through
+    # this map. An id-less personnel row gets an id nobody in the file can
+    # name, so its dependents have nothing to attach to either.
+    restored_people = {}
+    person_statuses = ('present',) + ABSENCE_STATUSES
 
     def unit_id_for(row):
         uid = existing.get(row.get('unit'))
@@ -3846,7 +3848,18 @@ def import_backup():
             skipped_units.add(row.get('unit'))
         return uid
 
-    def insert_rows(table, rows, drop=('unit',), keep_ids=None):
+    def insert_one(table, d):
+        cols = ', '.join(f'"{c}"' for c in d)
+        row = conn.execute(f'INSERT INTO {table} ({cols}) VALUES ({", ".join(["%s"] * len(d))}) '
+                           'ON CONFLICT DO NOTHING RETURNING id', tuple(d.values())).fetchone()
+        return row['id'] if row else None
+
+    def insert_rows(table, rows, drop=('unit',), id_map=None):
+        """The file's ids are kept where they are free, so an ordinary
+        restore round-trips every soldier's URL. Ids are global, though:
+        restoring one organization's export into another while the first
+        still holds them used to be a UniqueViolation and a 500. Such a row
+        now takes a fresh id instead, and id_map says which."""
         nonlocal skipped_rows
         allowed = columns_of(table)
         n = 0
@@ -3858,11 +3871,17 @@ def import_backup():
             d = {k: v for k, v in r.items() if k not in drop and k in allowed}
             d['unit_id'] = uid
             d['root_id'] = root_id
-            cols = ', '.join(f'"{c}"' for c in d)
-            conn.execute(f'INSERT INTO {table} ({cols}) VALUES ({", ".join(["%s"] * len(d))})',
-                         tuple(d.values()))
-            if keep_ids is not None and 'id' in d:
-                keep_ids.add(d['id'])
+            new_id = insert_one(table, d)
+            if new_id is None and 'id' in d:
+                d.pop('id')
+                new_id = insert_one(table, d)
+            if new_id is None:
+                # Only scheduled_events_dedupe gets here: the file repeats an
+                # absence it already holds.
+                skipped_rows += 1
+                continue
+            if id_map is not None and 'id' in r:
+                id_map[r['id']] = new_id
             n += 1
         if any('id' in r for r in rows):
             resync.add(table)
@@ -3878,13 +3897,23 @@ def import_backup():
         keep = []
         for r in rows:
             person_id = r.get('person_id')
-            if person_id in restored_people or (person_id is None and not required):
+            if person_id in restored_people:
+                keep.append(dict(r, person_id=restored_people[person_id]))
+            elif person_id is None and not required:
                 keep.append(r)
             else:
                 skipped_rows += 1
         return keep
 
-    n_people = insert_rows('personnel', payload.get('personnel', []), keep_ids=restored_people)
+    people = []
+    for r in payload.get('personnel', []):
+        # status is the display cache the roster renders; a value the app
+        # would never write drops the row (and so its dependents) here.
+        if r.get('status', 'present') in person_statuses:
+            people.append(r)
+        else:
+            skipped_rows += 1
+    n_people = insert_rows('personnel', people, id_map=restored_people)
     profile_cols = columns_of('personnel_profile')
     for r in attached(payload.get('personnel_profile', []), True):
         d = {k: v for k, v in r.items() if k in profile_cols}
@@ -3902,6 +3931,14 @@ def import_backup():
         if uid is None and s['key'] != TIMEZONE_KEY:
             continue
         value = s['value']
+        if s['key'] == TIMEZONE_KEY:
+            # Read on every request as the duty day's clock; a bad one would
+            # only ever fall back with a warning, so refuse it at the door.
+            try:
+                value = validate_timezone(value if isinstance(value, str) else '')[0]
+            except ValueError:
+                skipped_rows += 1
+                continue
         if s['key'] == LOGO_KEY:
             # A backup file is user input, so its logo goes through the same
             # gate a PUT does. One rotten value drops its own row and is
@@ -3933,7 +3970,10 @@ def import_backup():
         if u.get('username') == g.current_user['username']:
             continue
         uid = existing.get(u.get('unit'))
-        if uid is None or not u.get('clerk_user_id'):
+        role = u.get('role', 'leader')
+        # Same rules update_user applies: a real role, and owner only at the root.
+        if uid is None or not u.get('clerk_user_id') or role not in ROLES \
+                or (role == 'owner' and uid != root_id):
             skipped_users.append(u.get('username'))
             continue
         # users.username is unique across every tenant, and RLS hides the row
@@ -3948,7 +3988,7 @@ def import_backup():
                 'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role '
                 'RETURNING id',
                 (u['username'], PLACEHOLDER_PASSWORD_HASH, u['clerk_user_id'], u.get('email', ''),
-                 u.get('full_name', ''), uid, u.get('role', 'leader'), root_id)).fetchone()['id']
+                 u.get('full_name', ''), uid, role, root_id)).fetchone()['id']
             if u.get('billing_mode') in billing_rules.MODES or u.get('trial_ends_at'):
                 ceiling = extended_ceiling if u.get('extended_at') else trial_ceiling
                 # The floor matters as much as the ceiling: a missing or
@@ -3957,12 +3997,16 @@ def import_backup():
                 # NULL trial_started_at) and billing_state reads as a trial
                 # with TRIAL_DAYS left — for ever. A restored trial always has
                 # an end, and it is never later than a fresh one's.
+                #
+                # Only for an account that has no row yet. One that exists is
+                # the live record: overwriting it let a restore re-open a
+                # trial that had ended (any stored end below the ceiling),
+                # clear an extended_at so it could be bought again, or flip a
+                # 'billed' account the operator set back to 'default'.
                 conn.execute(
                     'INSERT INTO subscriptions (user_id, root_id, billing_mode, trial_started_at, trial_ends_at, extended_at) '
                     'VALUES (%s, %s, %s, %s, %s, %s) '
-                    'ON CONFLICT (user_id) DO UPDATE SET billing_mode = EXCLUDED.billing_mode, '
-                    'trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at, '
-                    'extended_at = EXCLUDED.extended_at, updated_at = now()',
+                    'ON CONFLICT (user_id) DO NOTHING',
                     (new_id, root_id, u.get('billing_mode') if u.get('billing_mode') in ('default', 'billed') else 'default',
                      _restored_stamp(u.get('trial_started_at'), ceiling),
                      _restored_stamp(u.get('trial_ends_at'), ceiling) or ceiling,

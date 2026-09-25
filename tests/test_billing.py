@@ -251,6 +251,16 @@ def set_sub(user_id, **cols):
         conn.close()
 
 
+def drop_sub(user_id):
+    """No billing row at all: what a restore sees for an account it creates."""
+    conn = dbharness.owner_conn()
+    try:
+        conn.execute('DELETE FROM subscriptions WHERE user_id = %s', (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def client_as(user):
     dbharness.as_user(user)
     return server.app.test_client()
@@ -990,13 +1000,27 @@ def test_backup_carries_the_trial_and_never_the_stripe_ids(fx):
     assert 'stripe' not in json.dumps(dump).lower(), 'a Stripe id or status reached the backup'
     # A leader's export has no users list at all (unchanged rule).
     assert 'users' not in client_as(leader).get('/api/backup').get_json()
-    # Restore into the same tree: the trial stamps come back, the Stripe columns are untouched.
-    set_sub(leader['id'], billing_mode='default', extended_at=None)
-    r = client_as(fx['a_owner']).post('/api/backup/restore', json=dump)
+    # Restore into the same tree: an account that already has a billing row
+    # keeps it exactly. Overwriting it let a hand-edited file re-open a trial
+    # that had ended, clear an extension so it could be bought again, or flip
+    # a 'billed' account back to 'default'.
+    set_sub(leader['id'], trial_ends_at=utcnow() - 2 * DAY)
+    before = sub_row(leader['id'])
+    edited = json.loads(json.dumps(dump))
+    eu = next(x for x in edited['users'] if x['username'] == 'alpha-leader')
+    eu.update(billing_mode='default', extended_at=None, trial_ends_at=(utcnow() + 10 * DAY).isoformat())
+    r = client_as(fx['a_owner']).post('/api/backup/restore', json=edited)
     assert r.status_code == 200, r.get_json()
     after = sub_row(leader['id'])
+    keep = ('billing_mode', 'trial_started_at', 'trial_ends_at', 'extended_at',
+            'stripe_subscription_id', 'stripe_status')
+    assert {k: after[k] for k in keep} == {k: before[k] for k in keep}, (before, after)
+    # A restore that creates the account's row takes the stamps off the file.
+    drop_sub(leader['id'])
+    assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
+    after = sub_row(leader['id'])
     assert after['billing_mode'] == 'billed' and after['extended_at'] == row['extended_at'], after
-    assert after['stripe_subscription_id'] == 'sub_A2' and after['stripe_status'] == 'active', 'restore must not touch Stripe columns'
+    assert after['stripe_subscription_id'] is None, 'restore must never write a Stripe column'
     # A file without the keys restores as before (no row is invented).
     conn = dbharness.owner_conn()
     try:
@@ -1024,6 +1048,7 @@ def test_a_restored_backup_cannot_comp_an_account(fx):
     u['billing_mode'] = 'comped'
     u['trial_started_at'] = (utcnow() + 1999 * DAY).isoformat()
     u['trial_ends_at'] = (utcnow() + 2000 * DAY).isoformat()
+    drop_sub(leader['id'])
     assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
     row = sub_row(leader['id'])
     assert row['billing_mode'] == 'default', 'a hand-edited backup comped the account'
@@ -1056,6 +1081,7 @@ def test_a_restored_row_always_has_a_trial_end(fx):
             u.pop('trial_ends_at', None)
         else:
             u['trial_ends_at'] = bad
+        drop_sub(leader['id'])
         assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200, bad
         row = sub_row(leader['id'])
         assert row is not None and row['trial_ends_at'] is not None, \
@@ -1071,6 +1097,7 @@ def test_a_restored_row_always_has_a_trial_end(fx):
     u['extended_at'] = (utcnow() - DAY).isoformat()
     u['trial_ends_at'] = (utcnow() + billing_rules.TRIAL_DAYS * DAY
                           + billing_rules.EXTENSION_DAYS * DAY - DAY).isoformat()
+    drop_sub(leader['id'])
     assert client_as(fx['a_owner']).post('/api/backup/restore', json=dump).status_code == 200
     row = sub_row(leader['id'])
     assert row['trial_ends_at'] > utcnow() + billing_rules.TRIAL_DAYS * DAY, \

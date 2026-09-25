@@ -718,10 +718,23 @@ tree (units matched by slug, created if absent); sequences are resynced
 after. `version: 1` and `version: 2` files are refused with a clear message —
 those predate per-tenant scoping, and anyone holding one restores it before
 the A1 migration, not after. If you change the schema, update both export and
-restore, and keep the `version` check working. An owner's `users` rows
+restore, and keep the `version` check working. **Row ids are global primary
+keys**, so a restore keeps the file's id where it is free (an ordinary
+round trip keeps every soldier's URL) and gives the row a fresh one where it
+is not — restoring one organization's export into another while the first
+still exists — and every dependent row (`personnel_profile`,
+`scheduled_events`, `duty_roster`) is written through the old->new personnel
+map, never with the file's number. The file is user input, so a `users` row
+whose role is not in `ROLES` (or is `owner` below the root) is skipped, an
+`org_timezone` that is not a real IANA zone and a personnel `status` that is
+not `present` or an absence drop their own row into `skipped_rows`, like the
+logo. An owner's `users` rows
 also carry `billing_mode`, `trial_started_at`, `trial_ends_at` and
-`extended_at` (optional keys; restore upserts a `subscriptions` row from
-them and never writes a Stripe column). The file is attacker-supplied, so
+`extended_at` (optional keys; restore creates a `subscriptions` row from
+them **only for an account that has none** — an existing row is the live
+record and is left exactly as it is, since overwriting it could re-open an
+ended trial, clear an extension or flip a `billed` account to `default` — and
+never writes a Stripe column). The file is attacker-supplied, so
 restore takes neither the comp switch nor an unbounded date off it: an
 incoming `'comped'` becomes `'default'` (only `'default'` and `'billed'` are
 accepted — comping is `billing_set_mode` behind `platform_admin_required`),
