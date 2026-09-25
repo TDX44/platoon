@@ -73,6 +73,7 @@ def main():
         extract(src, r'function statusBadge\(status\) \{.*?\n\}', 'statusBadge()'),
         extract(src, r'function csvCell\(v\) \{.*?\n\}', 'csvCell()'),
         extract(src, r'function bulkPresentSplit\(people, selectedIds\) \{.*?\n\}', 'bulkPresentSplit()'),
+        extract(src, r'function lastFirst\(p\) \{.*?\n\}', 'lastFirst()'),
         extract(src, r'function reportName\(p\) \{.*?\n\}', 'reportName()'),
         extract(src, r'function singleFlight\(fn\) \{.*?\n\}', 'singleFlight()'),
         extract(src, r'function absenceFormProblem\(status, from, to\) \{.*?\n\}', 'absenceFormProblem()'),
@@ -98,7 +99,8 @@ def main():
 
     assert out['mark'] == [1] and out['away'] == [2, 3], \
         f'bulk Present would end an absence: {out}'
-    assert out['reportName'] == '      Ash, ', repr(out['reportName'])
+    # No first name on file: 'Ash', not a dangling 'Ash, '.
+    assert out['reportName'] == '      Ash', repr(out['reportName'])
     # Nothing picked, or Leave/Pass with no end, cannot save; the rest can.
     p = out['problems']
     assert p[0] and p[1] and p[2], f'an unpicked status or an open-ended leave/pass saved: {p}'

@@ -166,8 +166,9 @@ def test_me_names_whoever_invited_you():
     make_invite(t, 'tok-who')
     user, err = sync('clerk_invited', 'invited@example.com', 'tok-who')
     assert err is None, err
-    # 'boss' has no users row at all, so the invite's own created_by stands.
-    assert me_for(user)['invited_by'] == 'boss', me_for(user)
+    # 'boss' has no users row at all — a script-minted invite, like the Clerk
+    # cutover's 'clerk-prod-cutover' — so nobody is named rather than a label.
+    assert me_for(user)['invited_by'] == '', me_for(user)
 
     # And when the inviter IS a local row with a real name, that name wins —
     # nobody wants to be told they were invited by "clerk_a1b2c3".

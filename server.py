@@ -1845,8 +1845,11 @@ def _invited_by(conn, u):
     if not u.get('root_id') or not u.get('clerk_user_id'):
         return ''
     row = conn.execute(
-        'SELECT COALESCE(NULLIF(usr.full_name, %s), i.created_by) AS name '
-        'FROM invites i LEFT JOIN users usr ON usr.username = i.created_by '
+        # Only a real account is named: an invite minted by a script (the
+        # Clerk cutover's 'clerk-prod-cutover') has no user row, and showing
+        # that label told an owner they were invited by a machine.
+        'SELECT COALESCE(NULLIF(usr.full_name, %s), usr.username) AS name '
+        'FROM invites i JOIN users usr ON usr.username = i.created_by '
         'WHERE i.accepted_by = %s ORDER BY i.accepted_at DESC LIMIT 1',
         ('', u['clerk_user_id'])).fetchone()
     return (row['name'] or '') if row else ''
@@ -2967,7 +2970,7 @@ def update_person(person_id):
         # Child rows follow the soldier so the subtree view and RLS cache stay true.
         conn.execute('UPDATE scheduled_events SET unit_id = %s WHERE person_id = %s', (moved_to, person_id))
         conn.execute('UPDATE duty_roster SET unit_id = %s WHERE person_id = %s', (moved_to, person_id))
-        log_action('PERSON_MOVE', f'{person["rank"]} {person["last"]}, {person["first"]}: unit {person["unit_id"]} -> {moved_to}', moved_to)
+        log_action('PERSON_MOVE', f'{_display_name(person)}: unit {person["unit_id"]} -> {moved_to}', moved_to)
     # Only the transition matters: apiUpdate() resends the current status on
     # every save, so a TDY soldier being marked present-for-today still PUTs
     # status='tdy' and must not have their absence closed.
@@ -2975,7 +2978,7 @@ def update_person(person_id):
         _end_running_absence(conn, person_id, app_today())
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
     if status != person['status']:
-        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {status}', person['unit_id'])
+        log_action('UPDATE_STATUS', f'{_display_name(person)}: {person["status"]} -> {status}', person['unit_id'])
     return jsonify(dict(row))
 
 
@@ -3214,7 +3217,7 @@ def update_profile(person_id):
         [*updates.values(), person_id]
     )
     row = conn.execute('SELECT * FROM personnel_profile WHERE person_id = %s', (person_id,)).fetchone()
-    log_action('UPDATE_PROFILE', f'{person["rank"]} {person["last"]}, {person["first"]}', person['unit_id'])
+    log_action('UPDATE_PROFILE', f'{_display_name(person)}', person['unit_id'])
     return jsonify(dict(row))
 
 
@@ -3459,6 +3462,14 @@ MAX_AVAILABILITY_DAYS = 366
 ENDED_TODAY_EXCLUSION = "NOT (state = 'completed' AND to_date = %s)"
 
 
+def _display_name(p):
+    """'SGT Last, First', or 'SGT Last' when no first name is on file (a roster
+    imported as surnames only) — never a dangling comma. index.html's
+    lastFirst() is the same rule."""
+    last, first = (p['last'] or '').strip(), (p['first'] or '').strip()
+    return f"{(p['rank'] or '').strip()} {last}{', ' + first if first else ''}".strip()
+
+
 def _absence_covers(row, day_str):
     """Does this absence window cover `day_str`?
 
@@ -3659,7 +3670,7 @@ def delete_person(person_id):
         return jsonify({'error': 'Not found'}), 404
     if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
-    log_action('DELETE_PERSON', f'{row["rank"]} {row["last"]}, {row["first"]}', row['unit_id'])
+    log_action('DELETE_PERSON', f'{_display_name(row)}', row['unit_id'])
     conn.execute('DELETE FROM scheduled_events WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel_profile WHERE person_id = %s', (person_id,))
     conn.execute('DELETE FROM personnel WHERE id = %s', (person_id,))
@@ -4031,7 +4042,7 @@ def propose_duty_rotation():
     for entry in proposal:
         if entry['date'] in existing:
             x = existing[entry['date']]
-            entry['existing'] = f'{x["rank"]} {x["last"]}, {x["first"]}'.strip()
+            entry['existing'] = f'{_display_name(x)}'.strip()
     tally = {}
     for pid, d in history:
         cat = duty_rotation.category(d, set(holidays), data.get('separate_weekends', True) is not False)
@@ -4696,7 +4707,7 @@ def _send_email(to, subject, text, html_body):
 
 
 def _who(p):
-    return f'{p["rank"] or ""} {p["last"] or ""}, {p["first"] or ""}'.strip()
+    return _display_name(p)
 
 
 def _render_email(title, sections, link):

@@ -220,6 +220,10 @@ def check_backup(client):
 
 
 def main():
+    # A surname-only roster must not read 'SGT Moreno,' in the email.
+    assert server._display_name({'rank': 'SGT', 'last': 'Moreno', 'first': ''}) == 'SGT Moreno'
+    assert server._display_name({'rank': 'SGT', 'last': 'Moreno', 'first': None}) == 'SGT Moreno'
+    assert server._display_name({'rank': 'SGT', 'last': 'Missing', 'first': 'One'}) == 'SGT Missing, One'
     try:
         client = server.app.test_client()
         check_gate(client)

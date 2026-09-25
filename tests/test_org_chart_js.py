@@ -225,18 +225,19 @@ def test_cards_show_todays_accountability(out):
     html = out['today']
     cols = html.split('<li class="org-node org-col">')
     top = cols[0]
-    # Rolled up the whole subtree: 23 present of 28, 4 unaccounted.
-    assert '<div class="platoon-card-count">23 / 28 present</div>' in top, top
+    # Rolled up the whole subtree: 28 assigned, 4 unaccounted, so 24 accounted —
+    # the roster's own headline, not the present count.
+    assert '<div class="platoon-card-count">24 / 28 accounted</div>' in top, top
     assert '<div class="platoon-card-unacc">4 unaccounted</div>' in top, top
-    assert '10 / 14 present' in cols[1] and '3 unaccounted' in cols[1], cols[1]
+    assert '11 / 14 accounted' in cols[1] and '3 unaccounted' in cols[1], cols[1]
     # Nobody unaccounted: no badge at all, rather than a "0 unaccounted".
-    assert '7 / 7 present' in cols[3] and 'platoon-card-unacc' not in cols[3], cols[3]
+    assert '7 / 7 accounted' in cols[3] and 'platoon-card-unacc' not in cols[3], cols[3]
     # Without the server's counts the card keeps the plain headcount.
-    assert '28 personnel' in out['three'] and 'present' not in out['three']
+    assert '28 personnel' in out['three'] and 'accounted' not in out['three']
     # Counts are numbers, never markup.
     hostile = out['todayHostile']
     assert 'alert(' not in hostile and '<b>' not in hostile, hostile
-    assert 'NaN / 3 present' in hostile, hostile
+    assert 'NaN / 3 accounted' in hostile, hostile
 
 
 def test_one_child_and_no_child_draw_no_bar(out):

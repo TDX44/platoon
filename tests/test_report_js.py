@@ -66,6 +66,7 @@ def run(cases, people=ROSTER):
         extract(src, r'function rankSort\(a, b\) \{.*?\n\}', 'rankSort()'),
         extract(src, r'function endDateSort\(a, b\) \{.*?\n\}', 'endDateSort()'),
         extract(src, r'function formatDateShort\(dateStr\) \{.*?\n\}', 'formatDateShort()'),
+        extract(src, r'function lastFirst\(p\) \{.*?\n\}', 'lastFirst()'),
         extract(src, r'function reportName\(p\) \{.*?\n\}', 'reportName()'),
         extract(src, r'const REPORT_LIST_NAMES_MAX = \d+;', 'REPORT_LIST_NAMES_MAX'),
         extract(src, r'function reportCategories\(splitLeavePass\) \{.*?\n\}', 'reportCategories()'),

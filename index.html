@@ -6570,7 +6570,7 @@ function availabilityRow(p, span) {
     `<span class="avail-part">${p.days.length} of ${span} days</span>`;
   const note = p.notes || p.location || '';
   return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
-      <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
+      <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))}</span>
       <span class="avail-why">${dashPill(p.status)}<span class="avail-meta">${availabilityWindow(p)}</span>${partial}</span>
       ${note ? `<span class="avail-note">${escapeHtml(note)}</span>` : ''}
     </div>`;
@@ -6578,7 +6578,7 @@ function availabilityRow(p, span) {
 
 function availabilityNameRow(p) {
   return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
-      <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
+      <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))}</span>
     </div>`;
 }
 
@@ -6825,8 +6825,15 @@ function formationTally() {
   return { total: roster.length, present, away, left: roster.length - present - away };
 }
 
+// "Last, First" — or just "Last" when no first name is on file (a roster
+// imported as surnames only), never a dangling comma.
+function lastFirst(p) {
+  const last = String(p.last ?? ''), first = String(p.first ?? '');
+  return first ? `${last}, ${first}` : last;
+}
+
 function formationName(p) {
-  return `${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
+  return `${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))}`;
 }
 
 // The card: rank and last name the way they are called out, first name
@@ -7313,7 +7320,7 @@ function detailRow(label, value, kind) {
 async function openPersonDetails(id) {
   const row = directoryRows.find(r => r.id === id) || personnel.find(p => p.id === id);
   if (!row) return;
-  const name = `${row.rank} ${row.last}, ${row.first}`;
+  const name = `${row.rank} ${lastFirst(row)}`;
   document.getElementById('personDetailsTitle').textContent = name;
   document.getElementById('personDetailsBody').innerHTML = '<div class="dash-section-empty">Loading…</div>';
   document.getElementById('personDetailsPageBtn').onclick = () => { closePersonDetails(); openSoldierPage(id); };
@@ -7376,7 +7383,7 @@ function renderDirectory() {
     // data-label feeds the phone card layout, where each cell renders its own
     // heading because the table header is not on screen.
     return `<tr onclick="openSoldierPage(${r.id})" onkeydown="clickOnKey(event)" tabindex="0">
-      <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
+      <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(lastFirst(r))}</td>
       ${showUnit ? `<td data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
       <td data-label="Status">${statusText(r.status)}</td>
       <td data-label="Return">${ret}</td>
@@ -7660,7 +7667,7 @@ function renderSoldierPage() {
     <div class="soldier-hero">
       <div class="soldier-avatar">${soldierInitials(p)}</div>
       <div class="soldier-hero-main">
-        <div class="soldier-hero-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)} ${dashPill(p.status)}</div>
+        <div class="soldier-hero-name">${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))} ${dashPill(p.status)}</div>
         <div class="soldier-hero-sub">${escapeHtml(unitLabel(unitById(p.unit_id) || currentUnit))}</div>
       </div>
       <div class="soldier-hero-actions">
@@ -8138,7 +8145,7 @@ function dashCheckbox(p) {
 }
 
 function dashName(p, i, extra = '') {
-  const nm = `${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
+  const nm = `${escapeHtml(lastFirst(p))}`;
   return `<div class="dash-row-name" onclick="openSoldierPage(${p.id})" onkeydown="openSoldierPageFromKey(event, ${p.id})" role="button" tabindex="0" title="Open ${escapeHtml(p.rank)} ${nm}">${nm}${extra}</div>`;
 }
 
@@ -8303,7 +8310,7 @@ function markPresent(i) {
 async function removePerson(i) {
   const p = personnel[i];
   if (!p) return;
-  if (!await confirmDialog(`Remove ${p.rank} ${p.last}, ${p.first}?`, '', 'Remove')) return;
+  if (!await confirmDialog(`Remove ${p.rank} ${lastFirst(p)}?`, '', 'Remove')) return;
   const res = await api('DELETE', `/personnel/${p.id}`);
   if (!res || res.error) return;
   // By id: the roster may have reloaded while the dialog was open.
@@ -8707,7 +8714,7 @@ function openTdyLeave(i) {
   syncAbsenceEditMode();   // restores anything the edit mode hid
   resetRepeat();
   const p = personnel[i];
-  document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
+  document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${lastFirst(p)}`;
 
   // A present soldier opens with nothing picked: the leader has to choose,
   // rather than saving a TDY nobody meant because it was preselected.
@@ -9297,7 +9304,7 @@ function previewLineImport() {
   errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
   table.innerHTML = parsed.length
     ? '<tr><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Rank</th><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Name</th></tr>'
-      + parsed.map(p => `<tr><td>${escapeHtml(p.rank)}</td><td>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</td></tr>`).join('')
+      + parsed.map(p => `<tr><td>${escapeHtml(p.rank)}</td><td>${escapeHtml(lastFirst(p))}</td></tr>`).join('')
     : '';
   btn.disabled = parsed.length === 0;
   btn.textContent = `Add ${parsed.length} to Roster`;
@@ -9319,7 +9326,7 @@ async function confirmImport() {
     if (!newPerson || !newPerson.id) {
       // Stopping is right — the rest of the list is unverified — but stopping
       // without saying so is how half an import looked like a whole one.
-      showToast(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
+      showToast(`Stopped at ${r.rank} ${lastFirst(r)}: ` +
             `${(newPerson && newPerson.error) || 'the server refused it.'} ` +
             'Everyone before this was added.');
       break;
@@ -9343,7 +9350,7 @@ function formatDate(d) {
 // One soldier's name column in a text report. Any field may be null on an
 // imported row, and a null rank must not throw halfway through the report.
 function reportName(p) {
-  return `${String(p.rank ?? '').padEnd(5)} ${p.last ?? ''}, ${p.first ?? ''}`;
+  return `${String(p.rank ?? '').padEnd(5)} ${lastFirst(p)}`;
 }
 
 // ─── Report options ───
@@ -9529,7 +9536,7 @@ function setReportOption(key, value) {
 async function reportUnaccountedOk() {
   const unaccounted = personnel.filter(isUnaccounted).sort(rankSort);
   if (!unaccounted.length) return true;
-  const names = unaccounted.map(p => `<li>${escapeHtml(`${p.rank} ${p.last}, ${p.first}`)}</li>`).join('');
+  const names = unaccounted.map(p => `<li>${escapeHtml(`${p.rank} ${lastFirst(p)}`)}</li>`).join('');
   const include = await confirmDialog(
     `${unaccounted.length} not yet accounted for`,
     `<p class="list-confirm-lead">They will be listed on an Unaccounted line in the report.</p>
@@ -9706,9 +9713,9 @@ function globalSearchResults(q, people, unitList, pages) {
   if (!term) return [];
   const has = (...fields) => fields.some(f => String(f || '').toLowerCase().includes(term));
   const out = [];
-  (people || []).filter(p => has(`${p.rank} ${p.first} ${p.last}`, `${p.last}, ${p.first}`, `${p.rank} ${p.last}`))
+  (people || []).filter(p => has(`${p.rank} ${p.first} ${p.last}`, `${lastFirst(p)}`, `${p.rank} ${p.last}`))
     .slice(0, SEARCH_LIMIT.people)
-    .forEach(p => out.push({ group: 'People', label: `${p.rank} ${p.last}, ${p.first}`, hint: STATUS_LABELS_SEARCH[p.status] || '', kind: 'person', id: p.id }));
+    .forEach(p => out.push({ group: 'People', label: `${p.rank} ${lastFirst(p)}`, hint: STATUS_LABELS_SEARCH[p.status] || '', kind: 'person', id: p.id }));
   (unitList || []).filter(u => has(u.name, u.slug))
     .slice(0, SEARCH_LIMIT.units)
     .forEach(u => out.push({ group: 'Units', label: u.name, hint: kindLabel(u.kind), kind: 'unit', id: u.id }));
@@ -10129,7 +10136,7 @@ function renderDutyPersonOptions() {
     // in the picker rather than only after the entry is saved.
     const conflict = dutyConflicts[String(p.id)];
     const away = conflict ? ` — ${conflict.label}` : '';
-    return `<option value="${p.id}">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}${escapeHtml(away)}</option>`;
+    return `<option value="${p.id}">${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))}${escapeHtml(away)}</option>`;
   }).join('');
   if (keep) select.value = keep;
 }
@@ -10228,7 +10235,7 @@ function openRotationModal() {
   document.getElementById('rotFrom').value = from;
   document.getElementById('rotTo').value = addDaysStr(from, 13);
   document.getElementById('rotPool').innerHTML = [...personnel].sort(rankSort).map(p =>
-    `<label><input type="checkbox" value="${p.id}" checked> ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</label>`).join('')
+    `<label><input type="checkbox" value="${p.id}" checked> ${escapeHtml(p.rank)} ${escapeHtml(lastFirst(p))}</label>`).join('')
     || '<div class="duty-meta">No personnel loaded</div>';
   rotationData = null;
   renderRotationProposal();
@@ -10283,7 +10290,7 @@ function renderRotationProposal() {
     }
     const options = ['<option value="">— nobody —</option>'].concat(pool.map(p => {
       const away = rotationData.away[e.date] && rotationData.away[e.date][String(p.id)] ? ' — away' : '';
-      return `<option value="${p.id}"${p.id === e.person_id ? ' selected' : ''}>${escapeHtml(`${p.rank} ${p.last}, ${p.first}${away}`)}</option>`;
+      return `<option value="${p.id}"${p.id === e.person_id ? ' selected' : ''}>${escapeHtml(`${p.rank} ${lastFirst(p)}${away}`)}</option>`;
     })).join('');
     const warn = rotationWarn(e);
     return `<div class="duty-row rot-row"><div><div class="duty-title">${when}</div>
@@ -12233,8 +12240,10 @@ function orgChartHtml(top, childrenOf, headcountOf, todayOf = () => null) {
     const n = Number(headcountOf(u.id));
     const t = todayOf(u.id);
     if (!t) return `<div class="platoon-card-count">${n} personnel</div>`;
+    // Accounted, not present: the same headline number the roster opens on
+    // ("8 of 35"), so the card and the page it opens never seem to disagree.
     const unacc = Number(t.unaccounted);
-    return `<div class="platoon-card-count">${Number(t.present)} / ${n} present</div>`
+    return `<div class="platoon-card-count">${Math.max(0, n - unacc)} / ${n} accounted</div>`
       + (unacc ? `<div class="platoon-card-unacc">${unacc} unaccounted</div>` : '');
   };
   const card = (u, extra) => `<button class="platoon-card unit-card${extra}" onclick="selectUnitById(${Number(u.id)})">
