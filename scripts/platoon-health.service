@@ -1,0 +1,13 @@
+[Unit]
+Description=Platoon Manager health check (emails the operator on failure)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tdx44
+WorkingDirectory=/opt/homelab/platoon
+EnvironmentFile=/opt/homelab/platoon/.env
+ExecStart=/opt/homelab/platoon/scripts/healthcheck.sh
+# Exit 1 means a check failed (and the alert went out); that is the point.
+SuccessExitStatus=0 1
