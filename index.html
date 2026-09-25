@@ -11968,6 +11968,7 @@ function goHome() {
 
 // ─── People & invites ───
 let editingUserId = null;
+let editingUserRole = null;   // the role the row had when the modal opened
 // Whether the edit-access modal was opened over the all-people modal (rather
 // than from a unit row), which is where Cancel and Save have to put it back.
 let userEditCameFromMgmt = false;
@@ -12176,6 +12177,7 @@ async function openUserEditModal(userId) {
   const users = await api('GET', '/users');
   if (!users) return;
   const u = users.find(x => x.id === userId);
+  editingUserRole = u ? u.role : null;
   if (u) {
     document.getElementById('userEditUsername').value = u.username;
     // Their unit is not in the tree this browser loaded, so none of the options
@@ -12209,6 +12211,17 @@ async function saveUserEdit() {
   }
   const unit_id = Number(document.getElementById('userUnit').value);
   const role = document.getElementById('userRole').value;
+  // Owner is a root-only role, so moving an owner below the root has to make
+  // them a leader in the same request. Say so before it happens.
+  if (editingUserRole === 'owner' && role !== 'owner') {
+    const unit = unitById(unit_id);
+    const where = unit_id !== currentUser.root_id && unit ? ` of ${unitLabel(unit)}` : '';
+    const ok = await confirmDialog(`Make ${username} a leader${where}?`,
+      'Owner is a role held only at the top of the organization. As a leader they keep that unit and everything ' +
+      'under it, but can no longer grant owner, restore backups, remove users or change the time zone.',
+      'Make leader');
+    if (!ok) return;
+  }
   const result = await api('PUT', `/users/${editingUserId}`, { username, unit_id, role });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error saving user.'; errEl.style.display = 'block'; return;
