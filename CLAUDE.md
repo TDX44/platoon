@@ -61,7 +61,7 @@ python tests/test_platform_admin.py   # /admin: the Clerk-verified email gate, t
 python tests/test_platform_admin_js.py # the /admin page's markup, under node
 python tests/test_billing_state.py    # billing_rules.billing_state(): every state and boundary, no DB
 python tests/test_billing.py          # the subscriptions row, the 402 gate sweep, extend/checkout/portal
-                                      # with Stripe stubbed, the signed webhook, deletion, backup, /admin comp
+                                      # with Stripe stubbed, the signed webhook, refresh, deletion, backup, /admin comp
 python tests/test_billing_js.py       # banner, pricing screen, Billing page and modal rule, under node
 python tests/test_settings_nav_js.py  # the settings nav, top-bar search and settings routes, under node
 python tests/test_import.py           # alpha-roster import: rank aliases, unit matching, duplicates, one transaction
@@ -813,8 +813,40 @@ as `created`. When that SQL guard suppresses the update,
 `_apply_stripe` writes **no audit row**: a row for a write that did not
 happen is a lie the support desk would act on. Cancellation is at period end
 through the Billing Portal and never flips local state — the webhook does.
+
+**`POST /api/billing/refresh` is the way back from a lost delivery.** A
+webhook lost for good (endpoint down past Stripe's retry window, a rotated
+signing secret) used to leave the row wrong for ever, with no background
+worker to notice. The route lists the account's **own stored** customer's
+subscriptions (`_stripe_subscription_list`, flattened with `.to_dict()`
+because `_subscription_fields()` — the one reader both paths share — uses
+`.get()`), picks one (`_pick_subscription`: open beats `past_due` beats the
+rest, then the stored id, then Stripe's newest-first — an abandoned
+`incomplete` Checkout is listed ahead of the live one) and writes through
+**`_apply_stripe`, the webhook's own path**, so `billing_apply_stripe`'s
+supersede and `past_due` guards hold unchanged and there is no second write
+path. Its synthetic event type is `billing.refresh`, never
+`customer.subscription.created`, so a refresh never cancels anything at
+Stripe — but more than one live (`active`/`trialing`/`past_due`)
+subscription in the list is an `app.logger.error` and a `BILLING_DUPLICATE`
+audit row naming every id, so the operator can cancel the extra one by hand.
+`_apply_stripe` has exactly two callers, `_handle_stripe_event` and
+`billing_refresh`; `tests/test_billing.py` fails on a third. It must not
+overwrite newer state: after the Stripe call it takes
+`SELECT ... FOR UPDATE` on the row and writes nothing if `updated_at` moved
+since the request began (a webhook landed meanwhile — that write stands).
+It is exempt from the 402 via the `/api/billing/` prefix, 409s with no
+customer, 503s when Stripe is unreachable, and is rate-limited to one Stripe
+read per account per `BILLING_REFRESH_COOLDOWN` (10 s) per worker — a 429
+with `Retry-After`. `BILLING_REFRESH` is audited as the read it is; the write,
+if any, is `_apply_stripe`'s own audit row. The client
+(`syncBillingWithStripe()`) calls it once when `awaitBillingActive()`'s 30 s
+of polling runs out, from "Sync with Stripe" in the Billing page's
+payment-method card, and from "Already paid? Check with Stripe" on a locked
+account's pricing screen (both only when there is a Stripe customer).
+
 Stripe is called through the `_stripe_*` seams (prices, customer, checkout,
-portal, cancel, invoices, card); tests replace those. `stripe_customer_id` is
+portal, cancel, invoices, card, subscription list); tests replace those. `stripe_customer_id` is
 stored `<mode>:<id>`.
 
 **The Billing page** (Settings → Billing, `/<unit>/settings/billing`) follows

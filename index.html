@@ -10986,7 +10986,8 @@ function billingPlanCards(b, compact) {
 function pricingScreenHtml(b) {
   const heading = b && b.reason === 'payment_required' ? 'Your subscription is no longer active.' : 'Your trial has ended.';
   const portal = b && b.portal_available === true
-    ? '<button type="button" class="billing-banner-link" onclick="openBillingPortal()">Manage billing</button>' : '';
+    ? '<button type="button" class="billing-banner-link" onclick="openBillingPortal()">Manage billing</button>'
+      + '<button type="button" class="billing-banner-link" onclick="syncBillingWithStripe()">Already paid? Check with Stripe</button>' : '';
   return `<div class="login-card"><div class="login-brand pricing-panel">
       <img src="/images/app-logo.png" alt="" class="pricing-logo">
       <h1 class="login-title">${heading}</h1>
@@ -11125,7 +11126,7 @@ function billingPaymentCardHtml(b, d, usage) {
   const buttons = portal ? `
       <button type="button" class="dash-btn dash-btn-secondary billing-btn-wide" onclick="openBillingPortal('payment_method')">Update payment method</button>
       <div class="billing-portal-links">
-        <button type="button" class="billing-textlink" onclick="openBillingPortal()">View invoices</button><span aria-hidden="true">&middot;</span><button type="button" class="billing-textlink" onclick="openBillingPortal()">Update billing details</button>
+        <button type="button" class="billing-textlink" onclick="openBillingPortal()">View invoices</button><span aria-hidden="true">&middot;</span><button type="button" class="billing-textlink" onclick="openBillingPortal()">Update billing details</button><span aria-hidden="true">&middot;</span><button type="button" class="billing-textlink" onclick="syncBillingWithStripe()" title="If a payment or cancellation has not shown up here yet">Sync with Stripe</button>
       </div>` : '';
   return `<section class="billing-card billing-pay">
       <div class="billing-card-head"><div><h3>Payment method</h3><p class="billing-caption">Manage your payment details</p></div></div>
@@ -11300,6 +11301,28 @@ async function openBillingPortal(intent) {
   if (r && r.url) window.location.assign(r.url);
 }
 
+// Ask the server to read the subscription straight from Stripe — the way back
+// when a webhook delivery was lost for good rather than merely late. Returns
+// true when the account came back subscribed, false when Stripe gave a
+// definite "no", null when there was no answer (error, cooldown, in flight).
+const syncBillingWithStripe = singleFlight(async function () {
+  setPricingStatus('Checking with Stripe…');
+  const r = await api('POST', '/billing/refresh');
+  setPricingStatus('');
+  if (!r || !r.billing || !currentUser) return null;
+  currentUser.billing = r.billing;
+  renderBillingBanner();
+  if (document.body.classList.contains('billing-active')) {
+    if (r.billing.state === 'LOCKED') {
+      showBillingScreen();
+      setPricingStatus(r.found ? 'Stripe has no active subscription for this account.' : 'Stripe has no subscription for this account yet.');
+    } else routeAfterLogin();
+  } else if (billingPageOpen()) {
+    loadBillingDetails();
+  }
+  return r.billing.subscribed === true;
+});
+
 // After Checkout, Stripe sends us back before the webhook has necessarily
 // landed. Poll /api/me (exempt from the 402) until the account reads as
 // subscribed, then route home; give up quietly after 30 s and leave the
@@ -11319,6 +11342,11 @@ async function awaitBillingActive() {
     setPricingStatus('Confirming your payment…');
     await new Promise(r => setTimeout(r, 2000));
   }
+  // 30 s and no webhook: a late one would have been caught above, so ask
+  // Stripe directly — a delivery lost for good only comes back this way.
+  // Any definite answer has already been shown; only no answer (undefined
+  // too, when a click was in flight) falls through to "still confirming".
+  if ((await syncBillingWithStripe()) != null) return;
   setPricingStatus('Still confirming. Refresh in a moment, or check Settings → Billing.');
 }
 

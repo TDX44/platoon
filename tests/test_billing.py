@@ -50,6 +50,9 @@ def _unstubbed(*_a, **_k):
     raise AssertionError('a test reached Stripe without installing the stub')
 
 
+# The real seams, kept for the one test that drives the SDK offline.
+SEAMS = {'_stripe_subscription_list': server._stripe_subscription_list}
+
 server._stripe_prices = _unstubbed
 server._stripe_customer_create = _unstubbed
 server._stripe_checkout = _unstubbed
@@ -57,6 +60,7 @@ server._stripe_portal = _unstubbed
 server._stripe_cancel = _unstubbed
 server._stripe_invoices = _unstubbed
 server._stripe_card = _unstubbed
+server._stripe_subscription_list = _unstubbed
 
 DAY = timedelta(days=1)
 WEBHOOK_SECRET = os.environ['STRIPE_TEST_WEBHOOK_SECRET']
@@ -168,14 +172,17 @@ class Stripe:
     """The seams, recorded. Every _stripe_* call lands in .calls."""
 
     def __init__(self, prices=None, fail_prices=False, invoices=None, card=None, fail_details=False,
-                 refuse_flows=False):
+                 refuse_flows=False, subscriptions=None, fail_subscriptions=False, during_list=None):
         self.prices, self.fail_prices, self.calls = prices if prices is not None else BOTH_PRICES, fail_prices, []
         self.invoices, self.card, self.fail_details = invoices or [], card, fail_details
         self.refuse_flows = refuse_flows
+        self.subscriptions, self.fail_subscriptions = subscriptions or [], fail_subscriptions
+        self.during_list = during_list
 
     def install(self):
         server._PRICES_CACHE = (0.0, [])
         server._BILLING_DETAILS_CACHE.clear()
+        server._BILLING_REFRESH_LAST.clear()
 
         def prices():
             self.calls.append(('prices',))
@@ -214,7 +221,16 @@ class Stripe:
 
         server._stripe_prices, server._stripe_customer_create = prices, customer
         server._stripe_checkout, server._stripe_portal, server._stripe_cancel = checkout, portal, cancel
+        def subscription_list(customer_id):
+            self.calls.append(('subscription_list', customer_id))
+            if self.fail_subscriptions:
+                raise OSError('stripe is down')
+            if self.during_list:
+                self.during_list()
+            return list(self.subscriptions)
+
         server._stripe_invoices, server._stripe_card = invoices, card
+        server._stripe_subscription_list = subscription_list
         return self
 
 
@@ -1237,6 +1253,124 @@ def test_admin_comp_toggle(fx):
     set_sub(leader['id'], billing_mode='default', stripe_status=None)
 
 
+def test_the_subscription_list_seam_hands_back_plain_dicts():
+    """_subscription_fields() reads with .get(), which a StripeObject does not
+    have in stripe-python >= 12. The webhook re-parses JSON; the refresh gets
+    the SDK's objects, so the seam flattens them. Stubs return dicts, so this
+    pins the real seam against a real SDK object."""
+    import stripe as _stripe
+    raw = _stripe.Subscription.construct_from(
+        {'id': 'sub_real', 'status': 'active', 'cancel_at_period_end': False,
+         'items': {'data': [{'price': {'lookup_key': 'platoon_leader_annual'},
+                             'current_period_end': 1_800_000_000}]}}, 'sk_test_x')
+    real_list = _stripe.Subscription.list
+    stub = server._stripe_subscription_list
+    try:
+        _stripe.Subscription.list = lambda **kw: SimpleNamespace(data=[raw])
+        server._stripe_subscription_list = SEAMS['_stripe_subscription_list']
+        [flat] = server._stripe_subscription_list('cus_x')
+    finally:
+        _stripe.Subscription.list = real_list
+        server._stripe_subscription_list = stub
+    assert isinstance(flat['items']['data'][0]['price'], dict), 'nested StripeObjects survived'
+    assert server._subscription_fields(flat) == {
+        'subscription': 'sub_real', 'status': 'active', 'lookup_key': 'platoon_leader_annual',
+        'period_end': 1_800_000_000, 'cancel_at_period_end': False}
+
+
+def test_refresh_reconciles_when_the_webhook_never_arrived(fx):
+    """The webhook is the only writer of the Stripe columns, so a delivery
+    lost for good used to leave the row wrong for ever. /api/billing/refresh
+    reads Stripe and writes through the webhook's own path and guards."""
+    leader = fx['a_leader']
+    c = client_as(leader)
+    set_sub(leader['id'], stripe_customer_id=None, stripe_subscription_id=None, stripe_status=None,
+            billing_mode='billed')
+    Stripe().install()
+    assert c.post('/api/billing/refresh').status_code == 409, 'no customer yet, nothing to ask Stripe about'
+
+    set_sub(leader['id'], stripe_customer_id=f'{server.STRIPE_MODE}:cus_reconcile')
+    Stripe(fail_subscriptions=True).install()
+    with quiet():
+        assert c.post('/api/billing/refresh').status_code == 503
+
+    # The lost `created`, with an abandoned incomplete Checkout listed first.
+    st = Stripe(subscriptions=[
+        subscription_obj('cus_reconcile', sub_id='sub_rec_dead', status='incomplete'),
+        subscription_obj('cus_reconcile', sub_id='sub_rec_live', lookup_key='platoon_leader_annual'),
+    ]).install()
+    r = c.post('/api/billing/refresh')
+    body = r.get_json()
+    assert r.status_code == 200 and body['found'] is True and body['billing']['state'] == 'ACTIVE', body
+    row = sub_row(leader['id'])
+    assert row['stripe_subscription_id'] == 'sub_rec_live' and row['stripe_price_lookup_key'] == 'platoon_leader_annual'
+    assert not any(k[0] == 'cancel' for k in st.calls), 'a refresh cancelled a subscription at Stripe'
+
+    # Cheap to abuse-proof: a second press inside the window never reaches Stripe.
+    r = c.post('/api/billing/refresh')
+    assert r.status_code == 429 and r.headers.get('Retry-After'), r.status_code
+    assert [k for k in st.calls if k[0] == 'subscription_list'] == [('subscription_list', 'cus_reconcile')]
+
+    # Two live subscriptions (a second Checkout whose `created` was lost):
+    # the stored one is kept, the newer one is not adopted, nothing cancelled.
+    st = Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_second'),
+                               subscription_obj('cus_reconcile', sub_id='sub_rec_live')]).install()
+    with quiet():
+        assert c.post('/api/billing/refresh').status_code == 200
+    assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_rec_live'
+    assert not any(k[0] == 'cancel' for k in st.calls)
+
+    # ...and it is not silent: the operator gets an error log and an audit
+    # row naming both ids, to cancel one by hand.
+    conn = dbharness.owner_conn()
+    try:
+        dup = conn.execute("SELECT details FROM audit_log WHERE action = 'BILLING_DUPLICATE' "
+                           "ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    assert dup and 'sub_rec_second' in dup['details'] and 'sub_rec_live' in dup['details'], dup
+
+    # The supersede rule holds here too: a cancelled subscription that is not
+    # the stored one cannot lock the account.
+    Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_old', status='canceled')]).install()
+    with quiet():
+        body = c.post('/api/billing/refresh').get_json()
+    assert body['billing']['state'] == 'ACTIVE' and sub_row(leader['id'])['stripe_status'] == 'active', body
+
+    # A webhook that lands while Stripe is being asked is newer than what the
+    # refresh read, and it stands.
+    def webhook_lands():
+        set_sub(leader['id'], stripe_status='past_due')
+    Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_live')],
+           during_list=webhook_lands).install()
+    body = c.post('/api/billing/refresh').get_json()
+    assert sub_row(leader['id'])['stripe_status'] == 'past_due', 'a refresh overwrote a newer webhook write'
+    assert body['billing']['state'] == 'PAST_DUE', body['billing']
+
+    # The lost `deleted`: Stripe says the stored one is cancelled, and it wins.
+    before = sub_row(leader['id'])
+    Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_live', status='canceled')]).install()
+    body = c.post('/api/billing/refresh').get_json()
+    assert body['billing']['state'] == 'LOCKED', body['billing']
+    after = sub_row(leader['id'])
+    for col in ('billing_mode', 'trial_started_at', 'trial_ends_at', 'extended_at'):
+        assert before[col] == after[col], f'a refresh wrote {col}'
+
+    # ...and a locked account can still ask (the 402 exempts /api/billing/).
+    Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_live')]).install()
+    r = c.post('/api/billing/refresh')
+    assert r.status_code == 200 and r.get_json()['billing']['state'] == 'ACTIVE', r.status_code
+
+    # A customer with no subscriptions at all: nothing found, nothing written.
+    Stripe(subscriptions=[]).install()
+    body = c.post('/api/billing/refresh').get_json()
+    assert body['found'] is False and sub_row(leader['id'])['stripe_status'] == 'active'
+
+    set_sub(leader['id'], stripe_customer_id=None, stripe_subscription_id=None, stripe_status=None,
+            stripe_price_lookup_key=None, billing_mode='default')
+    Stripe().install()
+
+
 def test_webhook_functions_are_only_called_from_the_webhook():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
@@ -1249,6 +1383,14 @@ def test_webhook_functions_are_only_called_from_the_webhook():
         if re.search(r'\bbilling_set_mode\s*\(', block):
             assert '@platform_admin_required' in block, f'billing_set_mode called outside the admin gate:\n{block[:300]}'
     assert any(re.search(r'\bbilling_set_mode\s*\(', b) for b in blocks), 'nothing calls billing_set_mode — renamed?'
+    # _apply_stripe is the one writer of the Stripe columns; the webhook and
+    # the refresh are its only callers, so a third fails the build.
+    callers = set()
+    for block in blocks:
+        m = re.search(r'def (\w+)\(', block)
+        if m and m.group(1) != '_apply_stripe' and re.search(r'(?<![\w.])_apply_stripe\s*\(', block):
+            callers.add(m.group(1))
+    assert callers == {'_handle_stripe_event', 'billing_refresh'}, f'_apply_stripe callers: {callers}'
 
 
 def main():
@@ -1295,6 +1437,8 @@ def main():
         test_admin_overview_rolls_billing_up_per_organization(fx)
         test_admin_overview_watchlist_picks_up_the_four_states(fx)
         test_admin_comp_toggle(fx)
+        test_the_subscription_list_seam_hands_back_plain_dicts()
+        test_refresh_reconciles_when_the_webhook_never_arrived(fx)
         test_webhook_functions_are_only_called_from_the_webhook()
         print('ok')
     finally:
