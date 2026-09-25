@@ -9717,7 +9717,7 @@ function globalSearchResults(q, people, unitList, pages) {
   if (!term) return [];
   const has = (...fields) => fields.some(f => String(f || '').toLowerCase().includes(term));
   const out = [];
-  (people || []).filter(p => has(`${p.rank} ${p.first} ${p.last}`, `${lastFirst(p)}`, `${p.rank} ${p.last}`))
+  (people || []).filter(p => has(`${p.rank} ${p.first} ${p.last}`, `${p.last}, ${p.first}`, `${p.rank} ${p.last}`))
     .slice(0, SEARCH_LIMIT.people)
     .forEach(p => out.push({ group: 'People', label: `${p.rank} ${lastFirst(p)}`, hint: STATUS_LABELS_SEARCH[p.status] || '', kind: 'person', id: p.id }));
   (unitList || []).filter(u => has(u.name, u.slug))

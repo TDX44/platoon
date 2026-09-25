@@ -89,6 +89,7 @@ def render():
     js = '\n'.join([
         PRELUDE,
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
+        extract(src, r'function lastFirst\(p\) \{.*?\n\}', 'lastFirst()'),
         extract(src, r'function unitBySlug\(slug\) \{.*?\n\}', 'unitBySlug()'),
         extract(src, r'function kindLabel\(kind\) \{.*?\n\}', 'kindLabel()'),
         extract(src, r'const SETTINGS_NAV = \[.*?\n\];', 'SETTINGS_NAV'),
