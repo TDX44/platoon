@@ -4684,6 +4684,33 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// One request per action at a time — the busy flag formationMark() keeps, for
+// every save that POSTs: a double tap or a held Enter must not write twice.
+// Calls made while one is in flight are dropped, not queued.
+function singleFlight(fn) {
+  let busy = false;
+  return async function (...args) {
+    if (busy) return;
+    busy = true;
+    try { return await fn.apply(this, args); } finally { busy = false; }
+  };
+}
+// Reassigning the global binding keeps every onclick="name()" and every
+// internal caller on the guarded version without touching the declarations.
+savePerson = singleFlight(savePerson);
+removePerson = singleFlight(removePerson);
+saveTdyLeave = singleFlight(saveTdyLeave);
+applyBulkStatus = singleFlight(applyBulkStatus);
+addDutyEntry = singleFlight(addDutyEntry);
+createInvite = singleFlight(createInvite);
+createUnitInvite = singleFlight(createUnitInvite);
+createChildUnit = singleFlight(createChildUnit);
+saveUnitRename = singleFlight(saveUnitRename);
+createRootUnit = singleFlight(createRootUnit);
+extendTrial = singleFlight(extendTrial);
+startCheckout = singleFlight(startCheckout);
+startFormation = singleFlight(startFormation);
+
 let _toastTimer = null;
 function showToast(msg) {
   let el = document.getElementById('apiToast');
