@@ -4285,7 +4285,7 @@
       <button class="status-toggle" data-status="leave" onclick="setAwayStatus('leave')">Leave</button>
       <button class="status-toggle" data-status="pass" onclick="setAwayStatus('pass')">Pass</button>
       <button class="status-toggle" data-status="other" onclick="setAwayStatus('other')">Other</button>
-      <button class="status-toggle" data-status="late" onclick="setAwayStatus('late')">Running Late</button>
+      <button class="status-toggle" data-status="late" onclick="setAwayStatus('late', { today: true })">Running Late</button>
       <button class="status-toggle" data-status="excused" onclick="setAwayStatus('excused')">Excused</button>
       <button class="status-toggle" data-status="ftr" onclick="setAwayStatus('ftr')">FTR</button>
     </div>
@@ -8596,8 +8596,16 @@ function syncReasonField(status) {
     cfg.options.map(o => `<option value="${escapeHtml(o)}"></option>`).join('');
 }
 
-function setAwayStatus(status) {
+// { today: true } is the Running Late button: late only ever means today, so a
+// tap resets both dates to today even over dates left from another status.
+// Opening an existing absence calls this without it and keeps its dates.
+function setAwayStatus(status, { today = false } = {}) {
   awayStatus = status;
+  if (today) {
+    awayFrom = awayTo = getTodayStr();
+    document.getElementById('awayFromInput').value = awayFrom;
+    document.getElementById('awayToInput').value = awayTo;
+  }
   document.querySelectorAll('.status-toggle').forEach(btn => {
     btn.className = 'status-toggle';
     const on = btn.dataset.status === status;
