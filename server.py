@@ -29,6 +29,7 @@ from psycopg.rows import dict_row
 import stripe
 
 import billing_rules
+import duty_rotation
 
 app = Flask(__name__, static_folder=None)
 # The marketing screenshots are .webp, which the stdlib table on older
@@ -3889,6 +3890,159 @@ def delete_duty(entry_id):
     log_action('DELETE_DUTY', f'{row["duty_type"]} on {row["date"]}', row['unit_id'])
     conn.execute('DELETE FROM duty_roster WHERE id = %s', (entry_id,))
     return jsonify({'success': True})
+
+
+# ── Duty rotation ──
+# POST /api/duty/rotation proposes (writes nothing); POST /api/duty/bulk saves
+# whatever the leader kept of it, in one transaction. The fairness rule itself
+# is duty_rotation.propose(), pure and tested on its own.
+ROTATION_MAX_DAYS = 92
+ROTATION_MAX_POOL = 200
+DUTY_BULK_MAX = 200
+DUTY_TYPE_MAX_LEN = 40
+
+
+def _iso_day(value):
+    """value if it is a canonical YYYY-MM-DD, else None."""
+    try:
+        return value if isinstance(value, str) and date.fromisoformat(value).isoformat() == value else None
+    except ValueError:
+        return None
+
+
+def _duty_type(value):
+    value = value.strip() if isinstance(value, str) else ''
+    return value if 0 < len(value) <= DUTY_TYPE_MAX_LEN else None
+
+
+def _pool_in_unit(conn, unit_id, raw_ids):
+    """The soldiers named by raw_ids, all of whom must be in unit_id's subtree
+    (the add_duty rule), or None."""
+    if not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > ROTATION_MAX_POOL \
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in raw_ids):
+        return None
+    ids = list(dict.fromkeys(raw_ids))
+    rows = conn.execute('SELECT id, rank, last, first, unit_id FROM personnel WHERE id = ANY(%s) AND unit_id = ANY(%s)',
+                        (ids, list(subtree_ids(conn, unit_id)))).fetchall()
+    by_id = {r['id']: r for r in rows}
+    return [by_id[i] for i in ids] if len(by_id) == len(ids) else None
+
+
+@app.route('/api/duty/rotation', methods=['POST'])
+@attached_required
+def propose_duty_rotation():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    unit_id, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    duty_type = _duty_type(data.get('duty_type'))
+    start, end = _iso_day(data.get('from')), _iso_day(data.get('to'))
+    if not duty_type:
+        return jsonify({'error': 'Name the duty.'}), 400
+    if not start or not end or end < start:
+        return jsonify({'error': 'Choose a date range (YYYY-MM-DD, end on or after start).'}), 400
+    span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    if span > ROTATION_MAX_DAYS:
+        return jsonify({'error': f'Plan {ROTATION_MAX_DAYS} days or fewer at a time.'}), 400
+    holidays = data.get('holidays') or []
+    if not isinstance(holidays, list) or not all(_iso_day(h) for h in holidays):
+        return jsonify({'error': 'Holidays must be dates (YYYY-MM-DD).'}), 400
+    pool = _pool_in_unit(conn, unit_id, data.get('person_ids'))
+    if pool is None:
+        return jsonify({'error': f'Pick 1 to {ROTATION_MAX_POOL} soldiers from this unit.'}), 400
+    pool_ids = [p['id'] for p in pool]
+    days = [(date.fromisoformat(start) + timedelta(days=i)).isoformat() for i in range(span)]
+
+    # Every earlier turn of this duty counts, wherever it was filed: a duty
+    # row follows its soldier when they move.
+    history = [(r['person_id'], r['date']) for r in conn.execute(
+        'SELECT person_id, date FROM duty_roster WHERE person_id = ANY(%s) AND duty_type = %s AND date < %s',
+        (pool_ids, duty_type, start)).fetchall()]
+    existing = {}
+    for r in conn.execute(
+            'SELECT date, rank, last, first FROM duty_roster WHERE unit_id = ANY(%s) AND duty_type = %s '
+            'AND date >= %s AND date <= %s ORDER BY id', (list(subtree_ids(conn, unit_id)), duty_type, start, end)):
+        existing.setdefault(r['date'], r)
+    # The availability rule, whatever the state: a completed row still
+    # answers for the days it covers (see get_availability).
+    absences = {}
+    for e in conn.execute(
+            "SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND (from_date = '' OR from_date <= %s) "
+            "AND (to_date = '' OR to_date >= %s) ORDER BY from_date, id", (pool_ids, end, start)).fetchall():
+        absences.setdefault(e['person_id'], []).append(e)
+
+    proposal = duty_rotation.propose(days, pool_ids, history, absences, holidays,
+                                     data.get('separate_weekends', True) is not False, set(existing))
+    away = {}
+    for d in days:
+        for pid, rows in absences.items():
+            covering = [r for r in rows if duty_rotation.covers(r, d)]
+            if covering:
+                away.setdefault(d, {})[str(pid)] = _conflict_from(covering[-1])['label']
+    for entry in proposal:
+        if entry['date'] in existing:
+            x = existing[entry['date']]
+            entry['existing'] = f'{x["rank"]} {x["last"]}, {x["first"]}'.strip()
+    tally = {}
+    for pid, d in history:
+        cat = duty_rotation.category(d, set(holidays), data.get('separate_weekends', True) is not False)
+        tally.setdefault(str(pid), {}).setdefault(cat, 0)
+        tally[str(pid)][cat] += 1
+    return jsonify({'duty_type': duty_type, 'proposal': proposal, 'away': away, 'history': tally,
+                    'pool': [{'id': p['id'], 'rank': p['rank'], 'last': p['last'], 'first': p['first']} for p in pool]})
+
+
+@app.route('/api/duty/bulk', methods=['POST'])
+@attached_required
+def add_duty_bulk():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    unit_id, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    entries = data.get('entries')
+    if not isinstance(entries, list) or not entries or len(entries) > DUTY_BULK_MAX:
+        return jsonify({'error': f'Save 1 to {DUTY_BULK_MAX} duty entries at a time.'}), 400
+    clean = []
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            return jsonify({'error': f'Entry {i + 1} is not an entry.'}), 400
+        day, duty_type = _iso_day(e.get('date')), _duty_type(e.get('duty_type'))
+        notes = e.get('notes', '')
+        if not day or not duty_type or not isinstance(notes, str):
+            return jsonify({'error': f'Entry {i + 1} needs a date (YYYY-MM-DD) and a duty.'}), 400
+        clean.append((day, duty_type, e.get('person_id'), notes.strip()[:200]))
+    pool = _pool_in_unit(conn, unit_id, [c[2] for c in clean])
+    if pool is None:
+        return jsonify({'error': 'Every entry needs a soldier from this unit.'}), 400
+    person = {p['id']: p for p in pool}
+    events = {}
+    for e in conn.execute("SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND state != 'completed' "
+                          'ORDER BY from_date, id', (list(person),)).fetchall():
+        events.setdefault(e['person_id'], []).append(e)
+
+    created, skipped, conflicts = [], 0, 0
+    for day, duty_type, pid, notes in clean:
+        p = person[pid]
+        # A double-tapped Save must not book every turn twice.
+        if conn.execute('SELECT 1 FROM duty_roster WHERE date = %s AND duty_type = %s AND person_id = %s',
+                        (day, duty_type, pid)).fetchone():
+            skipped += 1
+            continue
+        row = dict(conn.execute(
+            'INSERT INTO duty_roster (date, unit_id, root_id, duty_type, person_id, rank, last, first, notes) '
+            'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *',
+            (day, p['unit_id'], _root(), duty_type, pid, p['rank'], p['last'], p['first'], notes)).fetchone())
+        # Warn, never block — the same rule as a single entry.
+        row['conflict'] = _conflict_among(events.get(pid, []), day)
+        conflicts += bool(row['conflict'])
+        created.append(row)
+    if created:
+        log_action('ADD_DUTY_ROTATION', f'{len(created)} turns of {", ".join(sorted({c[1] for c in clean}))} '
+                                        f'{clean[0][0]} - {clean[-1][0]}'
+                                        + (f' ({conflicts} CONFLICT)' if conflicts else ''), unit_id)
+    return jsonify({'created': len(created), 'skipped': skipped, 'entries': created}), 201 if created else 200
 
 
 # ── Report history ──

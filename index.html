@@ -1722,6 +1722,14 @@
   .duty-row:last-child {
     border-bottom: 0;
   }
+  .rot-check { display: flex; gap: 6px; align-items: center; margin: 0; }
+  .rot-pool-head { display: flex; gap: 6px; align-items: center; }
+  .rot-pool-head label { margin: 0 auto 0 0; }
+  .rot-pool { max-height: 11em; overflow-y: auto; border: 1px solid var(--cp-border); border-radius: var(--cp-radius);
+              padding: 4px 8px; margin-top: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(12em, 1fr)); }
+  .rot-pool label { display: flex; gap: 6px; align-items: center; margin: 0; min-height: 32px; font-size: 0.85em; min-width: 0; }
+  .rot-row select { width: 100%; min-width: 0; }
+  .rot-tag { font-size: 0.75em; color: var(--cp-muted); font-weight: 500; }
   .duty-title {
     color: var(--theme_text);
     font-weight: 700;
@@ -4354,10 +4362,55 @@
         <input type="text" id="dutyNotes" placeholder="Optional">
       </div>
     </div>
-    <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:12px;">Add Duty</button>
+    <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:8px;">Add Duty</button>
+    <button class="btn-small btn-cancel" onclick="openRotationModal()" style="width:100%;margin-bottom:12px;">Generate rotation&hellip;</button>
     <div class="duty-list" id="dutyList"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeDutyRoster()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duty Rotation Modal -->
+<div class="modal-overlay" id="rotationModal">
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rotationTitle">
+    <h2 id="rotationTitle">Generate rotation</h2>
+    <div class="duty-form">
+      <div class="full-width">
+        <label for="rotDuty">Duty</label>
+        <select id="rotDuty"></select>
+      </div>
+      <div>
+        <label for="rotFrom">From</label>
+        <input type="date" class="date-input rp-field" id="rotFrom"
+               onmousedown="rpOpen(event, 'rotFrom', 'rotTo', 'from')">
+      </div>
+      <div>
+        <label for="rotTo">To</label>
+        <input type="date" class="date-input rp-field" id="rotTo"
+               onmousedown="rpOpen(event, 'rotFrom', 'rotTo', 'to')">
+      </div>
+      <div class="full-width">
+        <label class="rot-check"><input type="checkbox" id="rotWeekends" checked> Weekends and holidays keep their own count</label>
+      </div>
+      <div class="full-width">
+        <label for="rotHolidays">Holidays (optional)</label>
+        <input type="text" id="rotHolidays" placeholder="2026-11-11, 2026-11-26">
+      </div>
+      <div class="full-width">
+        <div class="rot-pool-head">
+          <label>Pool</label>
+          <button type="button" class="btn-small btn-cancel" onclick="rotPoolAll(true)">All</button>
+          <button type="button" class="btn-small btn-cancel" onclick="rotPoolAll(false)">None</button>
+        </div>
+        <div class="rot-pool" id="rotPool"></div>
+      </div>
+    </div>
+    <button class="btn-small btn-add" onclick="proposeRotation()" style="width:100%;margin-bottom:12px;">Propose</button>
+    <div class="duty-list" id="rotProposal" style="display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" onclick="closeRotationModal()">Cancel</button>
+      <button class="btn-small btn-add" id="rotSaveBtn" onclick="saveRotation()" disabled>Save rotation</button>
     </div>
   </div>
 </div>
@@ -4756,6 +4809,8 @@ removePerson = singleFlight(removePerson);
 saveTdyLeave = singleFlight(saveTdyLeave);
 applyBulkStatus = singleFlight(applyBulkStatus);
 addDutyEntry = singleFlight(addDutyEntry);
+proposeRotation = singleFlight(proposeRotation);
+saveRotation = singleFlight(saveRotation);
 createInvite = singleFlight(createInvite);
 createUnitInvite = singleFlight(createUnitInvite);
 createChildUnit = singleFlight(createChildUnit);
@@ -9719,6 +9774,115 @@ async function deleteDutyEntry(id) {
   renderDutyRoster();
 }
 
+// ─── Duty rotation ───
+// The server proposes (POST /duty/rotation writes nothing) and the leader can
+// change any pick before one POST /duty/bulk saves the lot. The fairness rule
+// is duty_rotation.propose() on the server, not here.
+let rotationData = null;
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function openRotationModal() {
+  const duty = document.getElementById('rotDuty');
+  duty.innerHTML = document.getElementById('dutyType').innerHTML;
+  duty.value = document.getElementById('dutyType').value;
+  const from = document.getElementById('dutyDate').value || getTodayStr();
+  document.getElementById('rotFrom').value = from;
+  document.getElementById('rotTo').value = addDaysStr(from, 13);
+  document.getElementById('rotPool').innerHTML = [...personnel].sort(rankSort).map(p =>
+    `<label><input type="checkbox" value="${p.id}" checked> ${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</label>`).join('')
+    || '<div class="duty-meta">No personnel loaded</div>';
+  rotationData = null;
+  renderRotationProposal();
+  document.getElementById('dutyModal').classList.remove('active');
+  document.getElementById('rotationModal').classList.add('active');
+}
+
+function closeRotationModal() {
+  document.getElementById('rotationModal').classList.remove('active');
+  openDutyRoster();
+}
+
+function rotPoolAll(on) {
+  document.querySelectorAll('#rotPool input').forEach(i => { i.checked = on; });
+}
+
+async function proposeRotation() {
+  const res = await api('POST', '/duty/rotation', {
+    unit_id: currentUnit.id,
+    duty_type: document.getElementById('rotDuty').value,
+    from: document.getElementById('rotFrom').value,
+    to: document.getElementById('rotTo').value,
+    separate_weekends: document.getElementById('rotWeekends').checked,
+    holidays: document.getElementById('rotHolidays').value.split(/[\s,]+/).filter(Boolean),
+    person_ids: [...document.querySelectorAll('#rotPool input:checked')].map(i => Number(i.value)),
+  });
+  if (!res) return;   // api() has said why
+  rotationData = res;
+  renderRotationProposal();
+}
+
+function rotationWarn(e) {
+  const away = e.person_id && rotationData.away[e.date] && rotationData.away[e.date][String(e.person_id)];
+  if (away) return `⚠ Away this date — ${escapeHtml(away)}`;
+  if (!e.person_id && e.reason === 'nobody free') return '⚠ Nobody in the pool is free';
+  return '';
+}
+
+function renderRotationProposal() {
+  const list = document.getElementById('rotProposal');
+  const btn = document.getElementById('rotSaveBtn');
+  if (!rotationData) { list.style.display = 'none'; list.innerHTML = ''; btn.disabled = true; return; }
+  list.style.display = '';
+  const pool = rotationData.pool;
+  list.innerHTML = rotationData.proposal.map((e, i) => {
+    const [y, m, d] = e.date.split('-').map(Number);
+    const when = `${WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()]} ${formatDateShort(e.date)}`
+      + (e.category === 'weekend' ? ' <span class="rot-tag">weekend / holiday</span>' : '');
+    if (e.existing) {
+      return `<div class="duty-row"><div><div class="duty-title">${when}</div>
+        <div class="duty-meta">Already on the roster: ${escapeHtml(e.existing)}</div></div></div>`;
+    }
+    const options = ['<option value="">— nobody —</option>'].concat(pool.map(p => {
+      const away = rotationData.away[e.date] && rotationData.away[e.date][String(p.id)] ? ' — away' : '';
+      return `<option value="${p.id}"${p.id === e.person_id ? ' selected' : ''}>${escapeHtml(`${p.rank} ${p.last}, ${p.first}${away}`)}</option>`;
+    })).join('');
+    const warn = rotationWarn(e);
+    return `<div class="duty-row rot-row"><div><div class="duty-title">${when}</div>
+      <select aria-label="Who takes ${escapeHtml(e.date)}" onchange="rotPick(${i}, this.value)">${options}</select>
+      <div class="duty-warn" id="rotWarn${i}"${warn ? '' : ' style="display:none"'}>${warn}</div></div></div>`;
+  }).join('');
+  syncRotationSave();
+}
+
+function rotPick(i, value) {
+  const e = rotationData.proposal[i];
+  e.person_id = value ? Number(value) : null;
+  const warn = document.getElementById(`rotWarn${i}`);
+  warn.innerHTML = rotationWarn(e);
+  warn.style.display = warn.innerHTML ? '' : 'none';
+  syncRotationSave();
+}
+
+function syncRotationSave() {
+  const n = rotationData ? rotationData.proposal.filter(e => e.person_id && !e.existing).length : 0;
+  const btn = document.getElementById('rotSaveBtn');
+  btn.disabled = !n;
+  btn.textContent = n ? `Save ${n} turn${n === 1 ? '' : 's'}` : 'Save rotation';
+}
+
+async function saveRotation() {
+  if (!rotationData) return;
+  const entries = rotationData.proposal.filter(e => e.person_id && !e.existing)
+    .map(e => ({ date: e.date, duty_type: rotationData.duty_type, person_id: e.person_id }));
+  if (!entries.length) return;
+  const res = await api('POST', '/duty/bulk', { unit_id: currentUnit.id, entries });
+  if (!res) return;
+  const clashes = (res.entries || []).filter(x => x.conflict).length;
+  document.getElementById('dutyDate').value = entries[0].date;
+  closeRotationModal();
+  if (clashes) alert(`${clashes} of the saved turns fall on an absence. They were still saved.`);
+}
+
 // ─── Audit log ───
 // ─── Audit log page ────────────────────────────────────────────────────────
 const AUDIT_COLUMNS = [
@@ -10230,6 +10394,7 @@ document.getElementById('unitName').addEventListener('input', () => {
 });
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
 document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
+document.getElementById('rotationModal').addEventListener('click', function(e) { if (e.target === this) closeRotationModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
 document.getElementById('reportModal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
@@ -10246,6 +10411,7 @@ const MODAL_CLOSERS = {
   addModal: () => closeAddModal(), importModal: () => closeImportModal(),
   tdyLeaveModal: () => closeTdyLeaveModal(), historyModal: () => closeHistory(),
   dutyModal: () => closeDutyRoster(), listEditModal: () => closeListEdit(),
+  rotationModal: () => closeRotationModal(),
   confirmModal: () => settleConfirm(false), userMgmtModal: () => closeUserMgmt(),
   personDetailsModal: () => closePersonDetails(), inviteModal: () => closeInviteModal(),
   inviteLinkModal: () => closeInviteLinkModal(), userEditModal: () => closeUserEdit(),
