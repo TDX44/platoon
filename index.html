@@ -7791,36 +7791,42 @@ function appDate(d = new Date()) {
 }
 
 
-async function markPresentToday(i) {
+// Optimistic like formationMark(): apply, save, and put the row back exactly as
+// it was if the save fails (api() has already shown why).
+async function savePersonChange(i, change) {
   const p = personnel[i];
-  p.present_date = getTodayStr();
-  await apiUpdate(p);
+  if (!p) return;
+  const before = { status: p.status, notes: p.notes, from: p.from, to: p.to,
+                   present_date: p.present_date };
+  Object.assign(p, change);
+  render();
+  const res = await apiUpdate(p);
+  if (!res || res.error) Object.assign(p, before);
   render();
 }
 
-async function unmarkPresent(i) {
-  const p = personnel[i];
-  p.present_date = '';
-  await apiUpdate(p);
-  render();
+function markPresentToday(i) {
+  return savePersonChange(i, { present_date: getTodayStr() });
 }
 
-async function markPresent(i) {
-  const p = personnel[i];
-  p.status = 'present';
-  p.notes = '';
-  p.from = '';
-  p.to = '';
-  p.present_date = getTodayStr();
-  await apiUpdate(p);
-  render();
+function unmarkPresent(i) {
+  return savePersonChange(i, { present_date: '' });
+}
+
+function markPresent(i) {
+  return savePersonChange(i, { status: 'present', notes: '', from: '', to: '',
+                               present_date: getTodayStr() });
 }
 
 async function removePerson(i) {
   const p = personnel[i];
+  if (!p) return;
   if (!await confirmDialog(`Remove ${p.rank} ${p.last}, ${p.first}?`, '', 'Remove')) return;
-  await api('DELETE', `/personnel/${p.id}`);
-  personnel.splice(i, 1);
+  const res = await api('DELETE', `/personnel/${p.id}`);
+  if (!res || res.error) return;
+  // By id: the roster may have reloaded while the dialog was open.
+  personnel = personnel.filter(x => x.id !== p.id);
+  bulkSelected.delete(p.id);
   render();
   syncSoldierPageAfterEdit();
 }
