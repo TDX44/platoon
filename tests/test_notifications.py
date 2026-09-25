@@ -178,6 +178,19 @@ def check_cron(client):
     person('Late', A['child'], A['root'])
     cron(client)
     assert len(SENT) == 1 and 'Late' in SENT[0]['text']
+
+    # A locked (lapsed) account gets no roster by email.
+    sql('DELETE FROM notification_sends')
+    SENT.clear()
+    sql('INSERT INTO subscriptions (user_id, root_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING',
+        (A_LEADER['id'], A['root']))
+    real_verdict = server._billing_verdict
+    server._billing_verdict = lambda row, user: {'state': 'LOCKED'}
+    try:
+        cron(client)
+    finally:
+        server._billing_verdict = real_verdict
+    assert all(m['to'] != A_LEADER['email'] for m in SENT), SENT
     server.app_now = REAL_NOW
 
 

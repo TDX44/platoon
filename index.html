@@ -5042,12 +5042,13 @@ async function saveHeaderRename() {
 }
 
 async function apiUpdate(p) {
-  return api('PUT', `/personnel/${p.id}`, {
-    rank: p.rank, last: p.last, first: p.first, unit_id: p.unit_id,
-    status: p.status, notes: p.notes,
-    from_date: p.from, to_date: p.to,
-    present_date: p.present_date || ''
-  });
+  // ponytail: an absence is owned by the server (_sync_person_status); only a
+  // 'present' mark is ours to send. Resending a stale absence status 400s.
+  const body = { rank: p.rank, last: p.last, first: p.first, unit_id: p.unit_id,
+                 present_date: p.present_date || '' };
+  if (p.status === 'present') Object.assign(body, {
+    status: 'present', notes: p.notes, from_date: p.from, to_date: p.to });
+  return api('PUT', `/personnel/${p.id}`, body);
 }
 
 function rankSort(a, b) {
@@ -8766,6 +8767,7 @@ async function saveBulkTdyLeave() {
   ));
   const failed = results.filter(r => !r || r.error).length;
   if (failed) showToast(`${failed} of ${ids.length} could not be saved.`);
+  if (failed === ids.length) return;   // keep the form so the leader can fix it
   await load();   // server reconciled; pull the truth
   clearBulkSelect();
   closeTdyLeaveModal();
@@ -8801,10 +8803,7 @@ async function saveTdyLeave() {
       notes: notesVal || editingAbsenceNotes,
       location: ''
     });
-    if (!res || res.error) {
-      showToast(res && res.error ? res.error : 'Could not save the absence.');
-      return;
-    }
+    if (!res) return;   // api() already showed the server's reason
     closeTdyLeaveModal();
     await load();
     render();
@@ -8821,10 +8820,7 @@ async function saveTdyLeave() {
     notes: notesVal,
     recurrence: repeatRule()
   });
-  if (!event || event.error) {
-    showToast(event && event.error ? event.error : 'Could not save absence.');
-    return;
-  }
+  if (!event) return;   // api() already showed the server's reason
   await load();   // server reconciled; pull the truth
 
   closeTdyLeaveModal();
@@ -9191,6 +9187,12 @@ async function runImportDryRun() {
   if (!importTable || !currentUnit) return;
   const rows = mapImportRows(importTable, importMapping);
   const seq = ++importSeq;
+  if (rows.length > 500) {   // server's IMPORT_MAX_ROWS
+    importPreview = null; renderImportTablePreview();
+    document.getElementById('importError').textContent =
+      `That file has ${rows.length} rows. Import 500 or fewer at a time.`;
+    return;
+  }
   const res = rows.length ? await api('POST', '/personnel/import', {
     unit_id: currentUnit.id, rows, dry_run: true,
     include_duplicates: document.getElementById('importIncludeDups').checked,

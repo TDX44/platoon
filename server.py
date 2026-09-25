@@ -4759,6 +4759,9 @@ def _notify_root(conn, root_id, totals):
         "WHERE u.unit_id IS NOT NULL AND u.email != '' AND u.clerk_user_id != '' "
         'AND (n.accountability_enabled OR n.digest_enabled) ORDER BY n.user_id').fetchall()
     for p in prefs:
+        sub = conn.execute('SELECT * FROM subscriptions WHERE user_id = %s', (p['user_id'],)).fetchone()
+        if sub and _billing_verdict(dict(sub), p)['state'] == 'LOCKED':
+            continue   # a lapsed account gets no roster by email either
         for rule in NOTIFY_RULES:
             if not p[f'{rule}_enabled'] or hhmm < p[f'{rule}_time']:
                 continue
