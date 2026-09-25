@@ -4131,15 +4131,25 @@ def _sync_person_status(conn, person_id, today_str):
 
 
 def _reconcile_absences(conn, today_str):
-    """Advance the absence lifecycle for everyone who still has a live event.
+    """Advance the absence lifecycle for everyone whose live rows are due to move.
 
-    ponytail: one _sync_person_status() pass per person with a live row — a
-    handful of people per unit, so the per-person queries are cheaper than
-    the set-based version was to keep correct.
+    This runs on every roster read, so it first asks SQL which people have a
+    live row whose state _derive_state() would change today (the CASE is the
+    same bounds), or more than one current row — the two things
+    _sync_person_status() acts on — and syncs only them. A settled roster is
+    one query.
     """
     totals = {'activated': 0, 'completed': 0}
     people = conn.execute(
-        "SELECT DISTINCT person_id FROM scheduled_events WHERE state != 'completed' ORDER BY person_id"
+        'WITH live AS ('
+        ' SELECT person_id, state,'
+        "  CASE WHEN to_date != '' AND to_date < %(today)s THEN 'completed'"
+        "       WHEN from_date != '' AND from_date > %(today)s THEN 'scheduled'"
+        "       ELSE 'active' END AS want"
+        " FROM scheduled_events WHERE state != 'completed')"
+        ' SELECT person_id FROM live GROUP BY person_id'
+        " HAVING bool_or(state IS DISTINCT FROM want) OR COUNT(*) FILTER (WHERE want = 'active') > 1"
+        ' ORDER BY person_id', {'today': today_str}
     ).fetchall()
     for p in people:
         counts = _sync_person_status(conn, p['person_id'], today_str)

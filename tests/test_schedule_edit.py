@@ -376,6 +376,24 @@ def main():
     r = c.put(f'/api/schedules/{other}', json={'status': 'tdy', 'from_date': day(-1), 'to_date': day(3)})
     assert r.status_code == 409, r.status_code
 
+    # 18. Every roster read reconciles, so it must only touch the people whose
+    #     rows would actually change today, not the whole tenant each time.
+    clear()
+    add_event('active', -1, 5)
+    upcoming = add_event('scheduled', 0, 3, status='leave')   # starts today: must change
+    calls = []
+    real_sync = server._sync_person_status
+    server._sync_person_status = lambda conn, pid, today: calls.append(pid) or real_sync(conn, pid, today)
+    try:
+        c.get(ROSTER)
+        assert calls == [PID], calls
+        assert event(upcoming)['state'] == 'active', event(upcoming)
+        calls.clear()
+        c.get(ROSTER)
+        assert calls == [], f'a settled roster was reconciled again: {calls}'
+    finally:
+        server._sync_person_status = real_sync
+
     # A status that is not a real one is still refused.
     clear()
     assert c.post(f'/api/personnel/{PID}/schedule',

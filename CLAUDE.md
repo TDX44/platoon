@@ -310,7 +310,10 @@ reason. It re-derives every live row of that person from its dates alone
 the future demotes an `active` row back to `scheduled` — picks the newest current
 window as the single active absence (any other current row is filed as history),
 and writes or clears the cache to match. `_reconcile_absences(conn, today)` is
-just that function looped over everyone with a live row; it keeps its
+just that function looped over the people it would actually change — one SQL
+prefilter, using `_derive_state`'s bounds, picks those with a live row whose
+state is due to move or with more than one current row, so a settled roster
+costs one query; it keeps its
 `{'activated': n, 'completed': n}` shape and the `ABSENCE_ACTIVATE` /
 `ABSENCE_COMPLETE` audit rows, and is called from **every `GET /api/personnel`**,
 so activation and auto-return-to-duty need no background job. Schedule
@@ -318,13 +321,21 @@ create/edit/delete each call `_sync_person_status` directly.
 
 Marking a soldier present is the one thing that ends an absence from outside:
 `PUT /api/personnel/<id>` with `status='present'` over an absence status calls
-`_end_running_absence()`, which closes the active row at yesterday (or deletes it
-if it had not started). Without that the roster said "present" while the absence
+`_end_running_absence()`, which closes the active row at yesterday — at today
+for one that began today (every late and excused), so it stays as history — or
+deletes it if it had not started. Without that the roster said "present" while the absence
 kept running underneath. The check is on the *transition* — `apiUpdate()` resends
 the current status on every save, so marking a TDY soldier present-for-today
-still PUTs `status='tdy'` and must stay a no-op. `POST .../schedule` is
+still PUTs `status='tdy'` and must stay a no-op. That route accepts **only**
+`present` or the soldier's current status (anything else is a 400 pointing at
+`POST .../schedule`) and never writes `from_date`/`to_date`/`notes` from the
+body while an absence is cached. `POST .../schedule` is
 idempotent on (person, status, from_date, to_date) so a double-tapped Save
-cannot book the same absence twice.
+cannot book the same absence twice — enforced by the unique index
+`scheduled_events_dedupe` and `ON CONFLICT DO NOTHING`, so two racing requests
+cannot both insert. Both schedule routes take canonical `YYYY-MM-DD` dates
+only, with the end on or after the start; a blank end on `late`/`excused`
+means the start day.
 
 `late` and `excused` are same-day states in practice but ordinary absences
 underneath: a reason in `notes`, a today-to-today window, a row in the soldier's
