@@ -334,7 +334,10 @@ def api_rules():
         yield rule.rule, path, methods[0]
 
 
-PUBLIC_API = {'/api/auth/config', '/api/logout', '/api/invites/<token>/preview', '/api/billing/webhook'}
+# /api/cron/notify has no session at all (the X-Cron-Secret header is its only
+# credential), so there is no account for billing to lock.
+PUBLIC_API = {'/api/auth/config', '/api/logout', '/api/invites/<token>/preview', '/api/billing/webhook',
+              '/api/cron/notify'}
 
 
 def is_exempt(rule):
