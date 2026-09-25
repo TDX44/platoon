@@ -48,6 +48,28 @@ services:
     depends_on:
       - app
     restart: unless-stopped
+    networks:
+      # Explicit because this connector must resolve containers in three compose
+      # projects by name. Ingress now targets container names, not 10.10.50.200,
+      # so re-addressing this host needs no Cloudflare change. Joined by hand
+      # 2026-09-19; declared here so a recreate does not silently drop them.
+      - default
+      - trebeck_default
+      - npa_default
+
+  # Second ingress for the same app, on its own domain. The tunnel above is
+  # Carr7_Public, which also fronts duckhangout, duckhangar and npa, so a
+  # separate connector keeps app.platoonmanager.com independent of those and
+  # of the carr7.com zone. It reaches the app over the compose network rather
+  # than the published host port.
+  cloudflared-platoonmanager:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN_PM}
+    depends_on:
+      - app
+    restart: unless-stopped
 
   db:
     image: postgres:17
@@ -74,3 +96,9 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  trebeck_default:
+    external: true
+  npa_default:
+    external: true
