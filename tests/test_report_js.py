@@ -147,7 +147,43 @@ def main():
     odd = [soldier(1, 'SPC', 'Odd', 'quarters')]
     out = run([['odd', detailed, []]], people=odd)
     assert 'OTHER 1' in out['odd'].split('\n'), out['odd']
+    check_history_retry()
     print('ok')
+
+
+HISTORY_DRIVER = r'''
+const store = {};
+globalThis.localStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } };
+let posts = 0, fail = true;
+globalThis.api = async () => { posts++; return fail ? null : { id: 1 }; };
+globalThis.currentUnit = { id: 7 };
+globalThis.getTodayStr = () => '2026-03-17';
+(async () => {
+  await saveToHistory('report A', 'HHC');   // fails
+  await saveToHistory('report A', 'HHC');   // retried, succeeds
+  fail = false;
+  await saveToHistory('report A', 'HHC');
+  await saveToHistory('report A', 'HHC');   // already saved: no POST
+  console.log(JSON.stringify({ posts }));
+})();
+'''
+
+
+def check_history_retry():
+    """A report history save that fails is retried; a saved one is not repeated."""
+    src = open(INDEX, encoding='utf-8').read()
+    js = '\n'.join([
+        extract(src, r"const REPORT_SAVED_KEY = .*?\nfunction saveToHistory\(reportText, unitName\) \{.*?\n\}",
+                'saveToHistory()').replace('const REPORT_SAVED_KEY', 'var REPORT_SAVED_KEY'),
+        HISTORY_DRIVER,
+    ])
+    path = os.path.join(tempfile.mkdtemp(), 'history.js')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(js)
+    proc = subprocess.run([shutil.which('node'), path], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    # two failed attempts, one success, then nothing
+    assert json.loads(proc.stdout) == {'posts': 3}, proc.stdout
 
 
 if __name__ == '__main__':

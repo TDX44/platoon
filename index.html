@@ -5041,13 +5041,18 @@ async function saveHeaderRename() {
   showToast('Unit renamed.', 'success');
 }
 
-async function apiUpdate(p) {
+async function apiUpdate(p, { markPresent = true } = {}) {
   // ponytail: an absence is owned by the server (_sync_person_status); only a
   // 'present' mark is ours to send. Resending a stale absence status 400s.
   const body = { rank: p.rank, last: p.last, first: p.first, unit_id: p.unit_id,
                  present_date: p.present_date || '' };
-  if (p.status === 'present') Object.assign(body, {
-    status: 'present', notes: p.notes, from_date: p.from, to_date: p.to });
+  // An edit (markPresent: false) never sends status: a stale tab that still
+  // thinks the soldier is present would otherwise end an absence another
+  // leader has just booked. Notes still go; the server keeps them only for a
+  // soldier who really is present.
+  if (p.status === 'present') Object.assign(body, markPresent
+    ? { status: 'present', notes: p.notes, from_date: p.from, to_date: p.to }
+    : { notes: p.notes });
   return api('PUT', `/personnel/${p.id}`, body);
 }
 
@@ -9002,7 +9007,7 @@ async function savePerson() {
     if (p.status === 'present') p.notes = notes;
     const moved = addModalUnitId();
     if (moved !== p.unit_id) p.unit_id = moved;
-    await apiUpdate(p);
+    await apiUpdate(p, { markPresent: false });
   } else {
     const newPerson = await api('POST', '/personnel', { rank, last, first, unit_id: addModalUnitId() });
     if (!newPerson || !newPerson.id) return;
@@ -10019,9 +10024,15 @@ function saveToHistory(reportText, unitName) {
   const key = reportTextKey(currentUnit.id, reportText);
   const saved = reportSavedToday(day);
   if (saved.keys.includes(key)) return;
-  reportSavedMem = { day, keys: [...saved.keys, key] };
-  try { localStorage.setItem(REPORT_SAVED_KEY, JSON.stringify(reportSavedMem)); } catch (e) { /* memory only */ }
-  api('POST', '/reports', { unit_id: currentUnit.id, unit_name: unitName, text: reportText });
+  // Marked before the POST so a quick Copy-then-Share doesn't save twice;
+  // un-marked if the save fails, so the next Copy or View retries it.
+  const remember = keys => {
+    reportSavedMem = { day, keys };
+    try { localStorage.setItem(REPORT_SAVED_KEY, JSON.stringify(reportSavedMem)); } catch (e) { /* memory only */ }
+  };
+  remember([...saved.keys, key]);
+  return api('POST', '/reports', { unit_id: currentUnit.id, unit_name: unitName, text: reportText })
+    .then(res => { if (!res) remember(reportSavedToday(day).keys.filter(k => k !== key)); return res; });
 }
 
 let _historyMigrated = false;
