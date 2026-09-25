@@ -143,11 +143,14 @@
   .status-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75em; font-weight: 600;
   }
-  .badge-leave { background: #fdcb6e; color: #222; }
-  .badge-pass { background: #ffeaa7; color: #222; }
-  .badge-tdy { background: #0984e3; color: #fff; }
-  .badge-other { background: #e17055; color: #fff; }
-  .badge-ftr { background: #d63031; color: #fff; }
+  body .badge-present { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  body .badge-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  body .badge-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  body .badge-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  body .badge-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  body .badge-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  body .badge-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  body .badge-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -183,7 +186,18 @@
     font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85em;
     white-space: pre-wrap; line-height: 1.5; user-select: all;
   }
-  .report-buttons { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+  .report-buttons { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; flex-wrap: wrap; }
+  .report-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+  .report-seg { display: inline-flex; border: 1px solid var(--cp-border); border-radius: var(--cp-radius); overflow: hidden; }
+  .report-seg button {
+    background: var(--cp-surface); color: var(--cp-text); border: 0; padding: 8px 14px; min-height: 36px;
+    font: inherit; font-size: 0.85em; font-weight: 600; cursor: pointer;
+  }
+  .report-seg button + button { border-left: 1px solid var(--cp-border); }
+  .report-seg button[aria-pressed="true"] { background: var(--cp-accent-soft); color: var(--cp-accent); }
+  .report-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--cp-text); cursor: pointer; }
+  .report-opt[hidden] { display: none; }
+  .report-opt input { width: 18px; height: 18px; margin: 0; }
 
   /* Status type toggle buttons */
   .status-toggle-group {
@@ -196,13 +210,6 @@
     transition: all 0.2s;
   }
   .status-toggle:hover { border-color: #666; color: #e0e0e0; }
-  .status-toggle.active-tdy { border-color: #0984e3; background: #0984e322; color: #74b9ff; }
-  .status-toggle.active-leave { border-color: #fdcb6e; background: #fdcb6e22; color: #fdcb6e; }
-  .status-toggle.active-pass { border-color: #ffeaa7; background: #ffeaa722; color: #ffeaa7; }
-  .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
-  .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
-  .status-toggle.active-late { border-color: #e17055; background: #e1705522; color: #ff9f7f; }
-  .status-toggle.active-excused { border-color: #00b894; background: #00b89422; color: #55efc4; }
 
   /* TDY School field */
   .tdy-school-row { display: none; }
@@ -641,6 +648,22 @@
     --cp-steel: #146bc5;  --cp-steel-bg: #eaf4fc;
     --cp-red: #c73e3e;    --cp-red-bg: #fcecec;
     --cp-violet: #7a63b8; --cp-violet-bg: #f0edf8;
+    /* One colour per status, shared by pills, badges, dots and the status
+       modal's toggles. FTR is the only strong red (a solid fill); Late is
+       orange, Excused violet, Pass teal, Scheduled magenta, so no two
+       statuses read alike. Every pair is AA (>= 4.5:1) text on its ground. */
+    --cp-st-present: #1f7a3d; --cp-st-present-bg: #e8f5ec;
+    --cp-st-tdy: #1a5fb4;     --cp-st-tdy-bg: #e8f1fc;
+    --cp-st-leave: #8a5300;   --cp-st-leave-bg: #fdf2dc;
+    --cp-st-pass: #0b6e79;    --cp-st-pass-bg: #e2f4f5;
+    --cp-st-late: #b3400d;    --cp-st-late-bg: #fdeee4;
+    --cp-st-excused: #6a45b0; --cp-st-excused-bg: #f1ecfa;
+    --cp-st-other: #4b5563;   --cp-st-other-bg: #eef0f3;
+    --cp-st-ftr: #ffffff;     --cp-st-ftr-bg: #b42318;
+    --cp-st-sched: #a0266f;   --cp-st-sched-bg: #fbe9f3;
+    /* Notices: info (scheduled, neutral facts) and warn (destructive). */
+    --cp-info: #1a5fb4;  --cp-info-bg: #e8f1fc;  --cp-info-border: #b8d3f3;
+    --cp-warn: #8a5300;  --cp-warn-bg: #fdf2dc;  --cp-warn-border: #efd49a;
     --cp-side-bg: #ffffff;
     --cp-side-border: #e3e8ee;
     --cp-side-text: #475467;
@@ -716,6 +739,17 @@
     --cp-steel: #61a5e6;  --cp-steel-bg: #16283c;
     --cp-red: #dd6b6b;    --cp-red-bg: #2e1a1a;
     --cp-violet: #a08fd6; --cp-violet-bg: #221f30;
+    --cp-st-present: #6fcf8e; --cp-st-present-bg: #15291c;
+    --cp-st-tdy: #7ab4ee;     --cp-st-tdy-bg: #15263a;
+    --cp-st-leave: #e6b85c;   --cp-st-leave-bg: #2c2210;
+    --cp-st-pass: #5ccbd6;    --cp-st-pass-bg: #0f2a2d;
+    --cp-st-late: #f39a62;    --cp-st-late-bg: #33200f;
+    --cp-st-excused: #b8a3ee; --cp-st-excused-bg: #241d36;
+    --cp-st-other: #b4bec9;   --cp-st-other-bg: #232a33;
+    --cp-st-ftr: #1a0503;     --cp-st-ftr-bg: #f07a72;
+    --cp-st-sched: #ec8fc6;   --cp-st-sched-bg: #321527;
+    --cp-info: #7ab4ee;  --cp-info-bg: #15263a;  --cp-info-border: #2c4a6e;
+    --cp-warn: #e6b85c;  --cp-warn-bg: #2c2210;  --cp-warn-border: #5a4520;
     --cp-side-bg: #10141a;
     --cp-side-border: #262d37;
     --cp-side-text: #8b95a5;
@@ -1002,7 +1036,6 @@
     border-color: var(--theme_danger);
   }
   body.dark-mode .btn-tdy-leave,
-  body.dark-mode .badge-tdy,
   body.dark-mode .platoon-badge {
     background: #1d2a3b;
     color: var(--theme_action);
@@ -1058,23 +1091,15 @@
   body.dark-mode .notes-preview,
   body.dark-mode .report-text,
   body.dark-mode #resetSummary,
-  body.dark-mode .insight-card,
-  body.dark-mode #futureScheduleNotice {
+  body.dark-mode .insight-card {
     background: var(--theme_surface-soft) !important;
     border-color: var(--theme_border) !important;
     color: var(--theme_text) !important;
   }
-  body.dark-mode .badge-leave,
-  body.dark-mode .badge-pass,
   body.dark-mode .returning-badge {
     background: #3a300f;
     color: #fde68a;
   }
-  body.dark-mode .badge-other {
-    background: #3a2418;
-    color: #fdba74;
-  }
-  body.dark-mode .badge-ftr,
   body.dark-mode .present-btn.unaccounted {
     background: #3a1d20;
     color: var(--theme_danger);
@@ -1240,7 +1265,11 @@
   }
   #unitCards .platoon-card-label { font-size: 0.62em; margin-bottom: 2px; }
   #unitCards .platoon-card-name { font-size: 0.92em; line-height: 1.25; }
-  #unitCards .platoon-card-count { font-size: 0.7em; margin-top: 2px; }
+  #unitCards .platoon-card-count { font-size: 0.7em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  #unitCards .platoon-card-unacc {
+    display: inline-block; font-size: 0.66em; font-weight: 700; margin-top: 4px;
+    padding: 1px 7px; border-radius: 99px; background: var(--cp-red-bg); color: var(--cp-st-ftr-bg);
+  }
   #unitCards .unit-card:hover { transform: none; }
   #unitCards .unit-card-top {
     width: auto; min-width: 200px; max-width: 300px; text-align: center;
@@ -1573,23 +1602,9 @@
     border-radius: 6px;
     letter-spacing: 0;
   }
-  .badge-leave,
-  .badge-pass,
   .returning-badge {
     background: #fff7da;
     color: #7a4f01;
-  }
-  .badge-tdy {
-    background: #eaf2ff;
-    color: var(--theme_action);
-  }
-  .badge-other {
-    background: #fff1e8;
-    color: #9a3412;
-  }
-  .badge-ftr {
-    background: #fff5f4;
-    color: var(--theme_danger);
   }
   .platoon-badge.admin-badge {
     background: #f1f5f9;
@@ -1613,12 +1628,15 @@
   }
   /* Prefixed with body so these beat the body.light-mode / body.dark-mode
      base rules above — without it the selected status has no highlight. */
-  body .status-toggle[class*="active-"] {
-    border-color: var(--theme_action);
-    background: var(--cp-accent-soft, #eaf2ff);
-    color: var(--theme_action);
-    font-weight: 700;
-  }
+  body .status-toggle[class*="active-"] { font-weight: 700; border-color: currentColor; }
+  body .status-toggle.active-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  body .status-toggle.active-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  body .status-toggle.active-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  body .status-toggle.active-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  body .status-toggle.active-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  body .status-toggle.active-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  body .status-toggle.active-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  body .status-toggle.active-ftr { border-color: var(--cp-st-ftr-bg); }
   .date-display,
   body.light-mode .date-display,
   .notes-preview,
@@ -1809,7 +1827,7 @@
     padding: max(10px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
     box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain;
   }
-  .fm-top { display: flex; align-items: center; gap: 12px; flex: none; }
+  .fm-top { display: flex; align-items: center; gap: 8px 12px; flex: none; flex-wrap: wrap; }
   .fm-progress-text {
     font-weight: 700; font-size: 1.05em; font-variant-numeric: tabular-nums;
     color: var(--cp-text-strong);
@@ -1843,6 +1861,22 @@
     word-break: break-word;
   }
   .fm-sub { text-align: center; color: var(--cp-text-weak); font-size: 0.95em; }
+  .fm-first { text-align: center; color: var(--cp-text); font-size: 1.3em; font-weight: 600; margin-top: 6px; overflow-wrap: anywhere; }
+  .fm-unit { text-align: center; color: var(--cp-muted); font-size: 0.9em; margin-top: 4px; }
+  .fm-rest {
+    margin-left: auto; border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-accent); border-radius: var(--cp-radius); font-weight: 600;
+    padding: 4px 12px; font-size: 0.85em; cursor: pointer; min-height: 44px;
+    max-width: 9.5em; line-height: 1.15;
+  }
+  .fm-rest + .fm-exit { margin-left: 0; }
+  .fm-reason-form { display: flex; flex-direction: column; gap: 10px; }
+  .fm-reason-form label { font-weight: 700; color: var(--cp-text-strong); font-size: 1.05em; }
+  .fm-optional { font-weight: 400; color: var(--cp-muted); }
+  .fm-reason-form input {
+    font: inherit; font-size: 1.15em; padding: 12px 14px; min-height: 52px; box-sizing: border-box; width: 100%;
+    border: 1px solid var(--cp-border-strong); border-radius: var(--cp-radius); background: var(--cp-input); color: var(--cp-text-strong);
+  }
   /* Side by side, not stacked: "Not here" on the left, Present green on the
      right under the thumb. Two targets across a phone are still far bigger
      than anything else in the app. */
@@ -1889,6 +1923,8 @@
     .fm-reasons .fm-btn { min-height: max(44px, 8vh); font-size: 0.95em; }
     .fm-back { min-height: 44px; margin-top: 8px; }
   }
+  /* The confirm dialog is asked from inside formation mode too. */
+  #confirmModal { z-index: 6000; }
   .fm-done-head { text-align: center; }
   .fm-done-head h2 { margin: 0 0 6px; font-size: 1.8em; }
   .fm-tally {
@@ -1917,6 +1953,10 @@
   @media (min-width: 901px) {
     .fm-body { max-width: 640px; width: 100%; margin: 0 auto; }
     .fm-top, .fm-bar, .fm-back { max-width: 640px; width: 100%; margin-left: auto; margin-right: auto; }
+  }
+  /* Tall desktop buttons only where there is height for them; a short wide
+     window keeps the short-viewport sizes above. */
+  @media (min-width: 901px) and (min-height: 661px) {
     .fm-btn { min-height: 130px; }
     .fm-reasons .fm-btn { min-height: 96px; }
   }
@@ -2609,13 +2649,14 @@
     content: ''; width: 7px; height: 7px; border-radius: 50%; flex: none;
     background: var(--cp-muted);
   }
-  .status-cell.s-present::before { background: var(--cp-green); }
-  .status-cell.s-tdy::before     { background: var(--cp-steel); }
-  .status-cell.s-leave::before,
-  .status-cell.s-pass::before    { background: var(--cp-amber); }
-  .status-cell.s-ftr::before     { background: var(--cp-red); }
-  .status-cell.s-late::before    { background: var(--cp-red); }
-  .status-cell.s-excused::before { background: var(--cp-steel); }
+  .status-cell.s-present::before { background: var(--cp-st-present); }
+  .status-cell.s-tdy::before { background: var(--cp-st-tdy); }
+  .status-cell.s-leave::before { background: var(--cp-st-leave); }
+  .status-cell.s-pass::before { background: var(--cp-st-pass); }
+  .status-cell.s-late::before { background: var(--cp-st-late); }
+  .status-cell.s-excused::before { background: var(--cp-st-excused); }
+  .status-cell.s-other::before { background: var(--cp-st-other); }
+  .status-cell.s-ftr::before { background: var(--cp-st-ftr-bg); }
 
   /* ── Soldier detail page ── */
   .soldier-view { display: none; }
@@ -2784,11 +2825,6 @@
     box-shadow: 0 0 0 3px rgba(27,97,201,0.12);
   }
 
-  #futureScheduleNotice {
-    background: #f3f7ff !important;
-    border-color: #cfe0ff !important;
-    color: var(--theme_action) !important;
-  }
   .tdy-field-separator::before,
   .tdy-field-separator::after {
     background: var(--theme_border);
@@ -3399,14 +3435,23 @@
     gap: 14px; flex-wrap: wrap;
     padding: 22px 28px 6px;
   }
-  body .dash-header .dash-title-input.edit-unit-name {
-    font-size: 1.45em; font-weight: 700; color: var(--dash-text);
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
-    padding: 2px 8px; margin: -2px 0 0 -8px; width: min(440px, 100%);
-    font-family: inherit; text-align: left;
+  .dash-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .dash-title {
+    font-size: 1.45em; font-weight: 700; color: var(--dash-text); margin: 0;
+    line-height: 1.25; overflow-wrap: anywhere; min-width: 0;
   }
-  .dash-title-input.edit-unit-name:hover, .dash-title-input.edit-unit-name:focus {
-    border-color: var(--dash-border); background: var(--dash-card); outline: none;
+  .dash-title-edit {
+    flex: none; width: 36px; height: 36px; border-radius: var(--cp-radius);
+    background: none; border: 1px solid transparent; color: var(--dash-muted);
+    cursor: pointer; font-size: 1em; font-family: inherit;
+  }
+  .dash-title-edit:hover, .dash-title-edit:focus-visible { border-color: var(--dash-border); color: var(--dash-accent); }
+  .dash-title-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
+  .dash-title-form[hidden], .dash-title-row[hidden] { display: none; }
+  .dash-title-form input {
+    font-size: 1.1em; font-weight: 600; font-family: inherit; color: var(--dash-text);
+    background: var(--cp-input); border: 1px solid var(--dash-border); border-radius: var(--cp-radius);
+    padding: 6px 10px; width: min(360px, 100%); min-width: 0;
   }
   .dash-asof { display: flex; align-items: center; gap: 6px; color: var(--dash-muted); font-size: 0.85em; margin-top: 2px; }
   .dash-refresh {
@@ -3543,8 +3588,8 @@
   .sec-needs .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
   .sec-present .dash-section-count { background: var(--dash-green-bg); color: var(--dash-green); border-color: transparent; }
   .sec-away .dash-section-count { background: var(--dash-blue-bg); color: var(--dash-blue); border-color: transparent; }
-  .sec-ftr .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
-  .sec-sched .dash-section-count { background: var(--dash-amber-bg); color: var(--dash-amber); border-color: transparent; }
+  .sec-ftr .dash-section-count { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); border-color: transparent; }
+  .sec-sched .dash-section-count { background: var(--cp-st-sched-bg); color: var(--cp-st-sched); border-color: transparent; }
   .dash-section-spacer { flex: 1; }
   .dash-section-chev { color: var(--dash-faint); font-size: 0.8em; transition: transform 0.15s; }
   .dash-section.collapsed .dash-section-chev { transform: rotate(-90deg); }
@@ -3577,16 +3622,32 @@
     content: ''; width: 6px; height: 6px; border-radius: 50%;
     background: currentColor; flex: none;
   }
-  .dash-pill.p-present { background: var(--dash-green-bg); color: var(--dash-green); }
-  .dash-pill.p-leave, .dash-pill.p-pass { background: var(--dash-amber-bg); color: var(--dash-amber); }
-  .dash-pill.p-tdy { background: var(--dash-blue-bg); color: var(--dash-blue); }
-  .dash-pill.p-other { background: var(--dash-hover); color: var(--dash-muted); }
-  .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
-  .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
-  /* Late borrows FTR's red at low strength — it is a problem, just a smaller
-     one. Excused sits with the accounted-for blues. */
-  .dash-pill.p-late { background: var(--dash-red-bg); color: var(--dash-red); }
-  .dash-pill.p-excused { background: var(--dash-blue-bg); color: var(--dash-blue); }
+  .dash-pill.p-present { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  .dash-pill.p-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  .dash-pill.p-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  .dash-pill.p-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  .dash-pill.p-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  .dash-pill.p-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  .dash-pill.p-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  .dash-pill.p-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  .dash-pill.p-sched { background: var(--cp-st-sched-bg); color: var(--cp-st-sched); }
+  .app-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: var(--cp-radius-lg); font-size: 0.9em;
+    z-index: 9999; max-width: 90vw; text-align: center; border: 1px solid transparent;
+    box-shadow: var(--cp-shadow-lg);
+  }
+  .app-toast-error   { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  .app-toast-success { background: var(--cp-st-present); color: var(--cp-surface); }
+  .app-toast-info    { background: var(--cp-text-strong); color: var(--cp-surface); }
+  /* Boxed notices inside modals. Plain = neutral surface; info/warn tint. */
+  .cp-notice {
+    margin-top: 8px; padding: 8px 10px; border-radius: var(--cp-radius);
+    background: var(--cp-subtle); border: 1px solid var(--cp-border);
+    color: var(--cp-text); font-size: 0.85em;
+  }
+  .cp-notice-info { background: var(--cp-info-bg); border-color: var(--cp-info-border); color: var(--cp-info); }
+  .cp-notice-warn { background: var(--cp-warn-bg); border-color: var(--cp-warn-border); color: var(--cp-warn); }
   .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; white-space: nowrap; }
   .dash-badge-returned { font-size: 0.7em; font-weight: 800; color: var(--dash-blue); letter-spacing: 0.04em; margin-left: 6px; }
 
@@ -3632,7 +3693,6 @@
   .dash-preview-head { font-weight: 700; color: var(--dash-text); font-size: 0.92em; margin-bottom: 2px; }
   .dash-preview-date { font-size: 0.78em; color: var(--dash-faint); margin-bottom: 10px; }
   .dash-preview-actions { display: flex; flex-direction: column; gap: 8px; }
-  .dash-preview-note { font-size: 0.74em; color: var(--dash-faint); margin-top: 10px; line-height: 1.4; }
 
   /* Bottom nav (mobile only) */
   .dash-bottomnav {
@@ -3738,7 +3798,7 @@
        which also drops the safe-area inset every other screen gets from it. */
     .dash-header { padding: 12px 14px 4px; }
     .dash-header-title { width: 100%; }
-    body .dash-header .dash-title-input.edit-unit-name { font-size: 1.05em; width: 100%; }
+    .dash-title { font-size: 1.05em; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
     .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
     .dash-row-needs .dash-row-mobiledetail { grid-column: 3 / -1; }
@@ -3942,7 +4002,7 @@
     <span class="dash-brand-name">Platoon Manager</span>
   </div>
   <nav class="dash-nav" id="mainNav" aria-label="Main navigation">
-    <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+    <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Home</button>
     <button class="dash-nav-item" data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
     <button class="dash-nav-item" data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item" data-nav="availability" onclick="openAvailability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg>Availability</button>
@@ -3956,7 +4016,17 @@
 
 <header class="dash-header">
   <div class="dash-header-title">
-    <input type="text" class="edit-unit-name dash-title-input" id="unitName" value="" />
+    <div class="dash-title-row" id="unitTitleRow">
+      <h1 class="dash-title" id="unitName"></h1>
+      <button type="button" class="dash-title-edit" id="unitRenameBtn" hidden
+              onclick="openHeaderRename()" title="Rename unit" aria-label="Rename unit">&#9998;</button>
+    </div>
+    <form class="dash-title-form" id="unitRenameForm" hidden onsubmit="event.preventDefault();saveHeaderRename()">
+      <input type="text" id="unitRenameInput" maxlength="80" aria-label="Unit name"
+             onkeydown="if (event.key === 'Escape') { event.stopPropagation(); closeHeaderRename(); }">
+      <button type="submit" class="dash-btn dash-btn-primary dash-btn-sm">Save</button>
+      <button type="button" class="dash-btn dash-btn-ghost dash-btn-sm" onclick="closeHeaderRename()">Cancel</button>
+    </form>
     <div class="dash-asof">As of <span id="dashAsOf">&mdash;</span>
       <button class="dash-refresh" onclick="refreshData()" title="Refresh data" aria-label="Refresh data">&#8635;</button>
     </div>
@@ -3977,8 +4047,8 @@
     <details class="dash-more dash-more-primary" id="dashReports">
       <summary>Reports</summary>
       <div class="dash-more-menu">
-        <button onclick="generateStrengthReport();closeDashMenus()">Formation</button>
-        <button onclick="generateReport();closeDashMenus()">Wickr</button>
+        <button onclick="closeDashMenus();generateReport('detailed')">Detailed</button>
+        <button onclick="closeDashMenus();generateReport('strength')">Strength</button>
       </div>
     </details>
   </div>
@@ -4021,11 +4091,10 @@
     <div id="reportPreviewBody"></div>
     <div class="dash-preview-actions">
       <button class="dash-btn dash-btn-primary" id="dashCopyBtn" onclick="dashCopyReport()">Copy Report</button>
-      <button class="dash-btn dash-btn-secondary" onclick="generateStrengthReport()">Formation</button>
-      <button class="dash-btn dash-btn-secondary" onclick="generateReport()">Wickr</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateReport('detailed')">Detailed report</button>
+      <button class="dash-btn dash-btn-secondary" onclick="generateReport('strength')">Strength report</button>
       <button class="dash-btn dash-btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
-    <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
   </div>
   <div class="dash-card dash-filters" id="dashFiltersCard">
     <details class="dash-filters-details" id="dashFiltersDetails">
@@ -4063,7 +4132,7 @@
 
 
 <nav class="dash-bottomnav" aria-label="Mobile navigation">
-  <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+  <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Home</button>
   <button data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
   <button data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
   <button onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
@@ -4211,7 +4280,7 @@
                onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'from')" />
       </div>
       <div class="date-pick-col">
-        <label style="font-size:0.8em;" for="awayToInput">To</label>
+        <label style="font-size:0.8em;" for="awayToInput" id="awayToLabel">To</label>
         <input type="date" class="date-input rp-field" id="awayToInput" onchange="onAwayDateChange()"
                onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'to')" />
       </div>
@@ -4220,7 +4289,7 @@
     <div class="notes-preview-label">Generated Note</div>
     <div class="notes-preview" id="notesPreview"></div>
 
-    <div id="futureScheduleNotice" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;background:#6c5ce722;border:1px solid #6c5ce7;font-size:0.82em;color:#a29bfe;">
+    <div id="futureScheduleNotice" class="cp-notice cp-notice-info" style="display:none">
       &#128337; Start date is in the future — this will be <strong>scheduled</strong> and activate automatically on the start date.
     </div>
 
@@ -4240,9 +4309,20 @@
 <div class="report-overlay" id="reportModal">
   <div class="report-box" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
     <h2 id="reportTitle">Accountability Report</h2>
+    <div class="report-options">
+      <div class="report-seg" id="reportFormat" role="group" aria-label="Report format">
+        <button type="button" data-fmt="detailed" aria-pressed="true" onclick="setReportOption('format', 'detailed')">Detailed</button>
+        <button type="button" data-fmt="strength" aria-pressed="false" onclick="setReportOption('format', 'strength')">Strength</button>
+      </div>
+      <label class="report-opt"><input type="checkbox" id="rptListPresent"
+             onchange="setReportOption('listPresent', this.checked)"> List present names</label>
+      <label class="report-opt"><input type="checkbox" id="rptSplitLP"
+             onchange="setReportOption('splitLeavePass', this.checked)"> Leave and Pass separate</label>
+    </div>
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
-      <button class="btn-small btn-generate" onclick="copyReport()">Copy to Clipboard</button>
+      <button class="btn-small btn-generate" id="copyReportBtn" onclick="copyReport()">Copy to Clipboard</button>
+      <button class="btn-small btn-edit" id="shareReportBtn" onclick="shareReport()" hidden>Share</button>
       <button class="btn-small btn-cancel" onclick="closeReport()">Close</button>
     </div>
   </div>
@@ -4331,7 +4411,7 @@
     <h2 id="confirmTitle">Are you sure?</h2>
     <div id="confirmBody"></div>
     <div class="modal-buttons">
-      <button class="btn-small btn-cancel" onclick="settleConfirm(false)">Cancel</button>
+      <button class="btn-small btn-cancel" id="confirmCancelBtn" onclick="settleConfirm(false)">Cancel</button>
       <button class="btn-small btn-danger" id="confirmOkBtn" onclick="settleConfirm(true)">Confirm</button>
     </div>
   </div>
@@ -4411,6 +4491,14 @@ function unitSubtree(id) {
 }
 function unitHeadcount(id) {
   return unitSubtree(id).reduce((n, uid) => n + ((unitById(uid) || {}).count || 0), 0);
+}
+// Today's present / unaccounted for a unit's whole subtree, from the
+// per-unit counts GET /api/units carries; null if the listing has none.
+function unitTodayCounts(id) {
+  const tree = unitSubtree(id).map(unitById).filter(Boolean);
+  if (!tree.length || tree.some(u => typeof u.present !== 'number')) return null;
+  return tree.reduce((t, u) => ({ present: t.present + u.present, unaccounted: t.unaccounted + (u.unaccounted || 0) }),
+                     { present: 0, unaccounted: 0 });
 }
 function unitLabel(u) {
   return u ? u.name : '';
@@ -4601,14 +4689,14 @@ async function uploadUnitLogo(input) {
   input.value = '';                       // so the same file can be picked again
   if (!file || !currentUnit) return;
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
-    alert('Choose a PNG, JPG or WebP image.');
+    showToast('Choose a PNG, JPG or WebP image.');
     return;
   }
   let bitmap;
   try {
     bitmap = await createImageBitmap(file);
   } catch (e) {
-    alert('That file could not be read as an image.');
+    showToast('That file could not be read as an image.');
     return;
   }
   // A photo can stay over 400 KB even at 512px, so step down once or twice
@@ -4624,7 +4712,7 @@ async function uploadUnitLogo(input) {
   if (!blob) {
     // Two different failures. Telling someone their image is too detailed when
     // the canvas simply refused to encode sends them to fix the wrong thing.
-    alert(encoded
+    showToast(encoded
       ? 'That image is too detailed to fit under 400 KB. Try a simpler one.'
       : 'That image could not be converted to a PNG. Try a different file.');
     return;
@@ -4706,20 +4794,23 @@ createInvite = singleFlight(createInvite);
 createUnitInvite = singleFlight(createUnitInvite);
 createChildUnit = singleFlight(createChildUnit);
 saveUnitRename = singleFlight(saveUnitRename);
+saveHeaderRename = singleFlight(saveHeaderRename);
 createRootUnit = singleFlight(createRootUnit);
 extendTrial = singleFlight(extendTrial);
 startCheckout = singleFlight(startCheckout);
 startFormation = singleFlight(startFormation);
 
 let _toastTimer = null;
-function showToast(msg) {
+// type is 'error' (the default: api() failures), 'success' or 'info'.
+function showToast(msg, type = 'error') {
   let el = document.getElementById('apiToast');
   if (!el) {
     el = document.createElement('div');
     el.id = 'apiToast';
-    el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#d63031;color:#fff;padding:10px 18px;border-radius:8px;font-size:0.9em;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);max-width:90vw;text-align:center;';
     document.body.appendChild(el);
   }
+  el.className = `app-toast app-toast-${['success', 'info'].includes(type) ? type : 'error'}`;
+  el.setAttribute('role', type === 'error' ? 'alert' : 'status');
   el.textContent = msg;
   el.style.display = 'block';
   clearTimeout(_toastTimer);
@@ -4764,7 +4855,7 @@ async function load() {
     // Anyone who left the roster (deleted, moved out) leaves the selection too.
     bulkSelected = new Set([...bulkSelected].filter(id => personnel.some(p => p.id === id)));
     if (settings.unit_name) {
-      document.getElementById('unitName').value = settings.unit_name;
+      setUnitTitle(settings.unit_name);
     }
     // The organization owns the duty day; adopt it before anything renders a
     // date, so an admin changing it elsewhere reaches this device on next load.
@@ -4800,13 +4891,44 @@ function loadFailed(unitId) {
   render();
 }
 
-async function saveUnit() {
-  const name = document.getElementById('unitName').value;
+// The header title is a heading, not a live input: renaming is an explicit
+// Edit -> Save, offered to whoever the Units page offers Rename to (an owner,
+// or anyone for a unit that is not the root).
+function headerUnitName() {
+  return document.getElementById('unitName').textContent || unitLabel(currentUnit) || 'Accountability';
+}
+function mayRenameUnit(u) {
+  if (!u || !currentUser) return false;
+  return currentUser.role === 'owner' || u.id !== currentUser.root_id;
+}
+function setUnitTitle(name) {
+  document.getElementById('unitName').textContent = name || '';
+  document.getElementById('unitRenameBtn').hidden = !mayRenameUnit(currentUnit);
+  closeHeaderRename();
+}
+function openHeaderRename() {
+  if (!mayRenameUnit(currentUnit)) return;
+  const input = document.getElementById('unitRenameInput');
+  input.value = document.getElementById('unitName').textContent;
+  document.getElementById('unitTitleRow').hidden = true;
+  document.getElementById('unitRenameForm').hidden = false;
+  input.focus();
+  input.select();
+}
+function closeHeaderRename() {
+  document.getElementById('unitRenameForm').hidden = true;
+  document.getElementById('unitTitleRow').hidden = false;
+}
+async function saveHeaderRename() {
+  const name = document.getElementById('unitRenameInput').value.trim();
+  if (!name) return;
   // The name is the unit's own, not a setting — rename it where it lives, then
   // re-pull the tree so the home screen and every label agree with the header.
   const saved = await api('PUT', `/units/${currentUnit.id}`, { name });
   if (!saved) return;
   await reloadUnits();
+  setUnitTitle(name);
+  showToast('Unit renamed.', 'success');
 }
 
 async function apiUpdate(p) {
@@ -4939,7 +5061,7 @@ function renderReportPreview(counts, total) {
   const todayStr = getTodayStr();
   const nextWeek = addDaysStr(todayStr, 7);
   const returningSoon = personnel.filter(p => p.status !== 'present' && p.to && p.to >= todayStr && p.to <= nextWeek).length;
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
+  const unitName = headerUnitName();
   const rows = [
     ['Assigned', total, ''],
     ['Needs Action', counts.unaccounted || 0, counts.unaccounted ? 'warn' : ''],
@@ -5072,7 +5194,7 @@ function settingsNavHtml(active, opts) {
   const items = settingsNavItems(opts).map(it => it.group
     ? `<div class="settings-nav-group">${escapeHtml(it.group)}</div>`
     : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`);
-  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Dashboard</button>`
+  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Accountability</button>`
     + `<div class="settings-nav-title">Settings</div>` + items.join('');
 }
 
@@ -5206,7 +5328,7 @@ function timezoneSettingsRow(isOwner) {
 async function saveOrgTimezone(zone) {
   const res = await api('PUT', `/settings?unit=${currentUnit.id}`, { timezone: zone });
   if (!res || res.error) {
-    alert(res && res.error ? res.error : 'Could not change the time zone.');
+    showToast(res && res.error ? res.error : 'Could not change the time zone.');
     renderSettings();            // put the control back to the stored value
     return;
   }
@@ -5378,12 +5500,10 @@ function updateAsOf() {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 }
-function dashCopyReport() {
-  // Same pipeline as the report modal: generateReport() builds the standard
-  // report (or alerts if personnel are unaccounted), then we copy it.
-  generateReport();
-  const modal = document.getElementById('reportModal');
-  if (modal && modal.classList.contains('active')) {
+async function dashCopyReport() {
+  // Same pipeline as the report modal: generateReport() builds the report in
+  // the viewer's chosen format (after the unaccounted choice), then we copy it.
+  if (await generateReport()) {
     copyReport();
     const btn = document.getElementById('dashCopyBtn');
     if (btn) {
@@ -6113,7 +6233,7 @@ async function saveUnitRename(id) {
   if (!saved) return;
   unitRenameFor = null;
   await refreshUnitsPage();
-  if (id === currentUnit.id) document.getElementById('unitName').value = currentUnit.name;
+  if (id === currentUnit.id) setUnitTitle(currentUnit.name);
 }
 
 async function deleteUnit(id) {
@@ -6339,15 +6459,20 @@ function renderAvailabilityResults() {
 // 0630, phone in one hand, platoon standing in front of you. Scrolling a list
 // and picking from a row menu is the wrong interaction for that, so this is one
 // soldier at a time with two thumb-sized answers and no way to lose your place.
-let formation = { ids: [], known: [], i: 0, asking: false, busy: false };
+// reasonFor: the status (late/excused/other) whose optional reason is being
+// asked for, or null.
+let formation = { ids: [], known: [], i: 0, asking: false, reasonFor: null, busy: false };
 
 // Ordered by what is actually said at formation: late and excused first,
 // FTR last because it is the one you do not want to tap by reflex.
 const FORMATION_REASONS = ['late', 'excused', 'leave', 'pass', 'tdy', 'other', 'ftr'];
 
 // Pure, and the only rule about who gets asked and in what order.
-// tests/test_formation_order.py runs this function directly.
-function formationQueue(people, todayStr) {
+// tests/test_formation_order.py runs this function directly. groupOf(p) is a
+// number: at a unit with sub-units the queue walks them in tree order (the
+// order the platoon stands in), senior first within each; omitted, it is one
+// group and the order is rankSort() alone.
+function formationQueue(people, todayStr, groupOf = () => 0) {
   const queue = [], known = [];
   for (const p of people) {
     // Already away on a current absence: the app knows where they are, and
@@ -6359,7 +6484,17 @@ function formationQueue(people, todayStr) {
     if (p.present_date === todayStr) continue;
     queue.push(p);
   }
-  return { queue: queue.sort(rankSort), known: known.sort(rankSort) };
+  const byGroup = (a, b) => (groupOf(a) - groupOf(b)) || rankSort(a, b);
+  return { queue: queue.sort(byGroup), known: known.sort(rankSort) };
+}
+
+// Depth-first position of every unit under `rootId` (the root itself is 0,
+// so anyone directly in the unit, its HQ, is asked first).
+function unitTreeOrder(rootId) {
+  const order = new Map();
+  const walk = id => { order.set(Number(id), order.size); unitChildren(id).forEach(k => walk(k.id)); };
+  walk(rootId);
+  return order;
 }
 
 async function startFormation() {
@@ -6371,11 +6506,13 @@ async function startFormation() {
   await load();
   if (!currentUnit || currentUnit.id !== unitId || personnelUnitId !== unitId) return;
   if (document.body.classList.contains('formation-active')) return;   // double tap
-  const split = formationQueue(personnel, getTodayStr());
+  const order = unitTreeOrder(unitId);
+  const split = formationQueue(personnel, getTodayStr(),
+                               p => order.has(p.unit_id) ? order.get(p.unit_id) : order.size);
   formation = {
     ids: split.queue.map(p => p.id),
     known: split.known.map(p => p.id),
-    i: 0, asking: false, busy: false
+    i: 0, asking: false, reasonFor: null, busy: false
   };
   document.body.classList.add('formation-active');
   renderFormation();
@@ -6398,8 +6535,69 @@ function formationAsk() {
 // minute ago makes the server delete that row (it never started), and booking
 // an absence over a Present overwrites the roster line the same way.
 function formationBack() {
-  if (formation.asking) formation.asking = false;
+  if (formation.reasonFor) formation.reasonFor = null;
+  else if (formation.asking) formation.asking = false;
   else if (formation.i > 0) formation.i--;
+  renderFormation();
+}
+
+// Late, Excused and Other take an optional reason (REASON_FIELDS wording) in
+// one extra step; everything else saves on the tap.
+function formationPick(status) {
+  if (formation.busy) return;
+  if (!REASON_FIELDS[status]) return formationMark(status);
+  formation.reasonFor = status;
+  renderFormation();
+  const input = document.getElementById('fmReason');
+  if (input) input.focus();
+}
+
+function formationSaveReason(skip) {
+  const input = document.getElementById('fmReason');
+  const notes = skip || !input ? '' : input.value.trim();
+  formationMark(formation.reasonFor, notes);
+}
+
+// Who "Everyone else present" would mark: the rest of the queue that is still
+// unaccounted. Never anyone on a current absence — they are not in the queue,
+// and anyone booked away during this formation is skipped by the status check.
+function formationRemaining() {
+  return formation.ids.slice(formation.i)
+    .map(id => personnel.find(p => p.id === id))
+    .filter(p => p && isUnaccounted(p));
+}
+
+async function formationRestPresent() {
+  if (formation.busy) return;
+  const rest = formationRemaining();
+  if (!rest.length) return;
+  const ok = await confirmDialog(`Mark ${rest.length} present?`,
+    `Everyone still to be asked (${rest.length}) is marked present for today. Anyone already away stays away.`,
+    'Mark present');
+  if (!ok || formation.busy) return;
+  formation.busy = true;
+  const today = getTodayStr();
+  const results = await Promise.all(rest.map(async p => {
+    const before = { status: p.status, notes: p.notes, from: p.from, to: p.to, present_date: p.present_date };
+    Object.assign(p, { status: 'present', notes: '', from: '', to: '', present_date: today });
+    const res = await apiUpdate(p);
+    if (!res || res.error) { Object.assign(p, before); return false; }
+    return true;
+  }));
+  const failed = results.filter(ok => !ok).length;
+  formation.busy = false;
+  if (failed) {
+    showToast(`${failed} could not be marked present.`);
+    // Stay in the queue at the first soldier still unaccounted.
+    const next = formation.ids.findIndex((id, idx) => idx >= formation.i &&
+      isUnaccounted(personnel.find(p => p.id === id) || {}));
+    if (next >= 0) formation.i = next;
+  } else {
+    showToast(`${rest.length} marked present.`, 'success');
+    formation.i = formation.ids.length;
+  }
+  formation.asking = false;
+  formation.reasonFor = null;
   renderFormation();
 }
 
@@ -6407,7 +6605,7 @@ function formationPerson(index) {
   return personnel.find(p => p.id === formation.ids[index]);
 }
 
-async function formationMark(status) {
+async function formationMark(status, notes = '') {
   if (formation.busy) return;          // a double-tap must not skip a soldier
   const p = formationPerson(formation.i);
   if (!p) return;
@@ -6424,7 +6622,7 @@ async function formationMark(status) {
     // POST .../schedule is idempotent on (person, status, from, to).
     const today = getTodayStr();
     const res = await api('POST', `/personnel/${p.id}/schedule`,
-                          { status, from_date: today, to_date: today });
+                          { status, from_date: today, to_date: today, notes });
     if (!res || res.error) return formationFailed();
     // Mirror the row the server actually wrote rather than guessing at it.
     Object.assign(p, { status: res.status, from: res.from_date, to: res.to_date,
@@ -6432,6 +6630,7 @@ async function formationMark(status) {
   }
   formation.busy = false;
   formation.asking = false;
+  formation.reasonFor = null;
   formation.i++;
   renderFormation();
 }
@@ -6468,6 +6667,30 @@ function formationName(p) {
   return `${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
 }
 
+// The card: rank and last name the way they are called out, first name
+// under it, and the sub-unit when the formation spans more than one.
+function formationCard(p) {
+  const unit = currentUnit && p.unit_id !== currentUnit.id ? unitById(p.unit_id) : null;
+  return `<div class="fm-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}</div>
+        <div class="fm-first">${escapeHtml(p.first)}</div>
+        ${unit ? `<div class="fm-unit">${escapeHtml(unit.name)}</div>` : ''}`;
+}
+
+function formationReasonHTML(status) {
+  const cfg = REASON_FIELDS[status];
+  return `<div class="fm-reason-form">
+        <label for="fmReason">${escapeHtml(cfg.label)} <span class="fm-optional">(optional)</span></label>
+        <input type="text" id="fmReason" list="fmReasonList" maxlength="120" autocomplete="off"
+               placeholder="${escapeHtml(cfg.placeholder)}"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); formationSaveReason(false); }">
+        <datalist id="fmReasonList">${cfg.options.map(o => `<option value="${escapeHtml(o)}"></option>`).join('')}</datalist>
+        <div class="fm-actions">
+          <button class="fm-btn" onclick="formationSaveReason(true)">Skip</button>
+          <button class="fm-btn fm-btn-present" onclick="formationSaveReason(false)">Save ${STATUS_LABELS[status]}</button>
+        </div>
+      </div>`;
+}
+
 function renderFormation() {
   const el = document.getElementById('formationOverlay');
   if (!el) return;
@@ -6476,23 +6699,29 @@ function renderFormation() {
   const p = formationPerson(formation.i);
   if (!p) { formation.i++; renderFormation(); return; }   // removed mid-formation
   const prev = formation.i > 0 ? formationPerson(formation.i - 1) : null;
-  const back = formation.asking
+  const back = formation.reasonFor
+    ? '<button class="fm-back" onclick="formationBack()">&larr; Pick another reason</button>'
+    : formation.asking
     ? '<button class="fm-back" onclick="formationBack()">Cancel</button>'
     : (prev ? `<button class="fm-back" onclick="formationBack()">&larr; Back to ${formationName(prev)}</button>` : '');
+  const rest = formation.asking ? 0 : formationRemaining().length;
   el.innerHTML = `
     <div class="fm-top">
       <span class="fm-progress-text">${formation.i + 1} of ${total}</span>
+      ${rest > 1 ? `<button class="fm-rest" onclick="formationRestPresent()">Everyone else present</button>` : ''}
       <button class="fm-exit" onclick="exitFormation()">Exit</button>
     </div>
     <div class="fm-bar"><span style="width:${Math.round(formation.i / total * 100)}%"></span></div>
     <div class="fm-body">
       <div class="fm-head">
-        <div class="fm-name">${escapeHtml(p.first)} ${escapeHtml(p.last)}</div>
-        ${formation.asking ? '<div class="fm-sub">Why are they not here?</div>' : ''}
+        ${formationCard(p)}
+        ${formation.asking && !formation.reasonFor ? '<div class="fm-sub">Why are they not here?</div>' : ''}
       </div>
-      ${formation.asking
+      ${formation.reasonFor
+        ? formationReasonHTML(formation.reasonFor)
+        : formation.asking
         ? `<div class="fm-reasons">${FORMATION_REASONS.map(s =>
-             `<button class="fm-btn" onclick="formationMark('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
+             `<button class="fm-btn" onclick="formationPick('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
         : `<div class="fm-actions">
              <button class="fm-btn fm-btn-away" onclick="formationAsk()">Not here</button>
              <button class="fm-btn fm-btn-present" onclick="formationMark('present')">Present</button>
@@ -6656,7 +6885,7 @@ async function addTdyListItem() {
   const input = document.getElementById('tdyListAdd');
   const value = input.value.trim().replace(/\s+/g, ' ');   // match the server's normalisation
   if (!value) return;
-  if (listHasValue(value)) { showToast('That entry is already on the list.'); return; }
+  if (listHasValue(value)) { showToast('That entry is already on the list.', 'info'); return; }
   tdyLists[listsKind] = [...tdyLists[listsKind], value];   // append; order is the user's
   await saveTdyLists();
 }
@@ -6774,7 +7003,8 @@ async function saveListEdit() {
 // already escaped it.
 let confirmResolve = null;
 
-function confirmDialog(title, body = '', okLabel = 'Confirm', { html = false } = {}) {
+function confirmDialog(title, body = '', okLabel = 'Confirm', { html = false, cancelLabel = 'Cancel' } = {}) {
+  document.getElementById('confirmCancelBtn').textContent = cancelLabel;
   document.getElementById('confirmTitle').textContent = title;
   const bodyEl = document.getElementById('confirmBody');
   if (html) {
@@ -6953,7 +7183,7 @@ function closePersonDetails() {
 function editPersonById(id) {
   const i = personnel.findIndex(p => p.id === id);
   if (i < 0) {
-    alert('Open the roster for this unit first, then edit from there.');
+    showToast('Open the roster for this unit first, then edit from there.');
     return;
   }
   openEditModal(i);
@@ -7403,7 +7633,7 @@ async function saveProfile() {
   if (res && res.error) {
     // The server names the field it rejected; put the message where it belongs.
     if (res.field) setFieldError('pf_' + res.field, res.error);
-    else alert(res.error);
+    else showToast(res.error);
     return;
   }
   if (btn) {
@@ -7428,7 +7658,7 @@ function openAbsenceModal(eventId = null) {
   if (eventId === null) return;
 
   const ev = profileAbsences.find(a => a.id === eventId);
-  if (!ev) { alert('That absence is no longer on record.'); return; }
+  if (!ev) { showToast('That absence is no longer on record.'); return; }
   editingAbsenceId = eventId;
   editingAbsenceNotes = ev.notes || '';
   document.getElementById('tdyLeaveTitle').textContent = `Edit Absence — ${p.rank} ${p.last}`;
@@ -7475,7 +7705,7 @@ function syncAbsenceEditMode() {
 async function removeAbsence(eventId) {
   if (!await confirmDialog('Remove this absence?', '', 'Remove')) return;
   const res = await api('DELETE', `/schedules/${eventId}`);
-  if (res && res.error) { alert(res.error); return; }
+  if (res && res.error) { showToast(res.error); return; }
   await load();
   renderProfileAbsences();
 }
@@ -8078,8 +8308,31 @@ function onAwayDateChange() {
     toEl.value = '';
   }
   toEl.min = awayFrom || '';
+  sameDayDates();
   updateNotesPreview();
   updateFutureNotice();
+}
+
+// Late and Excused are today-to-today by nature: the dates are filled in the
+// moment one is picked, so a same-day state can never be saved open-ended.
+const SAME_DAY_STATUSES = ['late', 'excused'];
+function sameDayDates() {
+  if (!SAME_DAY_STATUSES.includes(awayStatus)) return;
+  const fromEl = document.getElementById('awayFromInput');
+  const toEl = document.getElementById('awayToInput');
+  if (!awayFrom) { awayFrom = getTodayStr(); fromEl.value = awayFrom; }
+  if (!awayTo) { awayTo = awayFrom; toEl.value = awayTo; }
+  toEl.min = awayFrom;
+}
+
+// Pure: what stops the status modal from saving, or '' when nothing does.
+// Leave and Pass are always bounded; a pass with no end is a clerical error.
+function absenceFormProblem(status, from, to) {
+  if (!status) return 'Pick a status first.';
+  if ((status === 'leave' || status === 'pass') && !to) {
+    return `${status === 'leave' ? 'Leave' : 'A pass'} needs an end date.`;
+  }
+  return '';
 }
 
 // ─── Status toggles ───
@@ -8119,10 +8372,16 @@ function setAwayStatus(status) {
   awayStatus = status;
   document.querySelectorAll('.status-toggle').forEach(btn => {
     btn.className = 'status-toggle';
-    if (btn.dataset.status === status) btn.classList.add(`active-${status}`);
+    const on = btn.dataset.status === status;
+    if (on) btn.classList.add(`active-${status}`);
+    btn.setAttribute('aria-pressed', String(on));
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
+  document.getElementById('awayToLabel').textContent =
+    status === 'leave' || status === 'pass' ? 'To (required)' : 'To';
   syncReasonField(status);
+  sameDayDates();
+  updateFutureNotice();
   updateNotesPreview();
 }
 
@@ -8194,6 +8453,10 @@ function applyTdyLists(settings) {
 
 // ─── Notes preview ───
 function updateNotesPreview() {
+  if (!awayStatus) {
+    document.getElementById('notesPreview').textContent = 'Pick a status above.';
+    return;
+  }
   const statusLabels = STATUS_LABELS;
   const parts = [statusLabels[awayStatus] || awayStatus];
 
@@ -8226,14 +8489,22 @@ function openTdyLeave(i) {
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
 
-  // Set status
-  const status = (p.status === 'present') ? 'tdy' : p.status;
-  setAwayStatus(status);
+  // A present soldier opens with nothing picked: the leader has to choose,
+  // rather than saving a TDY nobody meant because it was preselected.
+  const status = (p.status === 'present') ? '' : p.status;
+
+  awayFrom = p.from || '';
+  awayTo = p.to || '';
+  document.getElementById('awayFromInput').value = awayFrom;
+  const toInput = document.getElementById('awayToInput');
+  toInput.value = awayTo;
+  toInput.min = awayFrom || '';
 
   // Restore school/location, position, or category from notes
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
   document.getElementById('reasonInput').value = '';
+  setAwayStatus(status);
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
@@ -8242,16 +8513,9 @@ function openTdyLeave(i) {
     } else {
       pickSet('awaySchool', p.notes);
     }
-  } else if (status === 'other' && p.notes) {
+  } else if (REASON_FIELDS[status] && p.notes) {
     document.getElementById('reasonInput').value = p.notes;
   }
-
-  awayFrom = p.from || '';
-  awayTo = p.to || '';
-  document.getElementById('awayFromInput').value = awayFrom;
-  const toInput = document.getElementById('awayToInput');
-  toInput.value = awayTo;
-  toInput.min = awayFrom || '';
 
   renderScheduledEvents(p);
 
@@ -8287,7 +8551,7 @@ async function saveBulkTdyLeave() {
     })
   ));
   const failed = results.filter(r => !r || r.error).length;
-  if (failed) alert(`${failed} of ${ids.length} could not be saved.`);
+  if (failed) showToast(`${failed} of ${ids.length} could not be saved.`);
   await load();   // server reconciled; pull the truth
   clearBulkSelect();
   closeTdyLeaveModal();
@@ -8295,6 +8559,9 @@ async function saveBulkTdyLeave() {
 }
 
 async function saveTdyLeave() {
+  sameDayDates();
+  const problem = absenceFormProblem(awayStatus, awayFrom, awayTo);
+  if (problem) { showToast(problem, 'info'); return; }
   if (awayStatus === 'tdy') await pickSaveCustoms(['awaySchool', 'awayLocation']);
   if (bulkTdyIds.length) { await saveBulkTdyLeave(); return; }
   if (tdyLeaveIndex < 0) return;
@@ -8321,7 +8588,7 @@ async function saveTdyLeave() {
       location: ''
     });
     if (!res || res.error) {
-      alert(res && res.error ? res.error : 'Could not save the absence.');
+      showToast(res && res.error ? res.error : 'Could not save the absence.');
       return;
     }
     closeTdyLeaveModal();
@@ -8340,7 +8607,7 @@ async function saveTdyLeave() {
     notes: notesVal
   });
   if (!event || event.error) {
-    alert(event && event.error ? event.error : 'Could not save absence.');
+    showToast(event && event.error ? event.error : 'Could not save absence.');
     return;
   }
   await load();   // server reconciled; pull the truth
@@ -8402,7 +8669,7 @@ async function deleteScheduledEvent(eventId) {
   const p = personnel[tdyLeaveIndex];
   const res = await api('DELETE', `/schedules/${eventId}`);
   if (res && res.error) {
-    alert(res.error);
+    showToast(res.error);
     return;
   }
   p.scheduled_events = scheduledEventsFor(p).filter(event => event.id !== eventId);
@@ -8595,7 +8862,7 @@ function previewImport() {
   wrap.style.display = 'block';
   errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
   table.innerHTML = parsed.length
-    ? '<tr><th style="text-align:left;padding:3px 6px;color:#aaa">Rank</th><th style="text-align:left;padding:3px 6px;color:#aaa">Name</th></tr>'
+    ? '<tr><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Rank</th><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Name</th></tr>'
       + parsed.map(p => `<tr><td>${escapeHtml(p.rank)}</td><td>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</td></tr>`).join('')
     : '';
   btn.disabled = parsed.length === 0;
@@ -8617,7 +8884,7 @@ async function confirmImport() {
     if (!newPerson || !newPerson.id) {
       // Stopping is right — the rest of the list is unverified — but stopping
       // without saying so is how half an import looked like a whole one.
-      alert(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
+      showToast(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
             `${(newPerson && newPerson.error) || 'the server refused it.'} ` +
             'Everyone before this was added.');
       break;
@@ -8638,149 +8905,239 @@ function formatDate(d) {
   return `${t.getDate()} ${MONTHS[t.getMonth()]} ${t.getFullYear()}`;
 }
 
-// Both reports refuse to render while anyone is unaccounted — the PDY count
-// would be wrong.
-function reportBlockedByUnaccounted() {
-  const unaccounted = personnel.filter(isUnaccounted);
-  if (!unaccounted.length) return false;
-  const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
-  alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
-  return true;
-}
-
 // One soldier's name column in a text report. Any field may be null on an
 // imported row, and a null rank must not throw halfway through the report.
 function reportName(p) {
   return `${String(p.rank ?? '').padEnd(5)} ${p.last ?? ''}, ${p.first ?? ''}`;
 }
 
-function showReportModal(title, text, historyUnitName) {
-  document.getElementById('reportTitle').textContent = title;
-  document.getElementById('reportText').textContent = text;
-  document.getElementById('reportModal').classList.add('active');
-  if (historyUnitName) saveToHistory(text, historyUnitName);
+// ─── Report options ───
+// Per viewer and per browser: the format they send, whether PDY names are
+// listed, and whether Leave and Pass get a line each. listPresent left unset
+// means "auto": names are listed for a small unit and left off a big one.
+const REPORT_OPTS_KEY = 'reportOptions';
+const REPORT_LIST_NAMES_MAX = 15;
+let reportOptions = loadReportOptions();
+
+function loadReportOptions() {
+  let raw = {};
+  try { raw = JSON.parse(localStorage.getItem(REPORT_OPTS_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+  return {
+    format: raw.format === 'strength' ? 'strength' : 'detailed',
+    listPresent: typeof raw.listPresent === 'boolean' ? raw.listPresent : null,
+    splitLeavePass: raw.splitLeavePass === true,
+  };
+}
+function saveReportOptions() {
+  try { localStorage.setItem(REPORT_OPTS_KEY, JSON.stringify(reportOptions)); } catch (e) { /* private window */ }
 }
 
-// Count-only callout for formation: "25 Assigned, 18 PDY, 4 TDY, 3 Leave…"
-function generateStrengthReport() {
-  if (reportBlockedByUnaccounted()) return;
-
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
-  const roster = personnel;
-  const byStatus = [
-    ['TDY',     roster.filter(p => p.status === 'tdy').length],
-    ['Leave',   roster.filter(p => p.status === 'leave').length],
-    ['Pass',    roster.filter(p => p.status === 'pass').length],
-    ['Late',    roster.filter(p => p.status === 'late').length],
-    ['Excused', roster.filter(p => p.status === 'excused').length],
-    ['Other',   roster.filter(p => p.status === 'other').length],
-    ['FTR',     roster.filter(p => p.status === 'ftr').length],
-  ];
-  const parts = [`${roster.length} Assigned`, `${roster.filter(isPresentToday).length} PDY`]
-    .concat(byStatus.filter(([, n]) => n > 0).map(([label, n]) => `${n} ${label}`));
-
-  showReportModal('Formation Report', [unitName, formatDate(new Date()), '', parts.join(', ')].join('\n'));
+// ─── Report text ───
+// Pure, like formationQueue(): the whole text of both formats comes out of
+// buildReport(), and tests/test_report_js.py runs it under node. `people` is
+// the roster (the whole subtree); ctx is {unitName, dateLabel, today,
+// groups: [{name, ids}]} where groups are the viewed unit's direct children
+// (each with its subtree ids) in tree order, empty for a leaf unit.
+// Nobody is ever left out: anyone still unaccounted is counted and listed.
+function reportCategories(splitLeavePass) {
+  return [['tdy', 'TDY'],
+          ...(splitLeavePass ? [['leave', 'Leave'], ['pass', 'Pass']] : [['leave+pass', 'Leave & Pass']]),
+          ['late', 'Late'], ['excused', 'Excused'], ['other', 'Other'], ['ftr', 'FTR']];
 }
 
-function generateReport() {
-  if (reportBlockedByUnaccounted()) return;
+// Anyone whose status is not one of these is counted (and listed) as Other,
+// so the categories always add up to Assigned.
+const REPORT_AWAY = ['tdy', 'leave', 'pass', 'late', 'excused', 'other', 'ftr'];
+function reportBucket(p, today) {
+  if (p.status === 'present') return p.present_date === today ? 'pdy' : 'unaccounted';
+  return REPORT_AWAY.includes(p.status) ? p.status : 'other';
+}
 
-  const unitName = document.getElementById('unitName').value || unitLabel(currentUnit) || 'Accountability';
-  const today = formatDate(new Date());
+function reportCounts(people, today) {
+  const c = { assigned: people.length, pdy: 0, unaccounted: 0 };
+  REPORT_AWAY.forEach(k => { c[k] = 0; });
+  people.forEach(p => { c[reportBucket(p, today)]++; });
+  return c;
+}
 
-  const present = personnel.filter(p => isPresentToday(p)).sort(rankSort);
-  const leave = personnel.filter(p => p.status === 'leave' || p.status === 'pass').sort(endDateSort);
-  const tdy = personnel.filter(p => p.status === 'tdy').sort(endDateSort);
-  const other = personnel.filter(p => p.status === 'other').sort(endDateSort);
-  const late = personnel.filter(p => p.status === 'late').sort(rankSort);
-  const excused = personnel.filter(p => p.status === 'excused').sort(rankSort);
-  const ftr = personnel.filter(p => p.status === 'ftr').sort(endDateSort);
+function reportCountsLine(c, splitLeavePass) {
+  const n = key => key.split('+').reduce((sum, k) => sum + c[k], 0);
+  const parts = [`${c.assigned} Assigned`, `${c.pdy} PDY`];
+  reportCategories(splitLeavePass).forEach(([key, label]) => { if (n(key)) parts.push(`${n(key)} ${label}`); });
+  if (c.unaccounted) parts.push(`${c.unaccounted} Unaccounted`);
+  return parts.join(', ');
+}
 
-  const assignedCount = personnel.length;
-  let lines = [];
-  lines.push(unitName);
-  lines.push(today);
-  lines.push(`${assignedCount} Assigned`);
-  lines.push('');
+// Per sub-unit lines plus a total. Anyone directly in the viewed unit (or
+// somewhere no group claims) is filed under HQ, so the lines add up.
+function reportBreakdown(people, ctx, splitLeavePass) {
+  const groups = ctx.groups || [];
+  if (!groups.length) return [];
+  const claimed = new Set();
+  const lines = [];
+  groups.forEach(g => {
+    const ids = new Set(g.ids);
+    const members = people.filter(p => ids.has(p.unit_id));
+    members.forEach(p => claimed.add(p));
+    if (members.length) lines.push(`${g.name}: ${reportCountsLine(reportCounts(members, ctx.today), splitLeavePass)}`);
+  });
+  const hq = people.filter(p => !claimed.has(p));
+  if (hq.length) lines.push(`HQ: ${reportCountsLine(reportCounts(hq, ctx.today), splitLeavePass)}`);
+  lines.push(`TOTAL: ${reportCountsLine(reportCounts(people, ctx.today), splitLeavePass)}`);
+  return lines;
+}
 
-  lines.push(`PDY ${present.length}`);
-  present.forEach(p => lines.push(`${reportName(p)}`));
+function reportDateRange(p) {
+  if (!p.from && !p.to) return '';
+  return `${formatDateShort(p.from)}-${formatDateShort(p.to)}`;
+}
 
-  function reportDateRange(p) {
-    if (!p.from && !p.to) return '';
-    return `${formatDateShort(p.from)}-${formatDateShort(p.to)}`;
+function reportDetailLine(p, bucket) {
+  const parts = [];
+  if (bucket === 'tdy' && p.notes) {
+    const idx = p.notes.indexOf(' - ');
+    if (idx !== -1) parts.push(p.notes.slice(0, idx), p.notes.slice(idx + 3));   // school | location
+    else parts.push(p.notes);
   }
-
-  if (leave.length) {
-    lines.push('');
-    lines.push(`Leave & Pass ${leave.length}`);
-    leave.forEach(p => {
-      const parts = [];
-      const dr = reportDateRange(p);
-      if (dr) parts.push(dr);
-      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
-    });
-  }
-
-  if (tdy.length) {
-    lines.push('');
-    lines.push(`TDY ${tdy.length}`);
-    tdy.forEach(p => {
-      const parts = [];
-      if (p.notes) {
-        const idx = p.notes.indexOf(' - ');
-        if (idx !== -1) {
-          parts.push(p.notes.slice(0, idx));   // school
-          parts.push(p.notes.slice(idx + 3));  // location
-        } else {
-          parts.push(p.notes);
-        }
-      }
-      const dr = reportDateRange(p);
-      if (dr) parts.push(dr);
-      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
-    });
-  }
-
   // Late and excused are same-day, so they list the reason rather than a date
   // range — a window of today-to-today reads as noise in a report.
-  [['LATE', late], ['EXCUSED', excused]].forEach(([heading, list]) => {
+  if (bucket === 'late' || bucket === 'excused') {
+    const reason = (p.notes || '').trim();
+    if (reason) parts.push(reason);
+    return `${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`;
+  }
+  if (bucket === 'other') parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
+  if (bucket !== 'pdy' && bucket !== 'unaccounted') {
+    const dr = reportDateRange(p);
+    if (dr) parts.push(dr);
+  }
+  return `${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`;
+}
+
+function buildReport(people, opts, ctx) {
+  const split = !!opts.splitLeavePass;
+  const lines = [ctx.unitName, ctx.dateLabel];
+  if (opts.format === 'strength') {
+    const breakdown = reportBreakdown(people, ctx, split);
+    lines.push('');
+    if (breakdown.length) lines.push(...breakdown);
+    else lines.push(reportCountsLine(reportCounts(people, ctx.today), split));
+    return lines.join('\n');
+  }
+
+  lines.push(`${people.length} Assigned`);
+  const breakdown = reportBreakdown(people, ctx, split);
+  if (breakdown.length) lines.push('', 'BY UNIT', ...breakdown);
+
+  const inBucket = keys => people.filter(p => keys.includes(reportBucket(p, ctx.today)));
+  const listPresent = opts.listPresent === null || opts.listPresent === undefined
+    ? people.length <= REPORT_LIST_NAMES_MAX : !!opts.listPresent;
+
+  const present = inBucket(['pdy']).sort(rankSort);
+  lines.push('', `PDY ${present.length}`);
+  if (listPresent) present.forEach(p => lines.push(reportName(p)));
+
+  const sections = [
+    ...(split ? [['Leave', ['leave'], endDateSort], ['Pass', ['pass'], endDateSort]]
+              : [['Leave & Pass', ['leave', 'pass'], endDateSort]]),
+    ['TDY', ['tdy'], endDateSort],
+    ['LATE', ['late'], rankSort],
+    ['EXCUSED', ['excused'], rankSort],
+    ['OTHER', ['other'], endDateSort],
+    ['FTR', ['ftr'], endDateSort],
+    ['UNACCOUNTED', ['unaccounted'], rankSort],
+  ];
+  sections.forEach(([heading, keys, sorter]) => {
+    const list = inBucket(keys).sort(sorter);
     if (!list.length) return;
-    lines.push('');
-    lines.push(`${heading} ${list.length}`);
-    list.forEach(p => {
-      const reason = (p.notes || '').trim();
-      lines.push(`${reportName(p)}${reason ? '  ' + reason : ''}`);
-    });
+    lines.push('', `${heading} ${list.length}`);
+    list.forEach(p => lines.push(reportDetailLine(p, reportBucket(p, ctx.today))));
   });
+  return lines.join('\n');
+}
 
-  if (other.length) {
-    lines.push('');
-    lines.push(`OTHER ${other.length}`);
-    other.forEach(p => {
-      const parts = [];
-      parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
-      const dr = reportDateRange(p);
-      if (dr) parts.push(dr);
-      lines.push(`${reportName(p)}  ${parts.join(' | ')}`);
-    });
+// ─── Report modal ───
+function reportContext() {
+  const kids = currentUnit ? unitChildren(currentUnit.id) : [];
+  return {
+    unitName: headerUnitName(),
+    dateLabel: formatDate(new Date()),
+    today: getTodayStr(),
+    groups: kids.map(k => ({ name: k.name, ids: unitSubtree(k.id) })),
+  };
+}
+
+function renderReport() {
+  const text = buildReport(personnel, reportOptions, reportContext());
+  document.getElementById('reportText').textContent = text;
+  document.getElementById('reportTitle').textContent =
+    reportOptions.format === 'strength' ? 'Strength Report' : 'Detailed Report';
+  document.querySelectorAll('#reportFormat [data-fmt]').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.fmt === reportOptions.format)));
+  const listBox = document.getElementById('rptListPresent');
+  listBox.checked = reportOptions.listPresent === null
+    ? personnel.length <= REPORT_LIST_NAMES_MAX : reportOptions.listPresent;
+  // Present names only exist in the detailed format.
+  listBox.closest('label').hidden = reportOptions.format === 'strength';
+  document.getElementById('rptSplitLP').checked = reportOptions.splitLeavePass;
+  return text;
+}
+
+function setReportOption(key, value) {
+  reportOptions = { ...reportOptions, [key]: value };
+  saveReportOptions();
+  renderReport();
+}
+
+// Anyone still unaccounted is a choice, never a silent drop: send the report
+// with them on an Unaccounted line, or go and mark them first.
+async function reportUnaccountedOk() {
+  const unaccounted = personnel.filter(isUnaccounted).sort(rankSort);
+  if (!unaccounted.length) return true;
+  const names = unaccounted.map(p => `<li>${escapeHtml(`${p.rank} ${p.last}, ${p.first}`)}</li>`).join('');
+  const include = await confirmDialog(
+    `${unaccounted.length} not yet accounted for`,
+    `<p class="list-confirm-lead">They will be listed on an Unaccounted line in the report.</p>
+     <ul class="list-confirm-names">${names}</ul>`,
+    'Include as Unaccounted', { html: true, cancelLabel: 'Go mark them' });
+  if (!include) {
+    dashGoAccountability();
+    setQuickFilter('unaccounted');
   }
+  return include;
+}
 
-  if (ftr.length) {
-    lines.push('');
-    lines.push(`FTR ${ftr.length}`);
-    ftr.forEach(p => {
-      const dr = reportDateRange(p);
-      lines.push(`${reportName(p)}${dr ? '  ' + dr : ''}`);
-    });
+// format: 'detailed' | 'strength'; omitted, the viewer's last choice. Resolves
+// true when the report is on screen.
+async function generateReport(format) {
+  if (!currentUnit) return false;
+  if (!await reportUnaccountedOk()) return false;
+  if (format && format !== reportOptions.format) {
+    reportOptions = { ...reportOptions, format };
+    saveReportOptions();
   }
-
-  showReportModal('Wickr Report', lines.join('\n'), unitName);
+  const text = renderReport();
+  document.getElementById('shareReportBtn').hidden = !navigator.share;
+  document.getElementById('reportModal').classList.add('active');
+  saveToHistory(text, headerUnitName());
+  return true;
 }
 
 function copyReport() {
-  copyWithFeedback(document.getElementById('reportText').textContent,
-                   document.querySelector('.report-buttons .btn-generate'), 'Copy to Clipboard');
+  const text = document.getElementById('reportText').textContent;
+  saveToHistory(text, headerUnitName());
+  copyWithFeedback(text, document.getElementById('copyReportBtn'), 'Copy to Clipboard');
+}
+
+async function shareReport() {
+  const text = document.getElementById('reportText').textContent;
+  if (!navigator.share) return;
+  try {
+    await navigator.share({ text });
+    saveToHistory(text, headerUnitName());
+  } catch (e) {
+    if (!e || e.name !== 'AbortError') showToast('Could not share the report.');
+  }
 }
 
 // Try modern clipboard API first, fallback for Firefox / non-HTTPS
@@ -9133,7 +9490,7 @@ function clearBulkSelect() {
 }
 async function applyBulkStatus() {
   const status = document.getElementById('bulkStatusSelect').value;
-  if (!status) { alert('Select a status to apply.'); return; }
+  if (!status) { showToast('Select a status to apply.'); return; }
   if (!bulkSelected.size) return;
 
   if (status === 'present') {
@@ -9141,7 +9498,7 @@ async function applyBulkStatus() {
     // server, so a bulk tap must never do it: those are marked from their own row.
     const { mark, away } = bulkPresentSplit(personnel, bulkSelected);
     if (!mark.length) {
-      showToast('Everyone selected is away on an absence. Mark them present from their own row.');
+      showToast('Everyone selected is away on an absence. Mark them present from their own row.', 'info');
       return;
     }
     const note = away.length
@@ -9184,15 +9541,13 @@ function openBulkStatusModal(status) {
   tdyLeaveIndex = -1;
   document.getElementById('tdyLeaveTitle').textContent =
     `${bulkTdyIds.length} selected personnel`;
-  setAwayStatus(status);
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  ['reasonInput'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
+  document.getElementById('reasonInput').value = '';
   awayFrom = ''; awayTo = '';
   document.getElementById('awayFromInput').value = '';
   document.getElementById('awayToInput').value = '';
+  setAwayStatus(status);
   // The per-soldier scheduled-events list doesn't apply to a bulk edit.
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').innerHTML = '';
@@ -9209,7 +9564,31 @@ function printRoster() { window.print(); }
 // Server-side now (was localStorage) so every device/user sees the same
 // record. saveToHistory fires-and-forgets the POST; api() already toasts and
 // resyncs on failure, so nothing extra is needed here.
+//
+// One row per distinct report text, per unit, per duty day: opening, copying
+// and sharing the same report again saves nothing new. The keys live in
+// localStorage when it works (so a reload does not re-save) and in memory
+// always.
+const REPORT_SAVED_KEY = 'reportSaved';
+let reportSavedMem = { day: '', keys: [] };
+function reportTextKey(unitId, text) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${unitId}:${text.length}:${h.toString(36)}`;
+}
+function reportSavedToday(day) {
+  let saved = reportSavedMem;
+  try { saved = JSON.parse(localStorage.getItem(REPORT_SAVED_KEY) || 'null') || saved; } catch (e) { /* memory only */ }
+  return saved.day === day && Array.isArray(saved.keys) ? saved : { day, keys: [] };
+}
 function saveToHistory(reportText, unitName) {
+  if (!currentUnit || !reportText) return;
+  const day = getTodayStr();
+  const key = reportTextKey(currentUnit.id, reportText);
+  const saved = reportSavedToday(day);
+  if (saved.keys.includes(key)) return;
+  reportSavedMem = { day, keys: [...saved.keys, key] };
+  try { localStorage.setItem(REPORT_SAVED_KEY, JSON.stringify(reportSavedMem)); } catch (e) { /* memory only */ }
   api('POST', '/reports', { unit_id: currentUnit.id, unit_name: unitName, text: reportText });
 }
 
@@ -9244,7 +9623,7 @@ async function openHistory() {
   const history = await api('GET', `/reports?unit=${currentUnit.id}`);
   const list = document.getElementById('historyList');
   if (!history || !history.length) {
-    list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
+    list.innerHTML = '<p style="color:var(--cp-muted);font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
   } else {
     list.innerHTML = history.map(r => {
       const ts = (r.created_at || '').replace('T', ' ').slice(0, 16);
@@ -9356,7 +9735,7 @@ async function addDutyEntry() {
   const personId = parseInt(document.getElementById('dutyPerson').value, 10);
   const person = personnel.find(p => p.id === personId);
   if (!person) {
-    alert('Select a person for duty.');
+    showToast('Select a person for duty.');
     return;
   }
   // The server owns rank/last/first now — it fills the snapshot from the
@@ -9370,13 +9749,13 @@ async function addDutyEntry() {
   };
   const row = await api('POST', '/duty', payload);
   if (!row || row.error) {
-    alert(row && row.error ? row.error : 'Could not add duty.');
+    showToast(row && row.error ? row.error : 'Could not add duty.');
     return;
   }
   document.getElementById('dutyNotes').value = '';
   await loadDutyRoster();
   if (row.conflict) {
-    alert(`Heads up: ${person.rank} ${person.last} is ${row.conflict.label} on that date.\n\nThe duty entry was still added.`);
+    showToast(`Heads up: ${person.rank} ${person.last} is ${row.conflict.label} on that date. The duty entry was still added.`, 'info');
   }
 }
 
@@ -9384,7 +9763,7 @@ async function deleteDutyEntry(id) {
   if (!await confirmDialog('Remove this duty entry?', '', 'Remove')) return;
   const res = await api('DELETE', `/duty/${id}`);
   if (res && res.error) {
-    alert(res.error);
+    showToast(res.error);
     return;
   }
   currentDutyEntries = currentDutyEntries.filter(row => row.id !== id);
@@ -9895,11 +10274,6 @@ function closeAdmin() {
 }
 
 // ─── Event Listeners ───
-let unitNameTimer;
-document.getElementById('unitName').addEventListener('input', () => {
-  clearTimeout(unitNameTimer);
-  unitNameTimer = setTimeout(saveUnit, 500);
-});
 document.getElementById('addModal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
 document.getElementById('importModal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
 document.getElementById('tdyLeaveModal').addEventListener('click', function(e) { if (e.target === this) closeTdyLeaveModal(); });
@@ -11118,7 +11492,7 @@ function openClerkProfile() {
   if (clerk && typeof clerk.openUserProfile === 'function') {
     clerk.openUserProfile();
   } else {
-    alert('Clerk account management is not ready yet.');
+    showToast('Clerk account management is not ready yet.');
   }
 }
 
@@ -11295,12 +11669,23 @@ async function loadHome() {
 // pure, so tests/test_org_chart_js.py can lift it out and run it under node.
 // Nested <ul>/<li> rather than flat rows, because the phone stylesheet folds
 // the same markup back into one indented tree with a media query.
-function orgChartHtml(top, childrenOf, headcountOf) {
+// todayOf(id), when given, is {present, unaccounted} for the unit's whole
+// subtree, or null when the server did not say (the card then falls back to
+// the plain headcount).
+function orgChartHtml(top, childrenOf, headcountOf, todayOf = () => null) {
   if (!top) return '';
+  const counts = (u) => {
+    const n = Number(headcountOf(u.id));
+    const t = todayOf(u.id);
+    if (!t) return `<div class="platoon-card-count">${n} personnel</div>`;
+    const unacc = Number(t.unaccounted);
+    return `<div class="platoon-card-count">${Number(t.present)} / ${n} present</div>`
+      + (unacc ? `<div class="platoon-card-unacc">${unacc} unaccounted</div>` : '');
+  };
   const card = (u, extra) => `<button class="platoon-card unit-card${extra}" onclick="selectUnitById(${Number(u.id)})">
         <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
         <div class="platoon-card-name">${escapeHtml(u.name)}</div>
-        <div class="platoon-card-count">${Number(headcountOf(u.id))} personnel</div>
+        ${counts(u)}
       </button>`;
   const stack = (u) => {
     const kids = childrenOf(u.id);
@@ -11325,7 +11710,7 @@ function renderHome() {
   const top = unitById(currentUser.unit_id);
   renderHomeLead(top);
   if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
-  wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount);
+  wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount, unitTodayCounts);
 }
 
 // Plain text off currentUser and the loaded tree — what you lead, and who
@@ -11346,6 +11731,7 @@ function selectUnitById(id) { const u = unitById(id); if (u) selectUnit(u); }
 function selectUnit(unit, push = true, pendingSoldier = null) {
   if (!unit) { loadHome(); return; }
   currentUnit = unit;
+  setUnitTitle(unit.name);
   pendingSoldierId = pendingSoldier;
   if (personnelUnitId !== unit.id) {
     personnel = [];
@@ -11459,10 +11845,10 @@ async function refreshUserList() {
     const unit = unitLabel(unitById(u.unit_id));
     const badges = unit
       ? `<span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(unit)} \u00b7 ${escapeHtml(u.role || '')}</span>`
-      : `<span style="color:#636e72;font-size:0.78em">No access</span>`;
+      : `<span style="color:var(--cp-muted);font-size:0.78em">No access</span>`;
     return `<div class="user-row">
       <div class="user-row-name-block">
-        <div class="user-row-name">${label}${isSelf ? ' <span style="color:#636e72;font-size:0.72em">(you)</span>' : ''}</div>
+        <div class="user-row-name">${label}${isSelf ? ' <span style="color:var(--cp-muted);font-size:0.72em">(you)</span>' : ''}</div>
         ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
       <div class="user-row-badges">${badges}</div>
@@ -11611,7 +11997,7 @@ function copyInviteLink(btn) {
 async function revokeInvite(token) {
   if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
   const result = await api('DELETE', `/invites/${token}`);
-  if (result && result.error) { alert(result.error); return; }
+  if (result && result.error) { showToast(result.error); return; }
   // Only repaint the modal's list when the modal is actually on screen.
   if (document.getElementById('userMgmtModal').classList.contains('active')) await refreshInviteList();
   await refreshAccessViews();
@@ -11685,7 +12071,7 @@ async function refreshAccessViews() {
 async function deleteUser(userId, username) {
   if (!await confirmDialog(`Remove app access for "${username}"?`, 'Their Clerk account will stay active.', 'Remove')) return;
   const result = await api('DELETE', `/users/${userId}`);
-  if (result && result.error) { alert(result.error); return; }
+  if (result && result.error) { showToast(result.error); return; }
   await refreshUserList();
   await refreshAccessViews();
 }
@@ -11814,10 +12200,10 @@ function resetDay() {
   const unaccounted = personnel.filter(p => p.status === 'present' && p.present_date !== today).length;
   const tdy = personnel.filter(p => ['tdy','leave','pass','other','ftr'].includes(p.status)).length;
   document.getElementById('resetSummary').innerHTML =
-    `<div>Present today: <strong style="color:#00b894">${present}</strong></div>` +
-    `<div>Unaccounted: <strong style="color:#e17055">${unaccounted}</strong></div>` +
-    `<div>Away (TDY/Leave/etc): <strong style="color:#74b9ff">${tdy}</strong></div>` +
-    `<div style="margin-top:8px;color:#fdcb6e;">After reset: all ${present + unaccounted} present soldiers will need to be marked again.</div>`;
+    `<div>Present today: <strong style="color:var(--cp-st-present)">${present}</strong></div>` +
+    `<div>Unaccounted: <strong style="color:var(--cp-red)">${unaccounted}</strong></div>` +
+    `<div>Away (TDY/Leave/etc): <strong style="color:var(--cp-st-tdy)">${tdy}</strong></div>` +
+    `<div style="margin-top:8px;color:var(--cp-warn);">After reset: all ${present + unaccounted} present soldiers will need to be marked again.</div>`;
   document.getElementById('resetConfirmModal').classList.add('active');
 }
 function closeResetConfirm() { document.getElementById('resetConfirmModal').classList.remove('active'); }
@@ -11933,7 +12319,7 @@ window.addEventListener('storage', e => {
 async function exportBackup() {
   try {
     const res = await fetch('/api/backup');
-    if (!res.ok) { alert('Export failed.'); return; }
+    if (!res.ok) { showToast('Export failed.'); return; }
     const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -11941,7 +12327,7 @@ async function exportBackup() {
     a.download = `platoon-backup-${today}.json`;
     a.click();
   } catch(e) {
-    alert('Export failed: ' + e.message);
+    showToast('Export failed: ' + e.message);
   }
 }
 
@@ -12087,8 +12473,8 @@ initApp();
 <div class="modal-overlay" id="resetConfirmModal">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:360px;">
     <h2>&#9888; Reset Day</h2>
-    <p style="font-size:0.9em;color:#b2bec3;margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
-    <div id="resetSummary" style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;line-height:1.8;"></div>
+    <p style="font-size:0.9em;color:var(--cp-muted);margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
+    <div id="resetSummary" class="cp-notice" style="margin-bottom:14px;line-height:1.8;"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeResetConfirm()">Cancel</button>
       <button class="btn-small btn-add" onclick="confirmReset()">Reset</button>
@@ -12100,9 +12486,9 @@ initApp();
 <div class="modal-overlay" id="restoreModal">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:380px;">
     <h2>&#128228; Import Backup</h2>
-    <p style="font-size:0.85em;color:#ff7675;margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
+    <p class="cp-notice cp-notice-warn" style="margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
     <label style="display:block;margin-bottom:6px;">Select backup file (.json)</label>
-    <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:#1a1a2e;border:1px solid #444;border-radius:5px;color:#e0e0e0;margin-bottom:12px;">
+    <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:var(--cp-input);border:1px solid var(--cp-border);border-radius:var(--cp-radius);color:var(--cp-text);margin-bottom:12px;">
     <div id="restoreMsg" style="display:none;margin-bottom:10px;font-size:0.85em;"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeRestoreModal()">Cancel</button>
@@ -12115,7 +12501,7 @@ initApp();
 <div class="modal-overlay" id="sessionWarnModal" style="z-index:9999;">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:320px;text-align:center;">
     <h2>&#9201; Session Expiring</h2>
-    <p style="color:#b2bec3;margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
+    <p style="color:var(--cp-muted);margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
     <button class="btn-login" onclick="extendSession()">Stay Signed In</button>
   </div>
 </div>

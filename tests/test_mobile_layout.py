@@ -90,6 +90,10 @@ WIDE_UNITS_FIXTURE = [dict(UNITS_FIXTURE[0])] + [
      'name': f'{i}th Platoon (Forward Support)', 'slug': f'p{i}', 'count': 11, 'logo': None}
     for i in range(1, 10)
 ]
+# The wide organization also carries today's accountability, as GET /api/units
+# does, so the cards are measured with their "present" line and badge.
+for _u in WIDE_UNITS_FIXTURE:
+    _u.update(present=_u['count'] - 3 if _u['count'] else 0, unaccounted=2 if _u['count'] else 0)
 
 # One person per status the roster renders, plus one carrying a future
 # scheduled_events entry, plus long-content stress (long notes, long last name).
@@ -292,12 +296,14 @@ WIDTHS = [320, 390, 1280]
 # clips at the width where its longest label stops fitting -- so that one
 # screen is swept rather than sampled.
 ADMIN_SWEEP_WIDTHS = [320, 360, 420, 560, 768, 900, 1024, 1100, 1280, 1400]
-# ponytail: honest current floor, not an aspirational one. Measured directly
-# against this app at 320/390px: the shortest real button today is the
-# "Set Status" / "Mark Present" pair (.dash-btn-sm) at 29px; everything else
-# (row-menu triggers, section headers, bottom nav) is 34px+. 28px gives 1px of
-# rendering slack. Raise this only once .dash-btn-sm is redesigned taller.
+# ponytail: honest current floor for everything, not an aspirational one --
+# row-menu triggers, section headers and the bottom nav are 34px+, and 28px
+# leaves rendering slack. The two buttons tapped for every soldier every
+# morning (the mark-present tick and Set Status) are held to the real 44px
+# touch minimum by THUMB_BUTTONS below.
 MIN_TAP_TARGET_PX = 28
+THUMB_TARGET_PX = 44
+THUMB_BUTTONS = '#personnelBody .dash-btn-check, #personnelBody .dash-btn-setstatus'
 
 ROSTER_BUTTONS = '#personnelBody button, .dash-header-actions button, .dash-bottomnav button'
 HOME_CARDS = '#unitCards .unit-card'
@@ -549,7 +555,7 @@ def check_modal_controls_fit(page, width):
     assert not bad, f'TDY/Leave modal @ {width}px: control(s) wider than viewport: {bad}'
 
 
-def check_tap_targets(page, width, selector, view_label):
+def check_tap_targets(page, width, selector, view_label, min_px=MIN_TAP_TARGET_PX):
     bad = page.evaluate("""
     ([sel, min]) => {
       const bad = [];
@@ -562,8 +568,8 @@ def check_tap_targets(page, width, selector, view_label):
       });
       return bad;
     }
-    """, [selector, MIN_TAP_TARGET_PX])
-    assert not bad, f'{view_label} @ {width}px: control(s) under {MIN_TAP_TARGET_PX}px tall: {bad}'
+    """, [selector, min_px])
+    assert not bad, f'{view_label} @ {width}px: control(s) under {min_px}px tall: {bad}'
 
 
 def check_formation_fits(page, width, height, label):
@@ -887,6 +893,9 @@ def run_checks(page, base_url):
         check_modal_controls_fit(page, width)
         if width < 900:
             check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
+            assert page.evaluate("document.querySelectorAll('%s').length" % THUMB_BUTTONS), (
+                f'accountability @ {width}px: no mark-present tick rendered -- fixture is stale')
+            check_tap_targets(page, width, THUMB_BUTTONS, 'mark-present / set status', THUMB_TARGET_PX)
 
         check_topbar(page, width, 'dashboard', 'dashTopbarSlot')
         check_billing_back(page, width)
@@ -929,6 +938,8 @@ def run_checks(page, base_url):
             check_formation_fits(page, width, height, 'present/away')
             page.evaluate('formationAsk()')
             check_formation_fits(page, width, height, 'reason picker')
+            page.evaluate("formationPick('late')")
+            check_formation_fits(page, width, height, 'late reason')
             check_no_horizontal_overflow(page, width, 'formation')
             page.evaluate('exitFormation()')
         page.set_viewport_size({'width': width, 'height': 900})

@@ -55,6 +55,7 @@ python tests/test_units.py            # unit CRUD, slug uniqueness, owner-only g
 python tests/test_auth_flow.py        # signup states: needs_unit, invite, legacy claim
 python tests/test_units_migration.py  # platoons-to-units.py against a fixture shaped like prod
 python tests/test_unit_tree_js.py     # frontend tree helpers (unitById/unitBySlug/...), under node
+python tests/test_report_js.py        # report text: both formats, sub-unit breakdown, unaccounted listed
 python tests/test_platform_admin.py   # /admin: the Clerk-verified email gate, the
                                       # cross-tenant counts, what the payload may not carry
 python tests/test_platform_admin_js.py # the /admin page's markup, under node
@@ -216,24 +217,46 @@ a `SETTINGS_SECTIONS` entry and a branch in `renderSettings()`.
 **Formation mode** is the exception to the full-page pattern: a fixed
 full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
 route, because it is a transient task and there must be nothing behind it to
-hit by accident at 0630. `formationQueue(people, todayStr)` is a pure function
-and the whole rule about who gets asked — unaccounted only, sorted by
-`rankSort()`; anyone already away on a current absence
-is skipped but handed back as `known` so the finish screen can show them and
-let a wrong one be corrected. It writes only through the existing APIs (`PUT
+hit by accident at 0630. `formationQueue(people, todayStr, groupOf)` is a pure
+function and the whole rule about who gets asked — unaccounted only, grouped
+by `groupOf(p)` (at a unit with sub-units, the depth-first tree position of the
+soldier's unit from `unitTreeOrder()`, so HQ first and then each platoon and
+its squads in turn) and sorted by `rankSort()` within a group; anyone already
+away on a current absence is skipped but handed back as `known` so the finish
+screen can show them and let a wrong one be corrected. The card reads rank +
+last name, first name smaller, and the sub-unit. Late / Excused / Other take one
+optional reason step (wording from `REASON_FIELDS`) that travels as `notes`.
+"Everyone else present" marks the rest of the queue that is still unaccounted
+(`formationRemaining()`), after a confirm with the count — never anyone on a
+current absence. It writes only through the existing APIs (`PUT
 /api/personnel/<id>` with `status: 'present'`, `POST
 /api/personnel/<id>/schedule` for an absence, today→today) and so inherits the
 absence lifecycle rather than duplicating it. Tests:
 `tests/test_formation_order.py`, which lifts the function out of `index.html`
 and runs it under node.
 
+**Reports** come out of one pure function, `buildReport(people, opts, ctx)`:
+`Detailed` (sections with names) or `Strength` (counts only), with a BY UNIT
+breakdown (each direct child, `HQ` for anyone directly in the unit, `TOTAL`)
+when the viewed unit has children. Options — format, list present names
+(auto: off above `REPORT_LIST_NAMES_MAX` people), Leave and Pass separate —
+live per viewer in `localStorage` (`reportOptions`). Anyone unaccounted is
+never dropped: `generateReport()` asks first — include them on an Unaccounted
+line, or go mark them. `saveToHistory()` posts one `report_history` row per
+distinct text per unit per duty day, so reopening or copying the same report
+saves nothing new. Tests: `tests/test_report_js.py`.
+
 Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
 `sortRows()`; reuse those rather than writing per-table sort code.
 
 The **home screen** draws the tree as an order-of-battle chart, and all of that
 markup comes out of one pure function, `orgChartHtml(top, childrenOf,
-headcountOf)` — the top unit above a row of nested `<ul>`s, one column per
-direct child, everything deeper stacked inside its own column. Below 700px a
+headcountOf, todayOf)` — the top unit above a row of nested `<ul>`s, one column per
+direct child, everything deeper stacked inside its own column. Each card shows
+today's "present / assigned" and an unaccounted badge: `GET /api/units` carries
+every unit's own `present` and `unaccounted` (after the same
+`_reconcile_absences()` pass the roster gets) and `unitTodayCounts()` rolls them
+up the subtree; with no counts the card falls back to "N personnel". Below 700px a
 media query folds the very same markup back into an indented tree, so there is
 no second rendering path to keep in step. Tests: `tests/test_org_chart_js.py`,
 which runs it under node.

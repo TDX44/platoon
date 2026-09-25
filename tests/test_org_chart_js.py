@@ -45,6 +45,11 @@ ONE_CHILD = [
 
 NO_CHILD = [{'id': 1, 'parent_id': None, 'kind': 'company', 'name': 'HHC', 'count': 9}]
 
+# The same tree as THREE_LEVEL, with today's per-unit counts GET /api/units
+# now carries. Unit 7 has everyone accounted for.
+TODAY_TREE = [dict(u, present=p, unaccounted=a) for u, (p, a) in zip(THREE_LEVEL, [
+    (1, 0), (1, 1), (2, 1), (3, 0), (4, 1), (5, 1), (7, 0)])]
+
 # Five cards deep: company → platoon → section → squad → team.
 DEEP = [
     {'id': 1, 'parent_id': None, 'kind': 'company', 'name': 'L0', 'count': 1},
@@ -73,6 +78,9 @@ console.log(JSON.stringify({
   noChild: chart(NO_CHILD),
   deep: chart(DEEP),
   noTop: orgChartHtml(null, unitChildren, unitHeadcount),
+  today: (units = TODAY_TREE, orgChartHtml(unitById(1), unitChildren, unitHeadcount, unitTodayCounts)),
+  todayHostile: orgChartHtml({ id: 1, kind: 'company', name: 'Top' }, () => [], () => 3,
+    () => ({ present: '1);alert(3);//', unaccounted: '<b>2</b>' })),
   hostileId: orgChartHtml(
     { id: NASTY, kind: 'company', name: 'Top' },
     (id) => (id === NASTY ? [{ id: NASTY + 'x', kind: 'platoon', name: 'Kid' }] : []),
@@ -101,6 +109,7 @@ def render(src, node):
         'const HOSTILE = ' + json.dumps(HOSTILE) + ';',
         'const ONE_CHILD = ' + json.dumps(ONE_CHILD) + ';',
         'const NO_CHILD = ' + json.dumps(NO_CHILD) + ';',
+        'const TODAY_TREE = ' + json.dumps(TODAY_TREE) + ';',
         'const DEEP = ' + json.dumps(DEEP) + ';',
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
         extract(src, r'function unitById\(id\) \{.*?\n\}', 'unitById()'),
@@ -108,6 +117,7 @@ def render(src, node):
         extract(src, r'function unitSubtree\(id\) \{.*?\n\}', 'unitSubtree()'),
         extract(src, r'function unitHeadcount\(id\) \{.*?\n\}', 'unitHeadcount()'),
         extract(src, r'function kindLabel\(kind\) \{.*?\n\}', 'kindLabel()'),
+        extract(src, r'function unitTodayCounts\(id\) \{.*?\n\}', 'unitTodayCounts()'),
         extract(src, r'function orgChartHtml\(.*?\n\}', 'orgChartHtml()'),
         DRIVER,
     ])
@@ -211,6 +221,24 @@ def test_onclick_carries_a_number_and_nothing_else(out):
     assert re.search(r'<div class="platoon-card-count">(?:\d+|NaN) personnel</div>', html), html
 
 
+def test_cards_show_todays_accountability(out):
+    html = out['today']
+    cols = html.split('<li class="org-node org-col">')
+    top = cols[0]
+    # Rolled up the whole subtree: 23 present of 28, 4 unaccounted.
+    assert '<div class="platoon-card-count">23 / 28 present</div>' in top, top
+    assert '<div class="platoon-card-unacc">4 unaccounted</div>' in top, top
+    assert '10 / 14 present' in cols[1] and '3 unaccounted' in cols[1], cols[1]
+    # Nobody unaccounted: no badge at all, rather than a "0 unaccounted".
+    assert '7 / 7 present' in cols[3] and 'platoon-card-unacc' not in cols[3], cols[3]
+    # Without the server's counts the card keeps the plain headcount.
+    assert '28 personnel' in out['three'] and 'present' not in out['three']
+    # Counts are numbers, never markup.
+    hostile = out['todayHostile']
+    assert 'alert(' not in hostile and '<b>' not in hostile, hostile
+    assert 'NaN / 3 present' in hostile, hostile
+
+
 def test_one_child_and_no_child_draw_no_bar(out):
     one = out['oneChild']
     assert 'data-cols="1"' in one, f'a single child is one column: {one[:200]}'
@@ -272,6 +300,7 @@ def main():
     test_the_lists_are_still_lists_to_a_screen_reader(out)
     test_onclick_carries_a_number_and_nothing_else(out)
     test_one_child_and_no_child_draw_no_bar(out)
+    test_cards_show_todays_accountability(out)
     test_five_deep_stays_five_deep(out)
     test_the_home_screen_uses_the_pure_function(src)
     test_the_inline_script_still_parses(src, node)
