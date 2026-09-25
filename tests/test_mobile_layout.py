@@ -934,6 +934,8 @@ def run_checks(page, base_url):
             check_formation_fits(page, width, height, 'present/away')
             page.evaluate('formationAsk()')
             check_formation_fits(page, width, height, 'reason picker')
+            page.evaluate("formationPick('late')")
+            check_formation_fits(page, width, height, 'late reason')
             check_no_horizontal_overflow(page, width, 'formation')
             page.evaluate('exitFormation()')
         page.set_viewport_size({'width': width, 'height': 900})

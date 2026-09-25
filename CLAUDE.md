@@ -208,11 +208,18 @@ a `SETTINGS_SECTIONS` entry and a branch in `renderSettings()`.
 **Formation mode** is the exception to the full-page pattern: a fixed
 full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
 route, because it is a transient task and there must be nothing behind it to
-hit by accident at 0630. `formationQueue(people, todayStr)` is a pure function
-and the whole rule about who gets asked — unaccounted only, sorted by
-`rankSort()`; anyone already away on a current absence
-is skipped but handed back as `known` so the finish screen can show them and
-let a wrong one be corrected. It writes only through the existing APIs (`PUT
+hit by accident at 0630. `formationQueue(people, todayStr, groupOf)` is a pure
+function and the whole rule about who gets asked — unaccounted only, grouped
+by `groupOf(p)` (at a unit with sub-units, the depth-first tree position of the
+soldier's unit from `unitTreeOrder()`, so HQ first and then each platoon and
+its squads in turn) and sorted by `rankSort()` within a group; anyone already
+away on a current absence is skipped but handed back as `known` so the finish
+screen can show them and let a wrong one be corrected. The card reads rank +
+last name, first name smaller, and the sub-unit. Late / Excused / Other take one
+optional reason step (wording from `REASON_FIELDS`) that travels as `notes`.
+"Everyone else present" marks the rest of the queue that is still unaccounted
+(`formationRemaining()`), after a confirm with the count — never anyone on a
+current absence. It writes only through the existing APIs (`PUT
 /api/personnel/<id>` with `status: 'present'`, `POST
 /api/personnel/<id>/schedule` for an absence, today→today) and so inherits the
 absence lifecycle rather than duplicating it. Tests:

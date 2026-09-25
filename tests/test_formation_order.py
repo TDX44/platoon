@@ -33,11 +33,13 @@ def harness():
     parts = [
         extract(src, r'const RANK_ORDER = \[.*?\];', 'RANK_ORDER'),
         extract(src, r'function rankSort\(a, b\) \{.*?\n\}', 'rankSort()'),
-        extract(src, r'function formationQueue\(people, todayStr\) \{.*?\n\}', 'formationQueue()'),
+        extract(src, r'function formationQueue\(people, todayStr, groupOf = \(\) => 0\) \{.*?\n\}', 'formationQueue()'),
     ]
     parts.append(
         'const input = JSON.parse(process.argv[2]);\n'
-        'const out = formationQueue(input.people, input.today);\n'
+        'const out = input.groups\n'
+        '  ? formationQueue(input.people, input.today, p => input.groups[p.id])\n'
+        '  : formationQueue(input.people, input.today);\n'
         'console.log(JSON.stringify({queue: out.queue.map(p => p.id), '
         'known: out.known.map(p => p.id)}));'
     )
@@ -51,8 +53,9 @@ def make_runner():
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(harness())
 
-    def run(people, today=TODAY):
-        proc = subprocess.run([node, path, json.dumps({'people': people, 'today': today})],
+    def run(people, today=TODAY, groups=None):
+        proc = subprocess.run([node, path, json.dumps({'people': people, 'today': today,
+                                                       'groups': groups})],
                               capture_output=True, text=True)
         assert proc.returncode == 0, proc.stderr
         return json.loads(proc.stdout)
@@ -108,12 +111,33 @@ def main():
     # 7. An empty roster is not a crash.
     assert run([]) == {'queue': [], 'known': []}
 
+    # 7b. At a unit with sub-units the queue walks them in tree order (the
+    #     group number), senior first inside each — not one rank list across
+    #     the whole company. Known stays a plain rank list.
+    roster = [
+        soldier(1, 'SSG', 'Able'),     # 2nd PLT
+        soldier(2, 'PVT', 'Baker'),    # 1st PLT
+        soldier(3, '1SG', 'Cole'),     # HQ
+        soldier(4, 'SFC', 'Dunn'),     # 1st PLT
+        soldier(5, 'SPC', 'Eads'),     # 2nd PLT
+        soldier(6, 'SGT', 'Fry', status='tdy'),
+    ]
+    out = run(roster, groups={'1': 2, '2': 1, '3': 0, '4': 1, '5': 2, '6': 1})
+    assert out['queue'] == [3, 4, 2, 1, 5], out['queue']
+    assert out['known'] == [6], out['known']
+
     # 8. The absence lifecycle stays the server's: formation books an absence
     #    through POST .../schedule, never by writing personnel.status itself.
     src = open(INDEX, encoding='utf-8').read()
-    mark = extract(src, r'async function formationMark\(status\) \{.*?\n\}', 'formationMark()')
+    mark = extract(src, r"async function formationMark\(status, notes = ''\) \{.*?\n\}", 'formationMark()')
     assert "/schedule`" in mark, 'formation must book absences through POST /personnel/<id>/schedule'
     assert "apiUpdate(p)" in mark, 'marking present must go through PUT /api/personnel/<id>'
+    assert 'notes }' in mark, 'the optional reason must travel as notes on the schedule POST'
+
+    # 9. "Everyone else present" only ever marks the rest of the queue that is
+    #    still unaccounted — never someone on a current absence.
+    rest = extract(src, r'function formationRemaining\(\) \{.*?\n\}', 'formationRemaining()')
+    assert 'formation.ids.slice(formation.i)' in rest and 'isUnaccounted(p)' in rest, rest
 
     print('ok')
 

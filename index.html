@@ -1823,7 +1823,7 @@
     padding: max(10px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
     box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain;
   }
-  .fm-top { display: flex; align-items: center; gap: 12px; flex: none; }
+  .fm-top { display: flex; align-items: center; gap: 8px 12px; flex: none; flex-wrap: wrap; }
   .fm-progress-text {
     font-weight: 700; font-size: 1.05em; font-variant-numeric: tabular-nums;
     color: var(--cp-text-strong);
@@ -1857,6 +1857,22 @@
     word-break: break-word;
   }
   .fm-sub { text-align: center; color: var(--cp-text-weak); font-size: 0.95em; }
+  .fm-first { text-align: center; color: var(--cp-text); font-size: 1.3em; font-weight: 600; margin-top: 6px; overflow-wrap: anywhere; }
+  .fm-unit { text-align: center; color: var(--cp-muted); font-size: 0.9em; margin-top: 4px; }
+  .fm-rest {
+    margin-left: auto; border: 1px solid var(--cp-border); background: var(--cp-surface);
+    color: var(--cp-accent); border-radius: var(--cp-radius); font-weight: 600;
+    padding: 4px 12px; font-size: 0.85em; cursor: pointer; min-height: 44px;
+    max-width: 9.5em; line-height: 1.15;
+  }
+  .fm-rest + .fm-exit { margin-left: 0; }
+  .fm-reason-form { display: flex; flex-direction: column; gap: 10px; }
+  .fm-reason-form label { font-weight: 700; color: var(--cp-text-strong); font-size: 1.05em; }
+  .fm-optional { font-weight: 400; color: var(--cp-muted); }
+  .fm-reason-form input {
+    font: inherit; font-size: 1.15em; padding: 12px 14px; min-height: 52px; box-sizing: border-box; width: 100%;
+    border: 1px solid var(--cp-border-strong); border-radius: var(--cp-radius); background: var(--cp-input); color: var(--cp-text-strong);
+  }
   /* Side by side, not stacked: "Not here" on the left, Present green on the
      right under the thumb. Two targets across a phone are still far bigger
      than anything else in the app. */
@@ -1903,6 +1919,8 @@
     .fm-reasons .fm-btn { min-height: max(44px, 8vh); font-size: 0.95em; }
     .fm-back { min-height: 44px; margin-top: 8px; }
   }
+  /* The confirm dialog is asked from inside formation mode too. */
+  #confirmModal { z-index: 6000; }
   .fm-done-head { text-align: center; }
   .fm-done-head h2 { margin: 0 0 6px; font-size: 1.8em; }
   .fm-tally {
@@ -1931,6 +1949,10 @@
   @media (min-width: 901px) {
     .fm-body { max-width: 640px; width: 100%; margin: 0 auto; }
     .fm-top, .fm-bar, .fm-back { max-width: 640px; width: 100%; margin-left: auto; margin-right: auto; }
+  }
+  /* Tall desktop buttons only where there is height for them; a short wide
+     window keeps the short-viewport sizes above. */
+  @media (min-width: 901px) and (min-height: 661px) {
     .fm-btn { min-height: 130px; }
     .fm-reasons .fm-btn { min-height: 96px; }
   }
@@ -6425,15 +6447,20 @@ function renderAvailabilityResults() {
 // 0630, phone in one hand, platoon standing in front of you. Scrolling a list
 // and picking from a row menu is the wrong interaction for that, so this is one
 // soldier at a time with two thumb-sized answers and no way to lose your place.
-let formation = { ids: [], known: [], i: 0, asking: false, busy: false };
+// reasonFor: the status (late/excused/other) whose optional reason is being
+// asked for, or null.
+let formation = { ids: [], known: [], i: 0, asking: false, reasonFor: null, busy: false };
 
 // Ordered by what is actually said at formation: late and excused first,
 // FTR last because it is the one you do not want to tap by reflex.
 const FORMATION_REASONS = ['late', 'excused', 'leave', 'pass', 'tdy', 'other', 'ftr'];
 
 // Pure, and the only rule about who gets asked and in what order.
-// tests/test_formation_order.py runs this function directly.
-function formationQueue(people, todayStr) {
+// tests/test_formation_order.py runs this function directly. groupOf(p) is a
+// number: at a unit with sub-units the queue walks them in tree order (the
+// order the platoon stands in), senior first within each; omitted, it is one
+// group and the order is rankSort() alone.
+function formationQueue(people, todayStr, groupOf = () => 0) {
   const queue = [], known = [];
   for (const p of people) {
     // Already away on a current absence: the app knows where they are, and
@@ -6445,7 +6472,17 @@ function formationQueue(people, todayStr) {
     if (p.present_date === todayStr) continue;
     queue.push(p);
   }
-  return { queue: queue.sort(rankSort), known: known.sort(rankSort) };
+  const byGroup = (a, b) => (groupOf(a) - groupOf(b)) || rankSort(a, b);
+  return { queue: queue.sort(byGroup), known: known.sort(rankSort) };
+}
+
+// Depth-first position of every unit under `rootId` (the root itself is 0,
+// so anyone directly in the unit, its HQ, is asked first).
+function unitTreeOrder(rootId) {
+  const order = new Map();
+  const walk = id => { order.set(Number(id), order.size); unitChildren(id).forEach(k => walk(k.id)); };
+  walk(rootId);
+  return order;
 }
 
 async function startFormation() {
@@ -6457,11 +6494,13 @@ async function startFormation() {
   await load();
   if (!currentUnit || currentUnit.id !== unitId || personnelUnitId !== unitId) return;
   if (document.body.classList.contains('formation-active')) return;   // double tap
-  const split = formationQueue(personnel, getTodayStr());
+  const order = unitTreeOrder(unitId);
+  const split = formationQueue(personnel, getTodayStr(),
+                               p => order.has(p.unit_id) ? order.get(p.unit_id) : order.size);
   formation = {
     ids: split.queue.map(p => p.id),
     known: split.known.map(p => p.id),
-    i: 0, asking: false, busy: false
+    i: 0, asking: false, reasonFor: null, busy: false
   };
   document.body.classList.add('formation-active');
   renderFormation();
@@ -6484,8 +6523,69 @@ function formationAsk() {
 // minute ago makes the server delete that row (it never started), and booking
 // an absence over a Present overwrites the roster line the same way.
 function formationBack() {
-  if (formation.asking) formation.asking = false;
+  if (formation.reasonFor) formation.reasonFor = null;
+  else if (formation.asking) formation.asking = false;
   else if (formation.i > 0) formation.i--;
+  renderFormation();
+}
+
+// Late, Excused and Other take an optional reason (REASON_FIELDS wording) in
+// one extra step; everything else saves on the tap.
+function formationPick(status) {
+  if (formation.busy) return;
+  if (!REASON_FIELDS[status]) return formationMark(status);
+  formation.reasonFor = status;
+  renderFormation();
+  const input = document.getElementById('fmReason');
+  if (input) input.focus();
+}
+
+function formationSaveReason(skip) {
+  const input = document.getElementById('fmReason');
+  const notes = skip || !input ? '' : input.value.trim();
+  formationMark(formation.reasonFor, notes);
+}
+
+// Who "Everyone else present" would mark: the rest of the queue that is still
+// unaccounted. Never anyone on a current absence — they are not in the queue,
+// and anyone booked away during this formation is skipped by the status check.
+function formationRemaining() {
+  return formation.ids.slice(formation.i)
+    .map(id => personnel.find(p => p.id === id))
+    .filter(p => p && isUnaccounted(p));
+}
+
+async function formationRestPresent() {
+  if (formation.busy) return;
+  const rest = formationRemaining();
+  if (!rest.length) return;
+  const ok = await confirmDialog(`Mark ${rest.length} present?`,
+    `Everyone still to be asked (${rest.length}) is marked present for today. Anyone already away stays away.`,
+    'Mark present');
+  if (!ok || formation.busy) return;
+  formation.busy = true;
+  const today = getTodayStr();
+  const results = await Promise.all(rest.map(async p => {
+    const before = { status: p.status, notes: p.notes, from: p.from, to: p.to, present_date: p.present_date };
+    Object.assign(p, { status: 'present', notes: '', from: '', to: '', present_date: today });
+    const res = await apiUpdate(p);
+    if (!res || res.error) { Object.assign(p, before); return false; }
+    return true;
+  }));
+  const failed = results.filter(ok => !ok).length;
+  formation.busy = false;
+  if (failed) {
+    showToast(`${failed} could not be marked present.`);
+    // Stay in the queue at the first soldier still unaccounted.
+    const next = formation.ids.findIndex((id, idx) => idx >= formation.i &&
+      isUnaccounted(personnel.find(p => p.id === id) || {}));
+    if (next >= 0) formation.i = next;
+  } else {
+    showToast(`${rest.length} marked present.`, 'success');
+    formation.i = formation.ids.length;
+  }
+  formation.asking = false;
+  formation.reasonFor = null;
   renderFormation();
 }
 
@@ -6493,7 +6593,7 @@ function formationPerson(index) {
   return personnel.find(p => p.id === formation.ids[index]);
 }
 
-async function formationMark(status) {
+async function formationMark(status, notes = '') {
   if (formation.busy) return;          // a double-tap must not skip a soldier
   const p = formationPerson(formation.i);
   if (!p) return;
@@ -6510,7 +6610,7 @@ async function formationMark(status) {
     // POST .../schedule is idempotent on (person, status, from, to).
     const today = getTodayStr();
     const res = await api('POST', `/personnel/${p.id}/schedule`,
-                          { status, from_date: today, to_date: today });
+                          { status, from_date: today, to_date: today, notes });
     if (!res || res.error) return formationFailed();
     // Mirror the row the server actually wrote rather than guessing at it.
     Object.assign(p, { status: res.status, from: res.from_date, to: res.to_date,
@@ -6518,6 +6618,7 @@ async function formationMark(status) {
   }
   formation.busy = false;
   formation.asking = false;
+  formation.reasonFor = null;
   formation.i++;
   renderFormation();
 }
@@ -6554,6 +6655,30 @@ function formationName(p) {
   return `${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}`;
 }
 
+// The card: rank and last name the way they are called out, first name
+// under it, and the sub-unit when the formation spans more than one.
+function formationCard(p) {
+  const unit = currentUnit && p.unit_id !== currentUnit.id ? unitById(p.unit_id) : null;
+  return `<div class="fm-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}</div>
+        <div class="fm-first">${escapeHtml(p.first)}</div>
+        ${unit ? `<div class="fm-unit">${escapeHtml(unit.name)}</div>` : ''}`;
+}
+
+function formationReasonHTML(status) {
+  const cfg = REASON_FIELDS[status];
+  return `<div class="fm-reason-form">
+        <label for="fmReason">${escapeHtml(cfg.label)} <span class="fm-optional">(optional)</span></label>
+        <input type="text" id="fmReason" list="fmReasonList" maxlength="120" autocomplete="off"
+               placeholder="${escapeHtml(cfg.placeholder)}"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); formationSaveReason(false); }">
+        <datalist id="fmReasonList">${cfg.options.map(o => `<option value="${escapeHtml(o)}"></option>`).join('')}</datalist>
+        <div class="fm-actions">
+          <button class="fm-btn" onclick="formationSaveReason(true)">Skip</button>
+          <button class="fm-btn fm-btn-present" onclick="formationSaveReason(false)">Save ${STATUS_LABELS[status]}</button>
+        </div>
+      </div>`;
+}
+
 function renderFormation() {
   const el = document.getElementById('formationOverlay');
   if (!el) return;
@@ -6562,23 +6687,29 @@ function renderFormation() {
   const p = formationPerson(formation.i);
   if (!p) { formation.i++; renderFormation(); return; }   // removed mid-formation
   const prev = formation.i > 0 ? formationPerson(formation.i - 1) : null;
-  const back = formation.asking
+  const back = formation.reasonFor
+    ? '<button class="fm-back" onclick="formationBack()">&larr; Pick another reason</button>'
+    : formation.asking
     ? '<button class="fm-back" onclick="formationBack()">Cancel</button>'
     : (prev ? `<button class="fm-back" onclick="formationBack()">&larr; Back to ${formationName(prev)}</button>` : '');
+  const rest = formation.asking ? 0 : formationRemaining().length;
   el.innerHTML = `
     <div class="fm-top">
       <span class="fm-progress-text">${formation.i + 1} of ${total}</span>
+      ${rest > 1 ? `<button class="fm-rest" onclick="formationRestPresent()">Everyone else present</button>` : ''}
       <button class="fm-exit" onclick="exitFormation()">Exit</button>
     </div>
     <div class="fm-bar"><span style="width:${Math.round(formation.i / total * 100)}%"></span></div>
     <div class="fm-body">
       <div class="fm-head">
-        <div class="fm-name">${escapeHtml(p.first)} ${escapeHtml(p.last)}</div>
-        ${formation.asking ? '<div class="fm-sub">Why are they not here?</div>' : ''}
+        ${formationCard(p)}
+        ${formation.asking && !formation.reasonFor ? '<div class="fm-sub">Why are they not here?</div>' : ''}
       </div>
-      ${formation.asking
+      ${formation.reasonFor
+        ? formationReasonHTML(formation.reasonFor)
+        : formation.asking
         ? `<div class="fm-reasons">${FORMATION_REASONS.map(s =>
-             `<button class="fm-btn" onclick="formationMark('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
+             `<button class="fm-btn" onclick="formationPick('${s}')">${STATUS_LABELS[s]}</button>`).join('')}</div>`
         : `<div class="fm-actions">
              <button class="fm-btn fm-btn-away" onclick="formationAsk()">Not here</button>
              <button class="fm-btn fm-btn-present" onclick="formationMark('present')">Present</button>
