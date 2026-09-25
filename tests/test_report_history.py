@@ -134,6 +134,15 @@ def main():
     r = c.post('/api/reports', json={'unit_id': SIBLING, 'unit_name': 'imported',
                                      'text': 'old report', 'created_at': '2026-07-04T13:22:05.000Z'})
     assert r.status_code == 201, r.get_json()
+    # ...on the unit's clock, like every other stored stamp: that Z is UTC,
+    # and 13:22 UTC in July is 08:22 in Chicago.
+    assert r.get_json()['created_at'] == '2026-07-04 08:22:05', r.get_json()['created_at']
+    r = c.post('/api/reports', json={'unit_id': SIBLING, 'unit_name': 'imported', 'text': 'x',
+                                     'created_at': '2026-07-04T13:22:05+02:00'})
+    assert r.get_json()['created_at'] == '2026-07-04 06:22:05', r.get_json()['created_at']
+    # A stamp with no zone is already local, and is kept as written.
+    r = c.post('/api/reports', json={'unit_id': SIBLING, 'unit_name': 'imported', 'text': 'x',
+                                     'created_at': '2026-07-04 13:22:05'})
     assert r.get_json()['created_at'] == '2026-07-04 13:22:05', r.get_json()['created_at']
 
     # A bogus or future timestamp is ignored rather than trusted.

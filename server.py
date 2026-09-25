@@ -3587,8 +3587,13 @@ def _import_timestamp(value):
         parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
     except ValueError:
         return None
+    # Stored stamps are wall-clock on the unit's own clock (app_stamp()), so
+    # a zoned value — a browser's toISOString() is UTC — is converted onto it
+    # first; one with no zone is taken as already local.
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(ZoneInfo(app_timezone()))
     stamp = parsed.strftime('%Y-%m-%d %H:%M:%S')
-    return stamp if stamp <= datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') else None
+    return stamp if stamp <= app_stamp() else None
 
 
 def _prune_report_history(conn, unit_id):
