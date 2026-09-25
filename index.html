@@ -4109,7 +4109,7 @@
 
 <!-- Add / Edit Person Modal -->
 <div class="modal-overlay" id="addModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="modalTitle">Add Person</h2>
     <label>Rank</label>
     <select id="addRank">
@@ -4145,7 +4145,7 @@
 
 <!-- Import Modal -->
 <div class="modal-overlay" id="importModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>Import Personnel List</h2>
     <p class="import-hint">
       Paste one person per line. Accepted formats:<br>
@@ -4167,7 +4167,7 @@
 
 <!-- TDY / Leave Modal -->
 <div class="modal-overlay" id="tdyLeaveModal">
-  <div class="modal modal-xl">
+  <div class="modal modal-xl" role="dialog" aria-modal="true">
     <h2 id="tdyLeaveTitle">TDY / Leave</h2>
 
     <label>Status Type</label>
@@ -4238,7 +4238,7 @@
 
 <!-- Report Modal -->
 <div class="report-overlay" id="reportModal">
-  <div class="report-box">
+  <div class="report-box" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
     <h2 id="reportTitle">Accountability Report</h2>
     <div class="report-text" id="reportText"></div>
     <div class="report-buttons">
@@ -4251,7 +4251,7 @@
 
 <!-- Report History Modal -->
 <div class="modal-overlay" id="historyModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>&#128337; Report History</h2>
     <div class="history-list" id="historyList"></div>
     <div class="modal-buttons">
@@ -4274,7 +4274,7 @@
 
 <!-- Duty Roster Modal -->
 <div class="modal-overlay" id="dutyModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>Duty Roster</h2>
     <div class="duty-form">
       <div>
@@ -4312,7 +4312,7 @@
 
 
 <div class="modal-overlay" id="listEditModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="listEditTitle">Rename</h2>
     <label for="listEditInput">Name</label>
     <input type="text" id="listEditInput" onkeydown="if (event.key === 'Enter') saveListEdit()">
@@ -4327,7 +4327,7 @@
 <!-- The one confirmation modal. Every destructive action asks through
      confirmDialog() below; nothing calls the browser's native confirm(). -->
 <div class="modal-overlay" id="confirmModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="confirmTitle">Are you sure?</h2>
     <div id="confirmBody"></div>
     <div class="modal-buttons">
@@ -4371,6 +4371,13 @@ let awayStatus = 'tdy';
 let sortCol = 'rank';
 let sortDir = 1;
 let bulkSelected = new Set();
+// Which unit `personnel` belongs to, and the load() currently in flight. A
+// response for a unit the user has since left is dropped, not rendered.
+let personnelUnitId = null;
+let loadReq = 0;
+// '' | 'loading' | 'error' — shown in place of the roster while it is not the
+// current unit's, so a slow or failed load never shows the last unit's people.
+let rosterNotice = '';
 let hideAccounted = false;
 let collapsedSections = new Set();
 let expandedSections = new Set();
@@ -4677,6 +4684,33 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// One request per action at a time — the busy flag formationMark() keeps, for
+// every save that POSTs: a double tap or a held Enter must not write twice.
+// Calls made while one is in flight are dropped, not queued.
+function singleFlight(fn) {
+  let busy = false;
+  return async function (...args) {
+    if (busy) return;
+    busy = true;
+    try { return await fn.apply(this, args); } finally { busy = false; }
+  };
+}
+// Reassigning the global binding keeps every onclick="name()" and every
+// internal caller on the guarded version without touching the declarations.
+savePerson = singleFlight(savePerson);
+removePerson = singleFlight(removePerson);
+saveTdyLeave = singleFlight(saveTdyLeave);
+applyBulkStatus = singleFlight(applyBulkStatus);
+addDutyEntry = singleFlight(addDutyEntry);
+createInvite = singleFlight(createInvite);
+createUnitInvite = singleFlight(createUnitInvite);
+createChildUnit = singleFlight(createChildUnit);
+saveUnitRename = singleFlight(saveUnitRename);
+createRootUnit = singleFlight(createRootUnit);
+extendTrial = singleFlight(extendTrial);
+startCheckout = singleFlight(startCheckout);
+startFormation = singleFlight(startFormation);
+
 let _toastTimer = null;
 function showToast(msg) {
   let el = document.getElementById('apiToast');
@@ -4704,12 +4738,17 @@ function apiError(msg, method) {
 }
 
 async function load() {
+  if (!currentUnit) return;
+  const req = ++loadReq;
+  const unitId = currentUnit.id;
+  const stale = () => req !== loadReq || !currentUnit || currentUnit.id !== unitId;
   try {
     const [data, settings] = await Promise.all([
       api('GET', `/personnel?unit=${currentUnit.id}`),
       api('GET', `/settings?unit=${currentUnit.id}`)
     ]);
-    if (!data || !settings) return;
+    if (stale()) return;
+    if (!data || !settings) { loadFailed(unitId); return; }
     // Map DB fields to frontend fields
     personnel = data.map(p => ({
       id: p.id, rank: p.rank, last: p.last, first: p.first,
@@ -4720,6 +4759,10 @@ async function load() {
       // scheduled list shows upcoming (state === 'scheduled') events only.
       scheduled_events: (p.scheduled_events || []).filter(e => e.state === 'scheduled')
     }));
+    personnelUnitId = unitId;
+    rosterNotice = '';
+    // Anyone who left the roster (deleted, moved out) leaves the selection too.
+    bulkSelected = new Set([...bulkSelected].filter(id => personnel.some(p => p.id === id)));
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
@@ -4742,7 +4785,19 @@ async function load() {
     }
   } catch (e) {
     console.error('Failed to load from API:', e);
+    if (!stale()) loadFailed(unitId);
   }
+}
+
+// A failed refresh of the roster already on screen keeps it (api() has shown
+// the reason); a failed first load of a unit shows an error, never the last
+// unit's people under this unit's name.
+function loadFailed(unitId) {
+  if (personnelUnitId === unitId) return;
+  personnel = [];
+  bulkSelected.clear();
+  rosterNotice = 'error';
+  render();
 }
 
 async function saveUnit() {
@@ -5352,8 +5407,7 @@ function formatDateWithYear(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = STATUS_LABELS;
-  return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
+  return `<span class="status-badge ${statusClass('badge-', status)}">${statusLabel(status)}</span>`;
 }
 
 function scheduledEventsFor(p) {
@@ -5361,7 +5415,7 @@ function scheduledEventsFor(p) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ─── Phone numbers ──────────────────────────────────────────────────────────
@@ -6111,10 +6165,10 @@ function closeDirectoryPage(push = true) {
 let availability = { from: '', to: '', data: null, error: '', req: 0 };
 
 // rpISO() formats a Date the way every date input here expects.
+// Offsets from the unit's duty day, not the device's: a phone abroad must
+// offer the same "Tomorrow" as the roster does.
 function availDateStr(offset) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return rpISO(d);
+  return addDaysStr(getTodayStr(), offset);
 }
 
 async function openAvailability(push = true) {
@@ -6233,7 +6287,7 @@ function availabilityRow(p, span) {
   const partial = p.whole_range ? '' :
     `<span class="avail-part">${p.days.length} of ${span} days</span>`;
   const note = p.notes || p.location || '';
-  return `<div class="avail-row" onclick="openSoldierPage(${p.id})">
+  return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
       <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
       <span class="avail-why">${dashPill(p.status)}<span class="avail-meta">${availabilityWindow(p)}</span>${partial}</span>
       ${note ? `<span class="avail-note">${escapeHtml(note)}</span>` : ''}
@@ -6241,7 +6295,7 @@ function availabilityRow(p, span) {
 }
 
 function availabilityNameRow(p) {
-  return `<div class="avail-row" onclick="openSoldierPage(${p.id})">
+  return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
       <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
     </div>`;
 }
@@ -6308,15 +6362,21 @@ function formationQueue(people, todayStr) {
   return { queue: queue.sort(rankSort), known: known.sort(rankSort) };
 }
 
-function startFormation() {
+async function startFormation() {
   if (!currentUnit) return;
+  closeDashMenus();
+  // The queue is "unaccounted today", so it must be built from today's roster,
+  // not from whatever was loaded before midnight or before someone else's edit.
+  const unitId = currentUnit.id;
+  await load();
+  if (!currentUnit || currentUnit.id !== unitId || personnelUnitId !== unitId) return;
+  if (document.body.classList.contains('formation-active')) return;   // double tap
   const split = formationQueue(personnel, getTodayStr());
   formation = {
     ids: split.queue.map(p => p.id),
     known: split.known.map(p => p.id),
     i: 0, asking: false, busy: false
   };
-  closeDashMenus();
   document.body.classList.add('formation-active');
   renderFormation();
 }
@@ -6918,12 +6978,12 @@ function renderDirectory() {
   const body = rows.map(r => {
     const ret = (r.status !== 'present' && r.to_date) ? formatDateShort(r.to_date) : '—';
     const nxt = r.next_absence
-      ? `${STATUS_LABELS[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
+      ? `${statusLabel(r.next_absence.status)} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
       : '—';
     const dash = '<span class="dir-muted">\u2014</span>';
     // data-label feeds the phone card layout, where each cell renders its own
     // heading because the table header is not on screen.
-    return `<tr onclick="openSoldierPage(${r.id})">
+    return `<tr onclick="openSoldierPage(${r.id})" onkeydown="clickOnKey(event)" tabindex="0">
       <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
       ${showUnit ? `<td data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
       <td data-label="Status">${statusText(r.status)}</td>
@@ -7572,7 +7632,11 @@ function render() {
     html += dashSection('sched', 'Scheduled', 'sec-sched', schedRows, secCount(scheduledList.length, counts.scheduled));
   }
 
-  body.innerHTML = html;
+  body.innerHTML = rosterNotice === 'loading'
+    ? '<div class="dash-section-empty">Loading roster\u2026</div>'
+    : rosterNotice === 'error'
+      ? '<div class="dash-section-empty">Could not load this roster. <button type="button" class="dash-more-btn" onclick="load()">Try again</button></div>'
+      : html;
 
   updateSortHeaders();
   updateBulkBar();
@@ -7598,13 +7662,26 @@ const STATUS_LABELS = {
   ftr: 'FTR', late: 'Late', excused: 'Excused'
 };
 
+// A status comes back from the server as free text, so it only reaches markup
+// through these two: a known key gets its label and its class, anything else is
+// escaped and gets no class at all.
+function isKnownStatus(status) {
+  return Object.prototype.hasOwnProperty.call(STATUS_LABELS, status);
+}
+function statusLabel(status) {
+  return isKnownStatus(status) ? STATUS_LABELS[status] : escapeHtml(status);
+}
+function statusClass(prefix, status) {
+  return isKnownStatus(status) ? prefix + status : '';
+}
+
 function dashPill(status) {
-  return `<span class="dash-pill p-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
+  return `<span class="dash-pill ${statusClass('p-', status)}">${statusLabel(status)}</span>`;
 }
 
 // Flat variant for dense tables: colored dot + plain text, no pill.
 function statusText(status) {
-  return `<span class="status-cell s-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
+  return `<span class="status-cell ${statusClass('s-', status)}">${statusLabel(status)}</span>`;
 }
 
 function dashCheckbox(p) {
@@ -7747,36 +7824,42 @@ function appDate(d = new Date()) {
 }
 
 
-async function markPresentToday(i) {
+// Optimistic like formationMark(): apply, save, and put the row back exactly as
+// it was if the save fails (api() has already shown why).
+async function savePersonChange(i, change) {
   const p = personnel[i];
-  p.present_date = getTodayStr();
-  await apiUpdate(p);
+  if (!p) return;
+  const before = { status: p.status, notes: p.notes, from: p.from, to: p.to,
+                   present_date: p.present_date };
+  Object.assign(p, change);
+  render();
+  const res = await apiUpdate(p);
+  if (!res || res.error) Object.assign(p, before);
   render();
 }
 
-async function unmarkPresent(i) {
-  const p = personnel[i];
-  p.present_date = '';
-  await apiUpdate(p);
-  render();
+function markPresentToday(i) {
+  return savePersonChange(i, { present_date: getTodayStr() });
 }
 
-async function markPresent(i) {
-  const p = personnel[i];
-  p.status = 'present';
-  p.notes = '';
-  p.from = '';
-  p.to = '';
-  p.present_date = getTodayStr();
-  await apiUpdate(p);
-  render();
+function unmarkPresent(i) {
+  return savePersonChange(i, { present_date: '' });
+}
+
+function markPresent(i) {
+  return savePersonChange(i, { status: 'present', notes: '', from: '', to: '',
+                               present_date: getTodayStr() });
 }
 
 async function removePerson(i) {
   const p = personnel[i];
+  if (!p) return;
   if (!await confirmDialog(`Remove ${p.rank} ${p.last}, ${p.first}?`, '', 'Remove')) return;
-  await api('DELETE', `/personnel/${p.id}`);
-  personnel.splice(i, 1);
+  const res = await api('DELETE', `/personnel/${p.id}`);
+  if (!res || res.error) return;
+  // By id: the roster may have reloaded while the dialog was open.
+  personnel = personnel.filter(x => x.id !== p.id);
+  bulkSelected.delete(p.id);
   render();
   syncSoldierPageAfterEdit();
 }
@@ -7832,7 +7915,7 @@ function rpOpen(event, fromId, toId, which) {
   const toEl = toId ? document.getElementById(toId) : null;
   const single = !toEl;
   const anchor = input.closest('.date-pick-row') || input;
-  const start = rpParse(fromEl.value) || new Date();
+  const start = rpParse(fromEl.value) || appDate();
   rp = {
     fromEl, toEl, single, anchor,
     view: new Date(start.getFullYear(), start.getMonth(), 1),
@@ -7890,7 +7973,7 @@ function rpTitleHTML(view) {
 
 function rpMonthHTML(base, offset) {
   const view = new Date(base.getFullYear(), base.getMonth() + offset, 1);
-  const from = rp.fromEl.value, to = rp.toEl ? rp.toEl.value : '', today = rpISO(new Date());
+  const from = rp.fromEl.value, to = rp.toEl ? rp.toEl.value : '', today = getTodayStr();
   const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < view.getDay(); i++) cells.push('<div class="rp-d empty"></div>');
@@ -8299,14 +8382,13 @@ function renderScheduledEvents(p) {
     list.innerHTML = '';
     return;
   }
-  const labels = STATUS_LABELS;
   list.innerHTML = events.map(event => {
     const dateRange = (event.from_date || event.to_date)
       ? `${formatDateShort(event.from_date)} - ${formatDateShort(event.to_date)}` : 'No dates';
     return `
       <div class="scheduled-event-row">
         <div>
-          <div class="scheduled-event-title">${labels[event.status] || event.status} · ${dateRange}</div>
+          <div class="scheduled-event-title">${statusLabel(event.status)} · ${dateRange}</div>
           <div class="scheduled-event-meta">${escapeHtml(event.notes || 'No notes')}</div>
         </div>
         <button class="btn-small btn-danger" onclick="deleteScheduledEvent(${event.id})">Remove</button>
@@ -8401,6 +8483,15 @@ function openEditModal(i) {
   syncAddUnitSelect(p.unit_id || currentUnit.id);
   document.getElementById('addModal').classList.add('active');
   document.getElementById('addLast').focus();
+}
+
+// Enter/Space on a clickable non-button (a row, a card) does what a click does.
+// Only on the element itself: a link or button inside it handles its own keys.
+function clickOnKey(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  if (event.target !== event.currentTarget) return;
+  event.preventDefault();
+  event.currentTarget.click();
 }
 
 function openSoldierPageFromKey(event, id) {
@@ -8557,6 +8648,12 @@ function reportBlockedByUnaccounted() {
   return true;
 }
 
+// One soldier's name column in a text report. Any field may be null on an
+// imported row, and a null rank must not throw halfway through the report.
+function reportName(p) {
+  return `${String(p.rank ?? '').padEnd(5)} ${p.last ?? ''}, ${p.first ?? ''}`;
+}
+
 function showReportModal(title, text, historyUnitName) {
   document.getElementById('reportTitle').textContent = title;
   document.getElementById('reportText').textContent = text;
@@ -8607,7 +8704,7 @@ function generateReport() {
   lines.push('');
 
   lines.push(`PDY ${present.length}`);
-  present.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
+  present.forEach(p => lines.push(`${reportName(p)}`));
 
   function reportDateRange(p) {
     if (!p.from && !p.to) return '';
@@ -8621,7 +8718,7 @@ function generateReport() {
       const parts = [];
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
+      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -8641,7 +8738,7 @@ function generateReport() {
       }
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
+      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -8653,7 +8750,7 @@ function generateReport() {
     lines.push(`${heading} ${list.length}`);
     list.forEach(p => {
       const reason = (p.notes || '').trim();
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${reason ? '  ' + reason : ''}`);
+      lines.push(`${reportName(p)}${reason ? '  ' + reason : ''}`);
     });
   });
 
@@ -8665,7 +8762,7 @@ function generateReport() {
       parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${reportName(p)}  ${parts.join(' | ')}`);
     });
   }
 
@@ -8674,7 +8771,7 @@ function generateReport() {
     lines.push(`FTR ${ftr.length}`);
     ftr.forEach(p => {
       const dr = reportDateRange(p);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${dr ? '  ' + dr : ''}`);
+      lines.push(`${reportName(p)}${dr ? '  ' + dr : ''}`);
     });
   }
 
@@ -8997,9 +9094,18 @@ function toggleSelectRow(id) {
   bulkSelected.has(id) ? bulkSelected.delete(id) : bulkSelected.add(id);
   updateBulkBar();
 }
+// The people whose rows are actually on screen: filtered-out rows are not
+// rendered, and a collapsed section's rows are in the DOM but hidden.
+function visibleRowIds() {
+  const ids = new Set();
+  document.querySelectorAll('.row-checkbox[data-id]').forEach(c => {
+    if (!c.closest('.dash-section.collapsed')) ids.add(parseInt(c.dataset.id));
+  });
+  return ids;
+}
 function toggleSelectAll() {
   const chk = document.getElementById('selectAllChk');
-  if (chk.checked) { personnel.forEach(p => bulkSelected.add(p.id)); }
+  if (chk.checked) { visibleRowIds().forEach(id => bulkSelected.add(id)); }
   else { bulkSelected.clear(); }
   document.querySelectorAll('.row-checkbox[data-id]').forEach(c => {
     c.checked = bulkSelected.has(parseInt(c.dataset.id));
@@ -9014,8 +9120,10 @@ function updateBulkBar() {
   if (countEl) countEl.textContent = size;
   const allChk = document.getElementById('selectAllChk');
   if (allChk) {
-    allChk.checked = size > 0 && size === personnel.length;
-    allChk.indeterminate = size > 0 && size < personnel.length;
+    const shown = visibleRowIds();
+    const all = size > 0 && shown.size > 0 && [...shown].every(id => bulkSelected.has(id));
+    allChk.checked = all;
+    allChk.indeterminate = size > 0 && !all;
   }
 }
 function clearBulkSelect() {
@@ -9029,16 +9137,27 @@ async function applyBulkStatus() {
   if (!bulkSelected.size) return;
 
   if (status === 'present') {
-    if (!await confirmDialog(`Mark ${bulkSelected.size} personnel present?`, '', 'Mark present')) return;
-    const updates = [];
-    for (const id of bulkSelected) {
-      const p = personnel.find(x => x.id === id);
-      if (!p) continue;
-      p.status = 'present'; p.notes = ''; p.from = ''; p.to = '';
-      p.present_date = getTodayStr();
-      updates.push(apiUpdate(p));
+    // Marking someone present over a current absence ends that absence on the
+    // server, so a bulk tap must never do it: those are marked from their own row.
+    const { mark, away } = bulkPresentSplit(personnel, bulkSelected);
+    if (!mark.length) {
+      showToast('Everyone selected is away on an absence. Mark them present from their own row.');
+      return;
     }
-    await Promise.all(updates);
+    const note = away.length
+      ? `${away.length} selected ${away.length === 1 ? 'is' : 'are'} away on an absence and will be left as they are.`
+      : '';
+    if (!await confirmDialog(`Mark ${mark.length} personnel present?`, note, 'Mark present')) return;
+    const today = getTodayStr();
+    const results = await Promise.all(mark.map(p => {
+      const before = { present_date: p.present_date };
+      p.present_date = today;
+      return apiUpdate(p).then(res => {
+        if (!res || res.error) { Object.assign(p, before); return false; }
+        return true;
+      });
+    }));
+    if (results.includes(false)) showToast(`${results.filter(ok => !ok).length} could not be marked present.`);
     clearBulkSelect();
     render();
     return;
@@ -9047,6 +9166,17 @@ async function applyBulkStatus() {
   // Absence statuses go through the details modal so dates/school/location
   // apply to everyone selected.
   openBulkStatusModal(status);
+}
+
+// Pure: which of the selected get a bulk "Present" and which are left alone
+// because they are on a current absence. tests/test_frontend_guards_js.py.
+function bulkPresentSplit(people, selectedIds) {
+  const mark = [], away = [];
+  for (const p of people) {
+    if (!selectedIds.has(p.id)) continue;
+    (p.status === 'present' ? mark : away).push(p);
+  }
+  return { mark, away };
 }
 
 function openBulkStatusModal(status) {
@@ -9118,7 +9248,7 @@ async function openHistory() {
   } else {
     list.innerHTML = history.map(r => {
       const ts = (r.created_at || '').replace('T', ' ').slice(0, 16);
-      return `<div class="history-item" onclick="viewHistory(${r.id})">
+      return `<div class="history-item" onclick="viewHistory(${r.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
         <div class="history-item-ts">${ts} &nbsp;·&nbsp; ${escapeHtml(r.created_by || '')}</div>
         <div class="history-item-summary">${escapeHtml(r.unit_name || 'Report')}</div>
       </div>`;
@@ -9777,7 +9907,76 @@ document.getElementById('reportModal').addEventListener('click', function(e) { i
 document.getElementById('addFirst').addEventListener('keydown', function(e) { if (e.key === 'Enter') savePerson(); });
 document.getElementById('listEditModal').addEventListener('click', function(e) { if (e.target === this) closeListEdit(); });
 document.getElementById('confirmModal').addEventListener('click', function(e) { if (e.target === this) settleConfirm(false); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && confirmResolve) settleConfirm(false); });
+
+// ─── Modals: one Escape, focus in and back ───
+// Every modal opens and closes by toggling .active, each from its own code, so
+// this sits beside them rather than in front: Escape closes only the topmost
+// one, through its own close function (they reset state a bare class removal
+// would leave behind), and a MutationObserver moves focus into a modal as it
+// opens and hands it back to whatever opened it when it closes.
+const MODAL_CLOSERS = {
+  addModal: () => closeAddModal(), importModal: () => closeImportModal(),
+  tdyLeaveModal: () => closeTdyLeaveModal(), historyModal: () => closeHistory(),
+  dutyModal: () => closeDutyRoster(), listEditModal: () => closeListEdit(),
+  confirmModal: () => settleConfirm(false), userMgmtModal: () => closeUserMgmt(),
+  personDetailsModal: () => closePersonDetails(), inviteModal: () => closeInviteModal(),
+  inviteLinkModal: () => closeInviteLinkModal(), userEditModal: () => closeUserEdit(),
+  resetConfirmModal: () => closeResetConfirm(), restoreModal: () => closeRestoreModal(),
+  sessionWarnModal: () => extendSession(), reportModal: () => closeReport(),
+};
+const MODAL_SELECTOR = '.modal-overlay, .report-overlay';
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function topModal() {
+  const open = [...document.querySelectorAll(MODAL_SELECTOR)].filter(m => m.classList.contains('active'));
+  // Highest z-index wins; on a tie the later one in the document paints on top.
+  let top = null, topZ = -Infinity;
+  for (const m of open) {
+    const z = parseInt(getComputedStyle(m).zIndex, 10) || 0;
+    if (z >= topZ) { top = m; topZ = z; }
+  }
+  return top;
+}
+
+// True when Escape was spent closing a modal, so nothing else acts on it.
+function closeTopModal() {
+  const m = topModal();
+  if (!m) return false;
+  const close = MODAL_CLOSERS[m.id];
+  if (close) close(); else m.classList.remove('active');
+  return true;
+}
+
+const _modalOpener = new Map();
+// The observer runs after the open function, which may already have focused a
+// field inside the modal — so the opener is the element focused before that.
+let _lastFocus = null, _prevFocus = null;
+document.addEventListener('focusin', e => { _prevFocus = _lastFocus; _lastFocus = e.target; });
+new MutationObserver(records => {
+  for (const r of records) {
+    const m = r.target;
+    if (!m.matches(MODAL_SELECTOR)) continue;
+    const open = m.classList.contains('active');
+    const was = (r.oldValue || '').split(/\s+/).includes('active');
+    if (open === was) continue;
+    if (open) {
+      _modalOpener.set(m, m.contains(document.activeElement) ? _prevFocus : document.activeElement);
+      // An open function that already focused a field (savePerson's name box,
+      // the confirm OK button) keeps it; otherwise the first control gets it.
+      if (!m.contains(document.activeElement)) {
+        const first = m.querySelector(FOCUSABLE);
+        if (first) first.focus({ preventScroll: true });
+      }
+    } else {
+      const back = _modalOpener.get(m);
+      _modalOpener.delete(m);
+      if (back && back.isConnected && typeof back.focus === 'function' &&
+          (m.contains(document.activeElement) || document.activeElement === document.body)) {
+        back.focus({ preventScroll: true });
+      }
+    }
+  }
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
 
 // ─── Billing ───
 // Pure renderers over currentUser.billing (the payload /api/me carries), run
@@ -11148,12 +11347,19 @@ function selectUnit(unit, push = true, pendingSoldier = null) {
   if (!unit) { loadHome(); return; }
   currentUnit = unit;
   pendingSoldierId = pendingSoldier;
+  if (personnelUnitId !== unit.id) {
+    personnel = [];
+    personnelUnitId = null;
+    rosterNotice = 'loading';
+  }
+  bulkSelected.clear();
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
   ['directory-active', 'availability-active', 'lists-active', 'audit-active', 'settings-active', 'units-active', 'settings-mode']
     .forEach(c => document.body.classList.remove(c));
   if (push) pushAppRoute(unit, 'accountability');
   showAppScreen('platoon');
   applyUnitLogo();
+  render();
   return load();
 }
 
@@ -11212,6 +11418,9 @@ function goHome() {
   currentUnit = null;
   pushAppRoute(null, 'home');
   personnel = [];
+  personnelUnitId = null;
+  bulkSelected.clear();
+  updateBulkBar();
   loadHome();
 }
 
@@ -11483,6 +11692,7 @@ async function deleteUser(userId, username) {
 
 // ─── Init ───
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && closeTopModal()) return;
   if (e.key === 'Escape') exitFormation();
   userMenuKey(e);
   // "/" (or Ctrl/Cmd-K) jumps to search, unless the key is being typed into something.
@@ -11519,6 +11729,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('popstate', () => {
+  // Formation is an overlay, not a route: Back must not leave it sitting over
+  // whatever page the popped URL opens underneath.
+  exitFormation();
   // The billing screen pushes no history, so the entry Back pops is the page
   // the user was already on and every branch below would leave #platoonScreen
   // hidden underneath it. routeAfterLogin() is the one path that re-shows a
@@ -11569,16 +11782,24 @@ window.addEventListener('popstate', () => {
 });
 
 // ─── Export CSV ───
+// A cell a spreadsheet would run as a formula (=, +, -, @, or a leading tab or
+// CR) is prefixed with ' so a note typed as =HYPERLINK(...) stays text.
+function csvCell(v) {
+  let t = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return `"${t.replace(/"/g, '""')}"`;
+}
+
 function exportCSV() {
   const today = getTodayStr();
   const rows = [['#','Rank','Last','First','Status','Notes','From','To']];
   personnel.forEach((p, i) => {
     const status = p.status === 'present'
       ? (p.present_date === today ? 'Present' : 'Unaccounted')
-      : p.status.charAt(0).toUpperCase() + p.status.slice(1);
+      : String(p.status ?? '').charAt(0).toUpperCase() + String(p.status ?? '').slice(1);
     rows.push([i+1, p.rank, p.last, p.first, status, p.notes || '', p.from || '', p.to || '']);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -11631,26 +11852,68 @@ async function confirmReset() {
 const SESSION_WARNING_SECS = 60;
 const SESSION_TIMEOUT_MINS = 30;
 let _sessionTimer = null, _sessionWarnTimer = null, _sessionCountInterval = null;
+// Idle is measured across every open tab, not per tab: signing out is global,
+// so one tab left in the background must not sign out the one being used.
+// Tabs share their last activity through localStorage (and hear each other's
+// through the storage event); a timer that fires re-checks it before acting.
+const SESSION_ACTIVITY_KEY = 'platoonLastActivity';
+const SESSION_ACTIVITY_WRITE_MS = 5000;   // mousemove must not write every frame
+let _lastActivity = Date.now(), _lastActivityWrite = 0;
 
-function resetSessionTimer() {
+function sharedLastActivity() {
+  try { return Number(localStorage.getItem(SESSION_ACTIVITY_KEY)) || 0; } catch (e) { return 0; }
+}
+function sessionIdleMs() {
+  return Date.now() - Math.max(_lastActivity, sharedLastActivity());
+}
+function armSessionTimers() {
   clearTimeout(_sessionTimer); clearTimeout(_sessionWarnTimer);
-  const warnAfter = (SESSION_TIMEOUT_MINS * 60 - SESSION_WARNING_SECS) * 1000;
-  _sessionWarnTimer = setTimeout(showSessionWarning, warnAfter);
-  _sessionTimer = setTimeout(() => { doLogout(); }, SESSION_TIMEOUT_MINS * 60 * 1000);
+  const left = SESSION_TIMEOUT_MINS * 60 * 1000 - sessionIdleMs();
+  _sessionWarnTimer = setTimeout(onSessionWarn, Math.max(0, left - SESSION_WARNING_SECS * 1000));
+  _sessionTimer = setTimeout(onSessionTimeout, Math.max(0, left));
+}
+function onSessionWarn() {
+  if (!currentUser) return;
+  if (sessionIdleMs() < (SESSION_TIMEOUT_MINS * 60 - SESSION_WARNING_SECS) * 1000) { armSessionTimers(); return; }
+  showSessionWarning();
+}
+function onSessionTimeout() {
+  if (!currentUser) return;
+  if (sessionIdleMs() < SESSION_TIMEOUT_MINS * 60 * 1000) { hideSessionWarning(); armSessionTimers(); return; }
+  doLogout();
+}
+function resetSessionTimer() {
+  const now = Date.now();
+  _lastActivity = now;
+  if (now - _lastActivityWrite > SESSION_ACTIVITY_WRITE_MS) {
+    _lastActivityWrite = now;
+    try { localStorage.setItem(SESSION_ACTIVITY_KEY, String(now)); } catch (e) {}
+  }
+  // Activity while the warning is up answers it: close it and stop the count,
+  // or it sits on screen at 0 over a session that is no longer ending.
+  hideSessionWarning();
+  armSessionTimers();
+}
+function hideSessionWarning() {
+  clearInterval(_sessionCountInterval);
+  _sessionCountInterval = null;
+  const modal = document.getElementById('sessionWarnModal');
+  if (modal) modal.classList.remove('active');
 }
 function showSessionWarning() {
-  document.getElementById('sessionWarnModal').classList.add('active');
+  const modal = document.getElementById('sessionWarnModal');
+  if (modal.classList.contains('active')) return;
+  modal.classList.add('active');
   let secs = SESSION_WARNING_SECS;
   document.getElementById('sessionCountdown').textContent = secs;
+  clearInterval(_sessionCountInterval);
   _sessionCountInterval = setInterval(() => {
     secs--;
-    document.getElementById('sessionCountdown').textContent = secs;
+    document.getElementById('sessionCountdown').textContent = Math.max(0, secs);
     if (secs <= 0) { clearInterval(_sessionCountInterval); }
   }, 1000);
 }
 function extendSession() {
-  document.getElementById('sessionWarnModal').classList.remove('active');
-  clearInterval(_sessionCountInterval);
   resetSessionTimer();
   api('GET', '/me');
 }
@@ -11659,6 +11922,12 @@ function extendSession() {
     if (currentUser) resetSessionTimer();
   }, { passive: true })
 );
+// Another tab was used: this one's idle clock restarts with it.
+window.addEventListener('storage', e => {
+  if (e.key !== SESSION_ACTIVITY_KEY || !currentUser) return;
+  hideSessionWarning();
+  armSessionTimers();
+});
 
 // ─── Backup / Restore ───
 async function exportBackup() {
@@ -11729,7 +11998,7 @@ initApp();
 
 <!-- User Management Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userMgmtModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2>People &amp; invites</h2>
     <p class="modal-sub">Who can sign in, and which unit they lead.</p>
     <div class="modal-section">
@@ -11751,7 +12020,7 @@ initApp();
 
 <!-- Person Details Modal (global — opened from the directory's ⋯ menu) -->
 <div class="modal-overlay" id="personDetailsModal">
-  <div class="modal modal-wide">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
     <h2 id="personDetailsTitle">Person</h2>
     <div id="personDetailsBody" class="person-details"></div>
     <div class="modal-buttons">
@@ -11764,7 +12033,7 @@ initApp();
 
 <!-- New Invite Modal (global) -->
 <div class="modal-overlay" id="inviteModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>New Invite Link</h2>
     <label>Who is it for? (optional)</label>
     <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
@@ -11783,7 +12052,7 @@ initApp();
 </div>
 
 <div class="modal-overlay" id="inviteLinkModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>Invite Link Ready</h2>
     <p style="font-size:0.85em;color:var(--cp-text-weak);margin:0 0 10px;">Works once, expires in 7 days. Send it however you like — they create their own account with it.</p>
     <input type="text" class="invite-link-field" id="inviteLinkValue" readonly onclick="this.select()" />
@@ -11796,7 +12065,7 @@ initApp();
 
 <!-- Edit User Modal (global — works from any screen) -->
 <div class="modal-overlay" id="userEditModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2 id="userEditTitle">Edit Access</h2>
     <label>Display Name</label>
     <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
@@ -11816,7 +12085,7 @@ initApp();
 
 <!-- Reset Confirmation Modal -->
 <div class="modal-overlay" id="resetConfirmModal">
-  <div class="modal" style="max-width:360px;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:360px;">
     <h2>&#9888; Reset Day</h2>
     <p style="font-size:0.9em;color:#b2bec3;margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
     <div id="resetSummary" style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;line-height:1.8;"></div>
@@ -11829,7 +12098,7 @@ initApp();
 
 <!-- Import Backup Modal -->
 <div class="modal-overlay" id="restoreModal">
-  <div class="modal" style="max-width:380px;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:380px;">
     <h2>&#128228; Import Backup</h2>
     <p style="font-size:0.85em;color:#ff7675;margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
     <label style="display:block;margin-bottom:6px;">Select backup file (.json)</label>
@@ -11844,7 +12113,7 @@ initApp();
 
 <!-- Session Timeout Warning Modal -->
 <div class="modal-overlay" id="sessionWarnModal" style="z-index:9999;">
-  <div class="modal" style="max-width:320px;text-align:center;">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:320px;text-align:center;">
     <h2>&#9201; Session Expiring</h2>
     <p style="color:#b2bec3;margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
     <button class="btn-login" onclick="extendSession()">Stay Signed In</button>
