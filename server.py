@@ -1225,6 +1225,13 @@ def _stripe_invoices(customer_id):
     return stripe.Invoice.list(customer=customer_id, limit=BILLING_HISTORY_LIMIT).data
 
 
+def _stripe_subscription_list(customer_id):
+    """This customer's subscriptions, newest first, as plain dicts: a
+    StripeObject is not dict-like in stripe-python >= 12 and
+    _subscription_fields reads with .get(), like the webhook's json.loads."""
+    return [s.to_dict() for s in stripe.Subscription.list(customer=customer_id, status='all', limit=10).data]
+
+
 def _stripe_card(customer_id):
     """The card Stripe will charge next, or None. Checkout in subscription mode
     puts the card on the subscription, the portal on the customer's invoice
@@ -2015,6 +2022,77 @@ def billing_details():
     return jsonify(out)
 
 
+# One Stripe list call per account per worker per window, whoever asks.
+# ponytail: per-worker dict, so gunicorn -w 2 allows two calls a window;
+# move it into the subscriptions row if that ever matters.
+BILLING_REFRESH_COOLDOWN = 10
+_BILLING_REFRESH_LAST = {}   # user_id -> monotonic time of the last Stripe read
+
+
+def _pick_subscription(subs, stored):
+    """The one subscription a refresh reconciles against, or None. Open
+    beats past_due beats the rest (an abandoned Checkout leaves an
+    `incomplete` row ahead of the live one, and newest is not most relevant);
+    among equals the one already stored wins, so a refresh never swaps a live
+    subscription for a second one; after that, Stripe's newest first."""
+    def rank(s):
+        return (s.get('status') not in billing_rules.OPEN_STATUSES, s.get('status') != 'past_due',
+                s.get('id') != stored)
+    return min(subs, key=rank) if subs else None
+
+
+@app.route('/api/billing/refresh', methods=['POST'])
+@attached_required
+def billing_refresh():
+    """Ask Stripe what it holds, for when the webhook never arrived.
+
+    A delivery lost for good (the endpoint down past Stripe's retry window, a
+    rotated signing secret) left the row wrong for ever, and there is no
+    background worker to notice. This reads the stored customer's
+    subscriptions and writes through _apply_stripe exactly as the webhook
+    does, so billing_apply_stripe's supersede and past_due guards still hold.
+    The synthetic event is not a customer.subscription.created, so a refresh
+    never cancels anything at Stripe. And if the row changed while Stripe was
+    being asked — a webhook landed — the webhook's newer write stands."""
+    if not STRIPE_ENABLED:
+        return jsonify({'error': 'Billing is not configured on this instance.'}), 503
+    user = g.current_user
+    customer_id = _stripe_customer_for_mode(g.billing_row)
+    if not customer_id:
+        return jsonify({'error': 'No billing account yet. Choose a plan first.'}), 409
+    now = time.monotonic()
+    wait = BILLING_REFRESH_COOLDOWN - (now - _BILLING_REFRESH_LAST.get(user['id'], -BILLING_REFRESH_COOLDOWN))
+    if wait > 0:
+        resp = jsonify({'error': 'Checked with Stripe a moment ago. Try again in a few seconds.'})
+        resp.headers['Retry-After'] = str(int(wait) + 1)
+        return resp, 429
+    _BILLING_REFRESH_LAST[user['id']] = now
+    try:
+        subs = _stripe_subscription_list(customer_id)
+    except Exception as exc:
+        app.logger.warning('billing refresh: Stripe unreachable for %s: %s', customer_id, exc)
+        return jsonify({'error': 'Stripe is unreachable. Try again in a moment.'}), 503
+    conn = get_db()
+    sub = _pick_subscription(subs, g.billing_row.get('stripe_subscription_id'))
+    # Locked until this request commits, so no webhook can land between the
+    # check and the write; a changed updated_at means one landed during the
+    # Stripe call, and what it wrote is newer than what we read.
+    current = conn.execute('SELECT updated_at FROM subscriptions WHERE user_id = %s FOR UPDATE',
+                           (user['id'],)).fetchone()
+    raced = current is None or current['updated_at'] != g.billing_row['updated_at']
+    if sub is not None and not raced:
+        _apply_stripe(conn, {'id': f'refresh:{user["id"]}', 'type': 'billing.refresh'},
+                      customer=customer_id, **_subscription_fields(sub))
+        _load_billing(user)
+    elif raced:
+        _load_billing(user)
+    # Worded as the read it is: _apply_stripe audits the write itself, and
+    # only when its guards let it through.
+    log_action('BILLING_REFRESH', f'Stripe reports: {sub.get("status") if sub else "no subscription"}'
+               + (' (a webhook landed first; kept it)' if raced else ''))
+    return jsonify({'billing': _billing_payload(), 'found': sub is not None})
+
+
 # ── The webhook ──
 # Stripe is the caller: no session, no tenant, the signature is the auth.
 # Deliberately undecorated (tests/test_smoke.py lists it in PUBLIC_API). Every
@@ -2024,6 +2102,21 @@ def billing_details():
 
 SUBSCRIPTION_EVENTS = ('customer.subscription.created', 'customer.subscription.updated',
                        'customer.subscription.deleted')
+
+
+def _subscription_fields(obj):
+    """The columns a subscription object carries. The webhook and
+    /api/billing/refresh both read a subscription through here, so the two
+    can never drift apart on where they looked."""
+    items = ((obj.get('items') or {}).get('data') or [])
+    first = items[0] if items else {}
+    price = first.get('price') or {}
+    # API versions before 2025-03 put current_period_end on the
+    # subscription; since then it is on each item.
+    return {'subscription': obj.get('id'), 'status': obj.get('status'),
+            'lookup_key': price.get('lookup_key'),
+            'period_end': obj.get('current_period_end') or first.get('current_period_end'),
+            'cancel_at_period_end': bool(obj.get('cancel_at_period_end'))}
 
 
 @app.route('/api/billing/webhook', methods=['POST'])
@@ -2067,15 +2160,7 @@ def _handle_stripe_event(conn, event):
     obj = event['data']['object']
     kind = event['type']
     if kind in SUBSCRIPTION_EVENTS:
-        items = ((obj.get('items') or {}).get('data') or [])
-        first = items[0] if items else {}
-        price = first.get('price') or {}
-        # API versions before 2025-03 put current_period_end on the
-        # subscription; since then it is on each item.
-        period_end = obj.get('current_period_end') or first.get('current_period_end')
-        _apply_stripe(conn, event, customer=obj.get('customer'), subscription=obj.get('id'),
-                      status=obj.get('status'), lookup_key=price.get('lookup_key'),
-                      period_end=period_end, cancel_at_period_end=bool(obj.get('cancel_at_period_end')))
+        _apply_stripe(conn, event, customer=obj.get('customer'), **_subscription_fields(obj))
     elif kind == 'invoice.payment_failed':
         # The subscription this invoice is for: a plain id on API versions
         # before 2025-03, under parent.subscription_details since, and absent

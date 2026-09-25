@@ -188,8 +188,10 @@ def test_pricing_screen(out):
     assert '$2.99' in h and '$19.99' in h and 'Save 44%' in h, h
     assert 'nothing is deleted' in h and 'doLogout()' in h, h
     assert 'Manage billing' not in h, 'no portal link without a Stripe customer'
+    assert 'syncBillingWithStripe()' not in h, 'nothing to sync before there is a Stripe customer'
     h2 = out['locked_payment']['pricing']
     assert 'Your subscription is no longer active.' in h2 and 'Manage billing' in h2, h2
+    assert 'syncBillingWithStripe()' in h2, 'a locked account that just paid needs the way back from a lost webhook'
     h3 = out['locked_no_prices']['pricing']
     assert 'startCheckout' not in h3 and 'Prices are loading' in h3 and 'refreshBilling()' in h3, h3
     assert 'id="pricingStatus"' in h, 'the success poll needs somewhere to write'
@@ -204,6 +206,7 @@ def test_billing_page(out):
     assert 'id="billingPlans"' in t and 'data-key="platoon_leader_monthly"' in t and '$19.99' in t and '/year' in t
     assert 'id="pricingStatus"' in t, 'checkout from the Billing page needs somewhere to say so'
     assert 'Update payment method' not in t, 'no portal before there is a Stripe customer'
+    assert 'syncBillingWithStripe()' not in t, 'no refresh before there is a Stripe customer'
     assert 'Stripe will collect it at checkout' in t or 'Visa ending in 4242' in t
     assert 'Grace until Oct 4' in out['grace']['page'] and 'Your trial ended.' in out['grace']['page']
 
@@ -212,6 +215,7 @@ def test_billing_page(out):
     assert 'Renews Oct 17' in a, a
     assert "openBillingPortal('plan')" in a and "openBillingPortal('cancel')" in a and 'Cancel subscription' in a
     assert "openBillingPortal('payment_method')" in a and 'View invoices' in a and 'Update billing details' in a
+    assert 'syncBillingWithStripe()' in a and 'Sync with Stripe' in a, 'the Billing page offers the refresh'
     assert 'Visa ending in 4242' in a and 'Expires 04/28' in a, a
     assert '42 &middot; Unlimited' in a and '5 &middot; Unlimited' in a, 'the usage meters'
     assert 'startCheckout' not in a and 'id="billingPlans"' not in a, 'a subscribed account is not sold a plan'
