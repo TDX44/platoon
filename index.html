@@ -73,6 +73,13 @@
   .import-flag { color: var(--cp-amber); }
   .import-row-error td { color: var(--cp-red); }
   .import-row-dup td { opacity: 0.6; }
+  .repeat-row { margin-top: 10px; }
+  .repeat-days { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 0.85em; }
+  .repeat-days label { display: flex; align-items: center; gap: 4px; margin: 0; min-height: 32px; }
+  .repeat-every { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.85em; }
+  .repeat-every label { margin: 0; }
+  .repeat-every input { width: 5em; }
+  .repeat-hint { font-size: 0.78em; color: var(--cp-muted); margin-top: 4px; }
 
   /* Modals */
   .modal-overlay {
@@ -4239,6 +4246,31 @@
       </div>
     </div>
 
+    <div class="repeat-row" id="repeatRow">
+      <label for="repeatKind">Repeat</label>
+      <select id="repeatKind" onchange="syncRepeatControls()">
+        <option value="">Does not repeat</option>
+        <option value="weekly">Weekly on chosen days</option>
+        <option value="interval">Every few days</option>
+      </select>
+      <div class="repeat-days" id="repeatWeekdays" style="display:none">
+        <label><input type="checkbox" value="0">Mon</label><label><input type="checkbox" value="1">Tue</label>
+        <label><input type="checkbox" value="2">Wed</label><label><input type="checkbox" value="3">Thu</label>
+        <label><input type="checkbox" value="4">Fri</label><label><input type="checkbox" value="5">Sat</label>
+        <label><input type="checkbox" value="6">Sun</label>
+      </div>
+      <div class="repeat-every" id="repeatEvery" style="display:none">
+        <label for="repeatEveryN">Every</label>
+        <input type="number" id="repeatEveryN" min="1" max="183" value="7" inputmode="numeric"> days
+      </div>
+      <div id="repeatUntilRow" style="display:none">
+        <label for="repeatUntil">Last start date</label>
+        <input type="date" class="date-input rp-field" id="repeatUntil"
+               onmousedown="rpOpen(event, 'repeatUntil', null, 'single')" />
+        <div class="repeat-hint">Each repeat is its own absence, the same length as the first. Up to 60, at most six months ahead.</div>
+      </div>
+    </div>
+
     <div class="notes-preview-label">Generated Note</div>
     <div class="notes-preview" id="notesPreview"></div>
 
@@ -7492,6 +7524,51 @@ function syncAbsenceEditMode() {
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').style.display = editing ? 'none' : '';
   document.getElementById('clearScheduleBtn').style.display = 'none';
+  document.getElementById('repeatRow').style.display = editing ? 'none' : '';
+}
+
+// ─── Repeating absences ───
+// The server expands the rule into ordinary absences (one per occurrence), so
+// all the modal sends is the rule. Weekdays are Monday = 0, Python's order.
+function resetRepeat() {
+  document.getElementById('repeatKind').value = '';
+  document.getElementById('repeatUntil').value = '';
+  document.getElementById('repeatEveryN').value = '7';
+  document.querySelectorAll('#repeatWeekdays input').forEach(i => { i.checked = false; });
+  syncRepeatControls();
+}
+
+function syncRepeatControls() {
+  const kind = document.getElementById('repeatKind').value;
+  document.getElementById('repeatWeekdays').style.display = kind === 'weekly' ? 'flex' : 'none';
+  document.getElementById('repeatEvery').style.display = kind === 'interval' ? 'flex' : 'none';
+  document.getElementById('repeatUntilRow').style.display = kind ? 'block' : 'none';
+  const boxes = [...document.querySelectorAll('#repeatWeekdays input')];
+  if (kind === 'weekly' && awayFrom && !boxes.some(b => b.checked)) {
+    const [y, m, d] = awayFrom.split('-').map(Number);
+    boxes[(new Date(y, m - 1, d).getDay() + 6) % 7].checked = true;
+  }
+}
+
+function repeatRule() {
+  const kind = document.getElementById('repeatKind').value;
+  if (!kind || editingAbsenceId !== null) return undefined;
+  const rule = { type: kind, until: document.getElementById('repeatUntil').value };
+  if (kind === 'weekly') {
+    rule.weekdays = [...document.querySelectorAll('#repeatWeekdays input:checked')].map(i => Number(i.value));
+  } else {
+    rule.every = parseInt(document.getElementById('repeatEveryN').value, 10) || 0;
+  }
+  return rule;
+}
+
+async function removeAbsenceSeries(seriesId) {
+  if (!await confirmDialog('Remove the rest of this repeating absence?',
+      'Every occurrence that has not started yet is removed. One already under way, and past ones, stay.', 'Remove')) return;
+  const res = await api('DELETE', `/schedules/series/${encodeURIComponent(seriesId)}`);
+  if (!res) return;
+  await load();
+  renderProfileAbsences();
 }
 
 async function removeAbsence(eventId) {
@@ -7531,8 +7608,19 @@ async function renderProfileAbsences() {
     return;
   }
   const labels = STATUS_LABELS;
+  // A repeating absence offers "remove the rest" once, on its next occurrence.
+  const seriesLeft = {};
+  all.filter(ev => ev.series_id && ev.state === 'scheduled')
+     .forEach(ev => { seriesLeft[ev.series_id] = (seriesLeft[ev.series_id] || 0) + 1; });
+  const seriesOffered = new Set();
   list.innerHTML = groups.filter(([, evs]) => evs.length).map(([title, evs, removable]) => {
     const rows = evs.map(ev => {
+      let seriesBtn = '';
+      if (removable && ev.state === 'scheduled' && seriesLeft[ev.series_id] > 1 && !seriesOffered.has(ev.series_id)) {
+        seriesOffered.add(ev.series_id);
+        seriesBtn = `<button class="btn-small btn-danger" data-series="${escapeHtml(ev.series_id)}"
+                       onclick="removeAbsenceSeries(this.dataset.series)">Remove rest (${seriesLeft[ev.series_id]})</button>`;
+      }
       const range = (ev.from_date || ev.to_date)
         ? `${formatDateShort(ev.from_date)} – ${formatDateShort(ev.to_date)}` : '';
       const meta = [ev.location, ev.notes, range].filter(Boolean).map(escapeHtml).join(' · ');
@@ -7540,6 +7628,7 @@ async function renderProfileAbsences() {
         ? `<div class="abs-row-actions">
              <button class="btn-small btn-edit" onclick="openAbsenceModal(${ev.id})">Edit</button>
              <button class="btn-small btn-danger" onclick="removeAbsence(${ev.id})">Remove</button>
+             ${seriesBtn}
            </div>` : '';
       return `<div class="scheduled-event-row">
         <div>
@@ -8245,6 +8334,7 @@ function openTdyLeave(i) {
   editingAbsenceId = null;
   editingAbsenceNotes = '';
   syncAbsenceEditMode();   // restores anything the edit mode hid
+  resetRepeat();
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
 
@@ -8305,7 +8395,7 @@ async function saveBulkTdyLeave() {
   const notesVal = bulkAbsenceNotes();
   const results = await Promise.all(ids.map(id =>
     api('POST', `/personnel/${id}/schedule`, {
-      status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal
+      status: awayStatus, from_date: awayFrom, to_date: awayTo, notes: notesVal, recurrence: repeatRule()
     })
   ));
   const failed = results.filter(r => !r || r.error).length;
@@ -8359,7 +8449,8 @@ async function saveTdyLeave() {
     status: awayStatus,
     from_date: awayFrom,
     to_date: awayTo,
-    notes: notesVal
+    notes: notesVal,
+    recurrence: repeatRule()
   });
   if (!event || event.error) {
     alert(event && event.error ? event.error : 'Could not save absence.');
@@ -9428,6 +9519,8 @@ function openBulkStatusModal(status) {
   awayFrom = ''; awayTo = '';
   document.getElementById('awayFromInput').value = '';
   document.getElementById('awayToInput').value = '';
+  resetRepeat();
+  document.getElementById('repeatRow').style.display = '';
   // The per-soldier scheduled-events list doesn't apply to a bulk edit.
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').innerHTML = '';

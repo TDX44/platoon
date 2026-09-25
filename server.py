@@ -493,6 +493,7 @@ def init_db():
                 notes      TEXT DEFAULT '',
                 created_at TEXT DEFAULT (to_char(now(), 'YYYY-MM-DD HH24:MI:SS')),
                 state      TEXT DEFAULT 'scheduled',
+                series_id  TEXT,
                 FOREIGN KEY(person_id) REFERENCES personnel(id) ON DELETE CASCADE
             )
         ''')
@@ -670,6 +671,12 @@ def init_db():
         scols = _columns(cur, 'scheduled_events')
         if 'location' not in scols:
             cur.execute("ALTER TABLE scheduled_events ADD COLUMN location TEXT DEFAULT ''")
+        # A repeating absence is expanded into ordinary rows at booking time;
+        # series_id only ties them together so the rest can be cancelled at once.
+        if scols and 'series_id' not in scols:
+            cur.execute('ALTER TABLE scheduled_events ADD COLUMN series_id TEXT')
+        cur.execute('CREATE INDEX IF NOT EXISTS scheduled_events_series ON scheduled_events (series_id) '
+                    'WHERE series_id IS NOT NULL')
         if scols and 'state' not in scols:
             cur.execute("ALTER TABLE scheduled_events ADD COLUMN state TEXT DEFAULT 'scheduled'")
             # Old-model rows whose whole window already passed were never activated
@@ -3221,6 +3228,8 @@ def add_scheduled_event(person_id):
     from_date, to_date, err = _absence_window(data, status, app_today())
     if err:
         return jsonify({'error': err}), 400
+    if data.get('recurrence'):
+        return _add_absence_series(conn, person, status, from_date, to_date, data)
 
     # created_at comes from app_stamp(), not the column DEFAULT: the DEFAULT's
     # now() runs in the db container, whose timezone is UTC, which would stamp
@@ -3252,6 +3261,117 @@ def add_scheduled_event(person_id):
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['unit_id'])
     return jsonify(dict(row)), 201
+
+
+# ── Repeating absences ──
+# Expanded into individual scheduled_events rows when booked, so every
+# occurrence is an ordinary absence: the lifecycle, availability, duty
+# conflicts and the soldier's history need no idea that repeats exist.
+RECURRENCE_MAX_OCCURRENCES = 60
+RECURRENCE_MAX_DAYS = 183
+SERIES_ID_RE = re.compile(r'[0-9a-f]{32}')
+
+
+def expand_recurrence(rec, from_date, to_date, today):
+    """([(from, to), ...], error) for a recurrence rule. Pure.
+
+    rec is {'type': 'weekly', 'weekdays': [0..6, Monday = 0], 'until'} or
+    {'type': 'interval', 'every': N, 'until'}. Each occurrence keeps the first
+    window's length; `until` is the last day an occurrence may START on.
+    """
+    if not isinstance(rec, dict):
+        return None, 'recurrence must be an object.'
+    if not to_date:
+        return None, 'A repeating absence needs an end date.'
+    until_raw = rec.get('until')
+    try:
+        until = date.fromisoformat(until_raw)
+        if until.isoformat() != until_raw:
+            raise ValueError
+    except (TypeError, ValueError):
+        return None, 'Choose the date the repeats stop (YYYY-MM-DD).'
+    start, end = date.fromisoformat(from_date), date.fromisoformat(to_date)
+    if until < start:
+        return None, 'The repeats stop before the absence starts.'
+    if until > date.fromisoformat(today) + timedelta(days=RECURRENCE_MAX_DAYS):
+        return None, f'Repeats can run at most {RECURRENCE_MAX_DAYS} days ahead.'
+    length = end - start
+    kind = rec.get('type')
+    if kind == 'weekly':
+        days = rec.get('weekdays')
+        if not isinstance(days, list) or not days or \
+                not all(isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 6 for d in days):
+            return None, 'Pick at least one weekday.'
+        starts = [start + timedelta(days=i) for i in range((until - start).days + 1)
+                  if (start + timedelta(days=i)).weekday() in days]
+    elif kind == 'interval':
+        every = rec.get('every')
+        if not isinstance(every, int) or isinstance(every, bool) or not 1 <= every <= RECURRENCE_MAX_DAYS:
+            return None, f'Repeat every 1 to {RECURRENCE_MAX_DAYS} days.'
+        starts = [start + timedelta(days=i) for i in range(0, (until - start).days + 1, every)]
+    else:
+        return None, 'recurrence type must be weekly or interval.'
+    if not starts:
+        return None, 'No dates match that pattern.'
+    if len(starts) > RECURRENCE_MAX_OCCURRENCES:
+        return None, f'That makes {len(starts)} absences; {RECURRENCE_MAX_OCCURRENCES} is the most one booking can make.'
+    # One soldier can only be on one absence at a time; overlapping repeats
+    # would file all but one as history the day they begin.
+    if any(b <= a + length for a, b in zip(starts, starts[1:])):
+        return None, 'Each repeat has to end before the next one begins.'
+    return [(s.isoformat(), (s + length).isoformat()) for s in starts], None
+
+
+def _add_absence_series(conn, person, status, from_date, to_date, data):
+    windows, err = expand_recurrence(data.get('recurrence'), from_date, to_date, app_today())
+    if err:
+        return jsonify({'error': err}), 400
+    series_id = secrets.token_hex(16)
+    created = []
+    # Same double-tap guard as a single booking, row by row: a repeat of this
+    # request finds every window already live and creates nothing.
+    for f, t in windows:
+        row = conn.execute(
+            'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, location, '
+            'state, created_at, series_id) '
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s, %s) "
+            "ON CONFLICT (person_id, status, from_date, to_date) WHERE state != 'completed' "
+            'DO NOTHING RETURNING id',
+            (person['id'], person['unit_id'], person['root_id'], status, f, t,
+             data.get('notes', ''), data.get('location', ''), app_stamp(), series_id)).fetchone()
+        if row:
+            created.append(row['id'])
+    if not created:
+        return jsonify({'series_id': None, 'created': 0, 'skipped': len(windows)}), 200
+    _sync_person_status(conn, person['id'], app_today())
+    log_action('SCHEDULE_SERIES', f'{person["rank"]} {person["last"]}: {status} x{len(created)} '
+                                  f'{windows[0][0]} - {windows[-1][1]}', person['unit_id'])
+    return jsonify({'series_id': series_id, 'created': len(created),
+                    'skipped': len(windows) - len(created)}), 201
+
+
+@app.route('/api/schedules/series/<series_id>', methods=['DELETE'])
+@attached_required
+def delete_absence_series(series_id):
+    """Cancel what is left of a repeating absence: the occurrences that have
+    not started. A running one and the history stay; they are single rows."""
+    if not SERIES_ID_RE.fullmatch(series_id):
+        return jsonify({'error': 'Not found'}), 404
+    conn = get_db()
+    row = conn.execute('SELECT person_id, unit_id FROM scheduled_events WHERE series_id = %s LIMIT 1',
+                       (series_id,)).fetchone()
+    if row is None:
+        return jsonify({'error': 'Not found'}), 404
+    if not can_access(row['unit_id']):
+        return jsonify({'error': 'Forbidden'}), 403
+    today = app_today()
+    # States first, so an occurrence that began today is running, not "remaining".
+    _sync_person_status(conn, row['person_id'], today)
+    n = conn.execute("DELETE FROM scheduled_events WHERE series_id = %s AND state = 'scheduled'",
+                     (series_id,)).rowcount
+    _sync_person_status(conn, row['person_id'], today)
+    log_action('DELETE_SERIES', f'person {row["person_id"]}: {n} remaining occurrence(s) removed', row['unit_id'])
+    return jsonify({'deleted': n})
 
 
 @app.route('/api/directory', methods=['GET'])
@@ -4124,7 +4244,12 @@ def import_backup():
         cols = ', '.join(f'"{c}"' for c in d)
         conn.execute(f'INSERT INTO personnel_profile ({cols}) VALUES ({", ".join(["%s"] * len(d))}) '
                      'ON CONFLICT (person_id) DO NOTHING', tuple(d.values()))
-    insert_rows('scheduled_events', attached(payload.get('scheduled_events', []), True))
+    # series_id is only a grouping key, but the file is user input: anything
+    # that is not one this app would mint is dropped, keeping the absence.
+    events = [dict(r, series_id=r['series_id'] if isinstance(r.get('series_id'), str)
+                   and SERIES_ID_RE.fullmatch(r['series_id']) else None)
+              for r in payload.get('scheduled_events', [])]
+    insert_rows('scheduled_events', attached(events, True))
     insert_rows('duty_roster', attached(payload.get('duty_roster', []), False))
     insert_rows('report_history', payload.get('report_history', []))
     for s in payload.get('settings', []):
