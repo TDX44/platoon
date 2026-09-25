@@ -585,7 +585,7 @@ def test_both_writes_go_through_the_same_reload(src):
     # One helper re-pulls the tree and re-points currentUnit at the fresh copy.
     reload_fn = extract(src, r'async function reloadUnits\(\) \{.*?\n\}', 'reloadUnits()')
     assert 'loadUnits()' in reload_fn and 'unitById(currentUnit.id)' in reload_fn, reload_fn
-    for name, pattern in (('saveUnit()', r'async function saveUnit\(\) \{.*?\n\}'),
+    for name, pattern in (('saveHeaderRename()', r'async function saveHeaderRename\(\) \{.*?\n\}'),
                           ('refreshUnitsPage()', r'async function refreshUnitsPage\(\) \{.*?\n\}')):
         fn = extract(src, pattern, name)
         assert 'reloadUnits()' in fn, f'{name} re-pulls the tree its own way'
