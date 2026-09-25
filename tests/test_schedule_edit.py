@@ -324,6 +324,58 @@ def main():
         c.get(ROSTER)
         assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
+    # 16. Dates are real ISO dates and a window does not end before it starts.
+    clear()
+    url = f'/api/personnel/{PID}/schedule'
+    for body in ({'from_date': 'tomorrow'}, {'from_date': '2026-13-01'},
+                 {'from_date': day(0), 'to_date': '20261001'},
+                 {'from_date': day(3), 'to_date': day(1)}, {'from_date': 5}):
+        r = c.post(url, json={'status': 'leave', **body})
+        assert r.status_code == 400, (body, r.status_code)
+    eid = add_event('scheduled', 3, 6)
+    assert c.put(f'/api/schedules/{eid}', json={'status': 'tdy', 'from_date': day(6),
+                                                'to_date': day(3)}).status_code == 400
+    assert c.put(f'/api/schedules/{eid}', json={'status': 'tdy', 'from_date': 'x'}).status_code == 400
+    assert event(eid)['from_date'] == day(3), 'a rejected edit must not write anything'
+    # late/excused are same-day: an open end means today, not "until further notice".
+    for status in ('late', 'excused'):
+        clear()
+        r = c.post(url, json={'status': status, 'from_date': day(0), 'notes': 'why'})
+        assert r.status_code == 201, r.get_json()
+        assert r.get_json()['to_date'] == day(0), r.get_json()
+        eid = r.get_json()['id']
+        r = c.put(f'/api/schedules/{eid}', json={'status': status, 'from_date': day(0), 'to_date': ''})
+        assert r.get_json()['to_date'] == day(0), r.get_json()
+
+    # 17. The double-tap guard is a unique index, so two racing Saves cannot
+    #     both insert. init_db() dedupes what is already there before adding
+    #     it, keeping the row that is carrying the roster.
+    clear()
+    conn = dbharness.owner_conn()
+    conn.execute('DROP INDEX scheduled_events_dedupe')
+    ids = [conn.execute(
+        'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, state) '
+        "VALUES (%s, %s, %s, 'tdy', %s, %s, %s) RETURNING id",
+        (PID, T['child'], T['root'], day(-1), day(3), st)).fetchone()['id']
+        for st in ('completed', 'active', 'active')]
+    conn.commit(); conn.close()
+    server.init_db()
+    assert states() == [(ids[1], 'active')], states()
+    conn = dbharness.owner_conn()
+    try:
+        conn.execute(
+            'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date) '
+            "VALUES (%s, %s, %s, 'tdy', %s, %s)", (PID, T['child'], T['root'], day(-1), day(3)))
+        raise AssertionError('a duplicate absence got past the unique index')
+    except server.psycopg.errors.UniqueViolation:
+        pass
+    finally:
+        conn.close()
+    # ...and an edit onto another row's exact window is refused, not a 500.
+    other = add_event('scheduled', 5, 8)
+    r = c.put(f'/api/schedules/{other}', json={'status': 'tdy', 'from_date': day(-1), 'to_date': day(3)})
+    assert r.status_code == 409, r.status_code
+
     # A status that is not a real one is still refused.
     clear()
     assert c.post(f'/api/personnel/{PID}/schedule',

@@ -681,6 +681,21 @@ def init_db():
                 "UPDATE scheduled_events SET state = 'completed' "
                 "WHERE to_date != '' AND to_date < %s", (app_today(),)
             )
+        # One person, status and window is one absence (the double-tap guard
+        # on POST .../schedule). Rows from before the guard can repeat, so
+        # file them down to one first: the row carrying the roster (active),
+        # else a live one, else the oldest. Only a double-tapped Save ever made
+        # these, so the copies are the same absence and nothing is lost.
+        if not cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'scheduled_events_dedupe' "
+                           'AND schemaname = current_schema()').fetchone():
+            cur.execute(
+                'DELETE FROM scheduled_events WHERE id IN ('
+                ' SELECT id FROM (SELECT id, ROW_NUMBER() OVER ('
+                '  PARTITION BY person_id, status, from_date, to_date'
+                "  ORDER BY (state = 'active') DESC, (state = 'completed'), id) AS n"
+                ' FROM scheduled_events) ranked WHERE n > 1)')
+            cur.execute('CREATE UNIQUE INDEX scheduled_events_dedupe '
+                        'ON scheduled_events (person_id, status, from_date, to_date)')
         # Duty entries predate person_id and stored only a name snapshot.
         # Deliberately not a foreign key: deleting a soldier must not erase
         # history. The one-off backfill that linked the old snapshots to
@@ -2948,6 +2963,38 @@ def update_profile(person_id):
     return jsonify(dict(row))
 
 
+def _absence_window(data, status, today):
+    """(from_date, to_date, error) off a schedule body.
+
+    Both are canonical YYYY-MM-DD or empty; everything that compares them
+    (_derive_state, availability) compares strings, so '20261001' or
+    'tomorrow' would sort into the wrong place rather than fail. A blank start
+    means today. late/excused are same-day states, so a blank end means today
+    too rather than "until further notice".
+    """
+    raw = {}
+    for col in ('from_date', 'to_date'):
+        value = data.get(col) or ''
+        if not isinstance(value, str):
+            return None, None, f'{col} must be a date.'
+        value = value.strip()
+        if value:
+            try:
+                ok = date.fromisoformat(value).isoformat() == value
+            except ValueError:
+                ok = False
+            if not ok:
+                return None, None, f'{col} must be a date (YYYY-MM-DD).'
+        raw[col] = value
+    from_date = raw['from_date'] or today
+    to_date = raw['to_date']
+    if not to_date and status in ('late', 'excused'):
+        to_date = from_date
+    if to_date and to_date < from_date:
+        return None, None, 'The absence ends before it starts.'
+    return from_date, to_date, None
+
+
 @app.route('/api/personnel/<int:person_id>/schedule', methods=['POST'])
 @attached_required
 def add_scheduled_event(person_id):
@@ -2963,30 +3010,34 @@ def add_scheduled_event(person_id):
     if status not in ABSENCE_STATUSES:
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
-    from_date = (data.get('from_date') or '').strip() or app_today()
-    to_date = (data.get('to_date') or '').strip()
-
-    # ponytail: a double-tapped Save used to insert a second identical row —
-    # four of them once. The same person, status and window is never a real
-    # second absence, so hand back the row that already exists.
-    dup = conn.execute(
-        'SELECT * FROM scheduled_events WHERE person_id = %s AND status = %s '
-        'AND from_date = %s AND to_date = %s',
-        (person_id, status, from_date, to_date)
-    ).fetchone()
-    if dup is not None:
-        return jsonify(dict(dup)), 200
+    from_date, to_date, err = _absence_window(data, status, app_today())
+    if err:
+        return jsonify({'error': err}), 400
 
     # created_at comes from app_stamp(), not the column DEFAULT: the DEFAULT's
     # now() runs in the db container, whose timezone is UTC, which would stamp
     # a 2130 absence with tomorrow's date. See the Time section of CLAUDE.md.
+    #
+    # A double-tapped Save used to insert a second identical row — four of
+    # them once. The same person, status and window is never a real second
+    # absence, so the unique index scheduled_events_dedupe refuses it (two
+    # racing requests included) and the caller gets the row that exists.
     cur = conn.execute(
         'INSERT INTO scheduled_events (person_id, unit_id, root_id, status, from_date, to_date, notes, location, state, created_at) '
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) RETURNING id",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'scheduled', %s) "
+        'ON CONFLICT (person_id, status, from_date, to_date) DO NOTHING RETURNING id',
         (person_id, person['unit_id'], person['root_id'], status, from_date, to_date,
          data.get('notes', ''), data.get('location', ''), app_stamp())
     )
-    new_id = cur.fetchone()['id']
+    inserted = cur.fetchone()
+    if inserted is None:
+        dup = conn.execute(
+            'SELECT * FROM scheduled_events WHERE person_id = %s AND status = %s '
+            'AND from_date = %s AND to_date = %s',
+            (person_id, status, from_date, to_date)
+        ).fetchone()
+        return jsonify(dict(dup)), 200
+    new_id = inserted['id']
     _sync_person_status(conn, person_id, app_today())
     row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (new_id,)).fetchone()
     log_action('SCHEDULE_STATUS', f'{person["rank"]} {person["last"]}: {status} on {data.get("from_date", "")}', person['unit_id'])
@@ -3176,9 +3227,17 @@ def update_scheduled_event(event_id):
         return jsonify({'error': 'Invalid scheduled status'}), 400
 
     today = app_today()
-    from_date = (data.get('from_date') or '').strip() or today
-    to_date = (data.get('to_date') or '').strip()
+    from_date, to_date, err = _absence_window(data, status, today)
+    if err:
+        return jsonify({'error': err}), 400
     notes = data.get('notes', '')
+    clash = conn.execute(
+        'SELECT 1 FROM scheduled_events WHERE person_id = %s AND status = %s '
+        'AND from_date = %s AND to_date = %s AND id != %s',
+        (row['person_id'], status, from_date, to_date, event_id)
+    ).fetchone()
+    if clash:
+        return jsonify({'error': 'That absence is already booked.'}), 409
 
     conn.execute(
         'UPDATE scheduled_events SET status = %s, from_date = %s, to_date = %s, notes = %s, location = %s '
