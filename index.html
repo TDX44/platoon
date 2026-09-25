@@ -1265,7 +1265,11 @@
   }
   #unitCards .platoon-card-label { font-size: 0.62em; margin-bottom: 2px; }
   #unitCards .platoon-card-name { font-size: 0.92em; line-height: 1.25; }
-  #unitCards .platoon-card-count { font-size: 0.7em; margin-top: 2px; }
+  #unitCards .platoon-card-count { font-size: 0.7em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  #unitCards .platoon-card-unacc {
+    display: inline-block; font-size: 0.66em; font-weight: 700; margin-top: 4px;
+    padding: 1px 7px; border-radius: 99px; background: var(--cp-red-bg); color: var(--cp-st-ftr-bg);
+  }
   #unitCards .unit-card:hover { transform: none; }
   #unitCards .unit-card-top {
     width: auto; min-width: 200px; max-width: 300px; text-align: center;
@@ -4487,6 +4491,14 @@ function unitSubtree(id) {
 }
 function unitHeadcount(id) {
   return unitSubtree(id).reduce((n, uid) => n + ((unitById(uid) || {}).count || 0), 0);
+}
+// Today's present / unaccounted for a unit's whole subtree, from the
+// per-unit counts GET /api/units carries; null if the listing has none.
+function unitTodayCounts(id) {
+  const tree = unitSubtree(id).map(unitById).filter(Boolean);
+  if (!tree.length || tree.some(u => typeof u.present !== 'number')) return null;
+  return tree.reduce((t, u) => ({ present: t.present + u.present, unaccounted: t.unaccounted + (u.unaccounted || 0) }),
+                     { present: 0, unaccounted: 0 });
 }
 function unitLabel(u) {
   return u ? u.name : '';
@@ -11657,12 +11669,23 @@ async function loadHome() {
 // pure, so tests/test_org_chart_js.py can lift it out and run it under node.
 // Nested <ul>/<li> rather than flat rows, because the phone stylesheet folds
 // the same markup back into one indented tree with a media query.
-function orgChartHtml(top, childrenOf, headcountOf) {
+// todayOf(id), when given, is {present, unaccounted} for the unit's whole
+// subtree, or null when the server did not say (the card then falls back to
+// the plain headcount).
+function orgChartHtml(top, childrenOf, headcountOf, todayOf = () => null) {
   if (!top) return '';
+  const counts = (u) => {
+    const n = Number(headcountOf(u.id));
+    const t = todayOf(u.id);
+    if (!t) return `<div class="platoon-card-count">${n} personnel</div>`;
+    const unacc = Number(t.unaccounted);
+    return `<div class="platoon-card-count">${Number(t.present)} / ${n} present</div>`
+      + (unacc ? `<div class="platoon-card-unacc">${unacc} unaccounted</div>` : '');
+  };
   const card = (u, extra) => `<button class="platoon-card unit-card${extra}" onclick="selectUnitById(${Number(u.id)})">
         <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
         <div class="platoon-card-name">${escapeHtml(u.name)}</div>
-        <div class="platoon-card-count">${Number(headcountOf(u.id))} personnel</div>
+        ${counts(u)}
       </button>`;
   const stack = (u) => {
     const kids = childrenOf(u.id);
@@ -11687,7 +11710,7 @@ function renderHome() {
   const top = unitById(currentUser.unit_id);
   renderHomeLead(top);
   if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
-  wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount);
+  wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount, unitTodayCounts);
 }
 
 // Plain text off currentUser and the loaded tree — what you lead, and who

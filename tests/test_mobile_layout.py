@@ -90,6 +90,10 @@ WIDE_UNITS_FIXTURE = [dict(UNITS_FIXTURE[0])] + [
      'name': f'{i}th Platoon (Forward Support)', 'slug': f'p{i}', 'count': 11, 'logo': None}
     for i in range(1, 10)
 ]
+# The wide organization also carries today's accountability, as GET /api/units
+# does, so the cards are measured with their "present" line and badge.
+for _u in WIDE_UNITS_FIXTURE:
+    _u.update(present=_u['count'] - 3 if _u['count'] else 0, unaccounted=2 if _u['count'] else 0)
 
 # One person per status the roster renders, plus one carrying a future
 # scheduled_events entry, plus long-content stress (long notes, long last name).

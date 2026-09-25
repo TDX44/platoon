@@ -231,8 +231,12 @@ Sortable tables (directory, audit log) share `sortHeaders()` / `toggleSort()` /
 
 The **home screen** draws the tree as an order-of-battle chart, and all of that
 markup comes out of one pure function, `orgChartHtml(top, childrenOf,
-headcountOf)` — the top unit above a row of nested `<ul>`s, one column per
-direct child, everything deeper stacked inside its own column. Below 700px a
+headcountOf, todayOf)` — the top unit above a row of nested `<ul>`s, one column per
+direct child, everything deeper stacked inside its own column. Each card shows
+today's "present / assigned" and an unaccounted badge: `GET /api/units` carries
+every unit's own `present` and `unaccounted` (after the same
+`_reconcile_absences()` pass the roster gets) and `unitTodayCounts()` rolls them
+up the subtree; with no counts the card falls back to "N personnel". Below 700px a
 media query folds the very same markup back into an indented tree, so there is
 no second rendering path to keep in step. Tests: `tests/test_org_chart_js.py`,
 which runs it under node.
