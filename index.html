@@ -4371,6 +4371,13 @@ let awayStatus = 'tdy';
 let sortCol = 'rank';
 let sortDir = 1;
 let bulkSelected = new Set();
+// Which unit `personnel` belongs to, and the load() currently in flight. A
+// response for a unit the user has since left is dropped, not rendered.
+let personnelUnitId = null;
+let loadReq = 0;
+// '' | 'loading' | 'error' — shown in place of the roster while it is not the
+// current unit's, so a slow or failed load never shows the last unit's people.
+let rosterNotice = '';
 let hideAccounted = false;
 let collapsedSections = new Set();
 let expandedSections = new Set();
@@ -4704,12 +4711,17 @@ function apiError(msg, method) {
 }
 
 async function load() {
+  if (!currentUnit) return;
+  const req = ++loadReq;
+  const unitId = currentUnit.id;
+  const stale = () => req !== loadReq || !currentUnit || currentUnit.id !== unitId;
   try {
     const [data, settings] = await Promise.all([
       api('GET', `/personnel?unit=${currentUnit.id}`),
       api('GET', `/settings?unit=${currentUnit.id}`)
     ]);
-    if (!data || !settings) return;
+    if (stale()) return;
+    if (!data || !settings) { loadFailed(unitId); return; }
     // Map DB fields to frontend fields
     personnel = data.map(p => ({
       id: p.id, rank: p.rank, last: p.last, first: p.first,
@@ -4720,6 +4732,10 @@ async function load() {
       // scheduled list shows upcoming (state === 'scheduled') events only.
       scheduled_events: (p.scheduled_events || []).filter(e => e.state === 'scheduled')
     }));
+    personnelUnitId = unitId;
+    rosterNotice = '';
+    // Anyone who left the roster (deleted, moved out) leaves the selection too.
+    bulkSelected = new Set([...bulkSelected].filter(id => personnel.some(p => p.id === id)));
     if (settings.unit_name) {
       document.getElementById('unitName').value = settings.unit_name;
     }
@@ -4742,7 +4758,19 @@ async function load() {
     }
   } catch (e) {
     console.error('Failed to load from API:', e);
+    if (!stale()) loadFailed(unitId);
   }
+}
+
+// A failed refresh of the roster already on screen keeps it (api() has shown
+// the reason); a failed first load of a unit shows an error, never the last
+// unit's people under this unit's name.
+function loadFailed(unitId) {
+  if (personnelUnitId === unitId) return;
+  personnel = [];
+  bulkSelected.clear();
+  rosterNotice = 'error';
+  render();
 }
 
 async function saveUnit() {
@@ -7571,7 +7599,11 @@ function render() {
     html += dashSection('sched', 'Scheduled', 'sec-sched', schedRows, secCount(scheduledList.length, counts.scheduled));
   }
 
-  body.innerHTML = html;
+  body.innerHTML = rosterNotice === 'loading'
+    ? '<div class="dash-section-empty">Loading roster\u2026</div>'
+    : rosterNotice === 'error'
+      ? '<div class="dash-section-empty">Could not load this roster. <button type="button" class="dash-more-btn" onclick="load()">Try again</button></div>'
+      : html;
 
   updateSortHeaders();
   updateBulkBar();
@@ -9014,9 +9046,18 @@ function toggleSelectRow(id) {
   bulkSelected.has(id) ? bulkSelected.delete(id) : bulkSelected.add(id);
   updateBulkBar();
 }
+// The people whose rows are actually on screen: filtered-out rows are not
+// rendered, and a collapsed section's rows are in the DOM but hidden.
+function visibleRowIds() {
+  const ids = new Set();
+  document.querySelectorAll('.row-checkbox[data-id]').forEach(c => {
+    if (!c.closest('.dash-section.collapsed')) ids.add(parseInt(c.dataset.id));
+  });
+  return ids;
+}
 function toggleSelectAll() {
   const chk = document.getElementById('selectAllChk');
-  if (chk.checked) { personnel.forEach(p => bulkSelected.add(p.id)); }
+  if (chk.checked) { visibleRowIds().forEach(id => bulkSelected.add(id)); }
   else { bulkSelected.clear(); }
   document.querySelectorAll('.row-checkbox[data-id]').forEach(c => {
     c.checked = bulkSelected.has(parseInt(c.dataset.id));
@@ -9031,8 +9072,10 @@ function updateBulkBar() {
   if (countEl) countEl.textContent = size;
   const allChk = document.getElementById('selectAllChk');
   if (allChk) {
-    allChk.checked = size > 0 && size === personnel.length;
-    allChk.indeterminate = size > 0 && size < personnel.length;
+    const shown = visibleRowIds();
+    const all = size > 0 && shown.size > 0 && [...shown].every(id => bulkSelected.has(id));
+    allChk.checked = all;
+    allChk.indeterminate = size > 0 && !all;
   }
 }
 function clearBulkSelect() {
@@ -9046,16 +9089,27 @@ async function applyBulkStatus() {
   if (!bulkSelected.size) return;
 
   if (status === 'present') {
-    if (!await confirmDialog(`Mark ${bulkSelected.size} personnel present?`, '', 'Mark present')) return;
-    const updates = [];
-    for (const id of bulkSelected) {
-      const p = personnel.find(x => x.id === id);
-      if (!p) continue;
-      p.status = 'present'; p.notes = ''; p.from = ''; p.to = '';
-      p.present_date = getTodayStr();
-      updates.push(apiUpdate(p));
+    // Marking someone present over a current absence ends that absence on the
+    // server, so a bulk tap must never do it: those are marked from their own row.
+    const { mark, away } = bulkPresentSplit(personnel, bulkSelected);
+    if (!mark.length) {
+      showToast('Everyone selected is away on an absence. Mark them present from their own row.');
+      return;
     }
-    await Promise.all(updates);
+    const note = away.length
+      ? `${away.length} selected ${away.length === 1 ? 'is' : 'are'} away on an absence and will be left as they are.`
+      : '';
+    if (!await confirmDialog(`Mark ${mark.length} personnel present?`, note, 'Mark present')) return;
+    const today = getTodayStr();
+    const results = await Promise.all(mark.map(p => {
+      const before = { present_date: p.present_date };
+      p.present_date = today;
+      return apiUpdate(p).then(res => {
+        if (!res || res.error) { Object.assign(p, before); return false; }
+        return true;
+      });
+    }));
+    if (results.includes(false)) showToast(`${results.filter(ok => !ok).length} could not be marked present.`);
     clearBulkSelect();
     render();
     return;
@@ -9064,6 +9118,17 @@ async function applyBulkStatus() {
   // Absence statuses go through the details modal so dates/school/location
   // apply to everyone selected.
   openBulkStatusModal(status);
+}
+
+// Pure: which of the selected get a bulk "Present" and which are left alone
+// because they are on a current absence. tests/test_frontend_guards_js.py.
+function bulkPresentSplit(people, selectedIds) {
+  const mark = [], away = [];
+  for (const p of people) {
+    if (!selectedIds.has(p.id)) continue;
+    (p.status === 'present' ? mark : away).push(p);
+  }
+  return { mark, away };
 }
 
 function openBulkStatusModal(status) {
@@ -11165,12 +11230,19 @@ function selectUnit(unit, push = true, pendingSoldier = null) {
   if (!unit) { loadHome(); return; }
   currentUnit = unit;
   pendingSoldierId = pendingSoldier;
+  if (personnelUnitId !== unit.id) {
+    personnel = [];
+    personnelUnitId = null;
+    rosterNotice = 'loading';
+  }
+  bulkSelected.clear();
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
   ['directory-active', 'availability-active', 'lists-active', 'audit-active', 'settings-active', 'units-active', 'settings-mode']
     .forEach(c => document.body.classList.remove(c));
   if (push) pushAppRoute(unit, 'accountability');
   showAppScreen('platoon');
   applyUnitLogo();
+  render();
   return load();
 }
 
@@ -11229,6 +11301,9 @@ function goHome() {
   currentUnit = null;
   pushAppRoute(null, 'home');
   personnel = [];
+  personnelUnitId = null;
+  bulkSelected.clear();
+  updateBulkBar();
   loadHome();
 }
 
