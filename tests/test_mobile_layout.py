@@ -292,12 +292,14 @@ WIDTHS = [320, 390, 1280]
 # clips at the width where its longest label stops fitting -- so that one
 # screen is swept rather than sampled.
 ADMIN_SWEEP_WIDTHS = [320, 360, 420, 560, 768, 900, 1024, 1100, 1280, 1400]
-# ponytail: honest current floor, not an aspirational one. Measured directly
-# against this app at 320/390px: the shortest real button today is the
-# "Set Status" / "Mark Present" pair (.dash-btn-sm) at 29px; everything else
-# (row-menu triggers, section headers, bottom nav) is 34px+. 28px gives 1px of
-# rendering slack. Raise this only once .dash-btn-sm is redesigned taller.
+# ponytail: honest current floor for everything, not an aspirational one --
+# row-menu triggers, section headers and the bottom nav are 34px+, and 28px
+# leaves rendering slack. The two buttons tapped for every soldier every
+# morning (the mark-present tick and Set Status) are held to the real 44px
+# touch minimum by THUMB_BUTTONS below.
 MIN_TAP_TARGET_PX = 28
+THUMB_TARGET_PX = 44
+THUMB_BUTTONS = '#personnelBody .dash-btn-check, #personnelBody .dash-btn-setstatus'
 
 ROSTER_BUTTONS = '#personnelBody button, .dash-header-actions button, .dash-bottomnav button'
 HOME_CARDS = '#unitCards .unit-card'
@@ -549,7 +551,7 @@ def check_modal_controls_fit(page, width):
     assert not bad, f'TDY/Leave modal @ {width}px: control(s) wider than viewport: {bad}'
 
 
-def check_tap_targets(page, width, selector, view_label):
+def check_tap_targets(page, width, selector, view_label, min_px=MIN_TAP_TARGET_PX):
     bad = page.evaluate("""
     ([sel, min]) => {
       const bad = [];
@@ -562,8 +564,8 @@ def check_tap_targets(page, width, selector, view_label):
       });
       return bad;
     }
-    """, [selector, MIN_TAP_TARGET_PX])
-    assert not bad, f'{view_label} @ {width}px: control(s) under {MIN_TAP_TARGET_PX}px tall: {bad}'
+    """, [selector, min_px])
+    assert not bad, f'{view_label} @ {width}px: control(s) under {min_px}px tall: {bad}'
 
 
 def check_formation_fits(page, width, height, label):
@@ -887,6 +889,9 @@ def run_checks(page, base_url):
         check_modal_controls_fit(page, width)
         if width < 900:
             check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
+            assert page.evaluate("document.querySelectorAll('%s').length" % THUMB_BUTTONS), (
+                f'accountability @ {width}px: no mark-present tick rendered -- fixture is stale')
+            check_tap_targets(page, width, THUMB_BUTTONS, 'mark-present / set status', THUMB_TARGET_PX)
 
         check_topbar(page, width, 'dashboard', 'dashTopbarSlot')
         check_billing_back(page, width)
