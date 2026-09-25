@@ -88,6 +88,8 @@
     background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center;
   }
   .modal-overlay.active { display: flex; }
+  /* The box takes focus on open so no control looks pre-picked; no ring on it. */
+  [role="dialog"]:focus { outline: none; }
   .modal { background: #2d2d44; border-radius: 10px; padding: 25px; width: 460px; max-width: 95vw; }
   .modal-wide { width: 580px; }
   .modal-xl { width: 660px; }
@@ -8696,7 +8698,9 @@ function updateNotesPreview() {
     if (reason) parts.push(reason);
   }
 
-  if (awayFrom || awayTo) {
+  // A same-day late/excused drops its today-to-today range, as the roster does.
+  const sameDay = (awayStatus === 'late' || awayStatus === 'excused') && awayFrom && awayFrom === awayTo;
+  if ((awayFrom || awayTo) && !sameDay) {
     const fromStr = awayFrom ? formatDateShort(awayFrom) : '?';
     const toStr = awayTo ? formatDateShort(awayTo) : '?';
     parts.push(`${fromStr}-${toStr}`);
@@ -10897,10 +10901,13 @@ new MutationObserver(records => {
     if (open) {
       _modalOpener.set(m, m.contains(document.activeElement) ? _prevFocus : document.activeElement);
       // An open function that already focused a field (savePerson's name box,
-      // the confirm OK button) keeps it; otherwise the first control gets it.
+      // the confirm OK button) keeps it; otherwise the dialog box itself takes
+      // focus. Not its first control: in the status modal that was TDY, and a
+      // focus ring on it on a phone read as "TDY is already picked".
       if (!m.contains(document.activeElement)) {
-        const first = m.querySelector(FOCUSABLE);
-        if (first) first.focus({ preventScroll: true });
+        const box = m.querySelector('[role="dialog"]') || m;
+        if (!box.hasAttribute('tabindex')) box.setAttribute('tabindex', '-1');
+        box.focus({ preventScroll: true });
       }
     } else {
       const back = _modalOpener.get(m);
