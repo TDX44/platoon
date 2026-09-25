@@ -1229,7 +1229,7 @@ def _stripe_subscription_list(customer_id):
     """This customer's subscriptions, newest first, as plain dicts: a
     StripeObject is not dict-like in stripe-python >= 12 and
     _subscription_fields reads with .get(), like the webhook's json.loads."""
-    return [s.to_dict() for s in stripe.Subscription.list(customer=customer_id, status='all', limit=10).data]
+    return [s.to_dict() for s in stripe.Subscription.list(customer=customer_id, status='all', limit=100).data]
 
 
 def _stripe_card(customer_id):
@@ -2073,7 +2073,18 @@ def billing_refresh():
         app.logger.warning('billing refresh: Stripe unreachable for %s: %s', customer_id, exc)
         return jsonify({'error': 'Stripe is unreachable. Try again in a moment.'}), 503
     conn = get_db()
-    sub = _pick_subscription(subs, g.billing_row.get('stripe_subscription_id'))
+    stored = g.billing_row.get('stripe_subscription_id')
+    sub = _pick_subscription(subs, stored)
+    # More than one live subscription means one card is carrying two — a
+    # second Checkout whose `created` never arrived. Cancelling is the
+    # webhook's call alone (only an event type says which one is new), so
+    # this only makes sure an operator hears about it and can cancel by hand.
+    live = [x.get('id') for x in subs if x.get('status') in billing_rules.OPEN_STATUSES + ('past_due',)]
+    if len(live) > 1:
+        app.logger.error('billing refresh: customer %s has %d live subscriptions %s (stored %s, kept %s)',
+                         customer_id, len(live), live, stored, sub.get('id'))
+        log_action('BILLING_DUPLICATE', f'Stripe has {len(live)} live subscriptions: {", ".join(live)} '
+                                        f'(kept {sub.get("id")}); cancel the others at Stripe')
     # Locked until this request commits, so no webhook can land between the
     # check and the write; a changed updated_at means one landed during the
     # Stripe call, and what it wrote is newer than what we read.

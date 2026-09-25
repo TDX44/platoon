@@ -11289,12 +11289,13 @@ async function openBillingPortal(intent) {
 
 // Ask the server to read the subscription straight from Stripe — the way back
 // when a webhook delivery was lost for good rather than merely late. Returns
-// true when the account came back subscribed.
+// true when the account came back subscribed, false when Stripe gave a
+// definite "no", null when there was no answer (error, cooldown, in flight).
 const syncBillingWithStripe = singleFlight(async function () {
   setPricingStatus('Checking with Stripe…');
   const r = await api('POST', '/billing/refresh');
   setPricingStatus('');
-  if (!r || !r.billing || !currentUser) return false;
+  if (!r || !r.billing || !currentUser) return null;
   currentUser.billing = r.billing;
   renderBillingBanner();
   if (document.body.classList.contains('billing-active')) {
@@ -11329,7 +11330,9 @@ async function awaitBillingActive() {
   }
   // 30 s and no webhook: a late one would have been caught above, so ask
   // Stripe directly — a delivery lost for good only comes back this way.
-  if (await syncBillingWithStripe()) return;
+  // Any definite answer has already been shown; only no answer (undefined
+  // too, when a click was in flight) falls through to "still confirming".
+  if ((await syncBillingWithStripe()) != null) return;
   setPricingStatus('Still confirming. Refresh in a moment, or check Settings → Billing.');
 }
 

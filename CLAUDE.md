@@ -827,7 +827,12 @@ rest, then the stored id, then Stripe's newest-first — an abandoned
 supersede and `past_due` guards hold unchanged and there is no second write
 path. Its synthetic event type is `billing.refresh`, never
 `customer.subscription.created`, so a refresh never cancels anything at
-Stripe. It must not overwrite newer state: after the Stripe call it takes
+Stripe — but more than one live (`active`/`trialing`/`past_due`)
+subscription in the list is an `app.logger.error` and a `BILLING_DUPLICATE`
+audit row naming every id, so the operator can cancel the extra one by hand.
+`_apply_stripe` has exactly two callers, `_handle_stripe_event` and
+`billing_refresh`; `tests/test_billing.py` fails on a third. It must not
+overwrite newer state: after the Stripe call it takes
 `SELECT ... FOR UPDATE` on the row and writes nothing if `updated_at` moved
 since the request began (a webhook landed meanwhile — that write stands).
 It is exempt from the 402 via the `/api/billing/` prefix, 409s with no

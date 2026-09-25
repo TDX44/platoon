@@ -1315,9 +1315,20 @@ def test_refresh_reconciles_when_the_webhook_never_arrived(fx):
     # the stored one is kept, the newer one is not adopted, nothing cancelled.
     st = Stripe(subscriptions=[subscription_obj('cus_reconcile', sub_id='sub_rec_second'),
                                subscription_obj('cus_reconcile', sub_id='sub_rec_live')]).install()
-    c.post('/api/billing/refresh')
+    with quiet():
+        assert c.post('/api/billing/refresh').status_code == 200
     assert sub_row(leader['id'])['stripe_subscription_id'] == 'sub_rec_live'
     assert not any(k[0] == 'cancel' for k in st.calls)
+
+    # ...and it is not silent: the operator gets an error log and an audit
+    # row naming both ids, to cancel one by hand.
+    conn = dbharness.owner_conn()
+    try:
+        dup = conn.execute("SELECT details FROM audit_log WHERE action = 'BILLING_DUPLICATE' "
+                           "ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    assert dup and 'sub_rec_second' in dup['details'] and 'sub_rec_live' in dup['details'], dup
 
     # The supersede rule holds here too: a cancelled subscription that is not
     # the stored one cannot lock the account.
@@ -1372,6 +1383,14 @@ def test_webhook_functions_are_only_called_from_the_webhook():
         if re.search(r'\bbilling_set_mode\s*\(', block):
             assert '@platform_admin_required' in block, f'billing_set_mode called outside the admin gate:\n{block[:300]}'
     assert any(re.search(r'\bbilling_set_mode\s*\(', b) for b in blocks), 'nothing calls billing_set_mode — renamed?'
+    # _apply_stripe is the one writer of the Stripe columns; the webhook and
+    # the refresh are its only callers, so a third fails the build.
+    callers = set()
+    for block in blocks:
+        m = re.search(r'def (\w+)\(', block)
+        if m and m.group(1) != '_apply_stripe' and re.search(r'(?<![\w.])_apply_stripe\s*\(', block):
+            callers.add(m.group(1))
+    assert callers == {'_handle_stripe_event', 'billing_refresh'}, f'_apply_stripe callers: {callers}'
 
 
 def main():
