@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import logging
+import mimetypes
 import os
 import re
 import secrets
@@ -30,6 +31,9 @@ import stripe
 import billing_rules
 
 app = Flask(__name__, static_folder=None)
+# The marketing screenshots are .webp, which the stdlib table on older
+# systems does not know: they went out as application/octet-stream.
+mimetypes.add_type('image/webp', '.webp')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.secret_key = os.environ.get('SECRET_KEY', 'platoon-tracker-change-in-production')
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -1528,6 +1532,15 @@ def handle_unexpected_error(exc):
 
 
 @app.after_request
+def _hsts(response):
+    # Only over https: the scheme is the client's, via ProxyFix behind the
+    # tunnel. On plain http (the LAN address, dev) the header means nothing.
+    if request.is_secure:
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    return response
+
+
+@app.after_request
 def _mark_db_success(response):
     # errorhandler(Exception) above turns a raised exception into a normal
     # response, so teardown_request alone cannot tell "the handler ran to
@@ -1741,6 +1754,16 @@ STATIC_FILES = ('manifest.json', 'sw.js')
 def spa_fallback(path):
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
+    # '/blog/' or '/privacy/' is not a route of its own, so it used to land
+    # here and serve the app shell with a 200: a second, wrong copy of every
+    # public page. Send it to the one URL. Only the public pages -- an SPA
+    # route with a slash still gets the shell.
+    bare = '/' + path.rstrip('/')
+    if path.endswith('/') and (bare in PUBLIC_PAGES or (
+            bare.startswith('/blog/') and bare[len('/blog/'):] in BLOG_POSTS)):
+        if request.query_string:
+            bare += '?' + request.query_string.decode('latin-1')
+        return redirect(bare, code=301)
     root = app.static_folder or '.'
     is_asset = path in STATIC_FILES or path.startswith(STATIC_DIRS)
     if is_asset and os.path.isfile(os.path.join(root, path)):

@@ -126,8 +126,16 @@ signed-out **marketing site** (`public/home.html`) plus the legal pages
 screenshots in `images/site/`. They are plain HTML with no JS at all and no
 Clerk, because Google's OAuth consent screen links straight at `/privacy` and
 `/terms` and they have to render for a stranger with no session. **Nothing in
-`public/` may grow a `<script>` tag** — `tests/test_smoke.py` fails the build
-if one appears. The mobile menu and the FAQ are `<details>` elements for
+`public/` may grow an executable `<script>` tag** — `tests/test_smoke.py` fails
+the build if one appears. The one exception is `<script
+type="application/ld+json">` structured data (each guide's `Article`, the front
+page's `Organization` + `SoftwareApplication`), which the browser never runs.
+Every public page carries a canonical on `https://platoonmanager.com`, the
+sitemap lists `/privacy` and `/terms` rather than the `/legal/*` aliases, and a
+trailing slash on a public URL (`/blog/`, `/privacy/`, `/blog/<slug>/`) is a
+301 to the bare one rather than the app shell. HSTS is added by an
+`after_request` hook only when the request is https (ProxyFix supplies the
+scheme behind the tunnel). The mobile menu and the FAQ are `<details>` elements for
 exactly that reason, and the display face is self-hosted in `public/fonts/`
 rather than linked from a CDN. `site.css` carries two token sets: the `--cp-*`
 block is a copy of the one in `index.html` and must stay in step with it, and

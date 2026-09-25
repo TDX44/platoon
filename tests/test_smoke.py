@@ -2,6 +2,7 @@
 reaches production, since there is no CI today. Run with:
     python tests/test_smoke.py
 """
+import json
 import os
 import re
 import sys
@@ -104,6 +105,13 @@ def check_spa_fallback(client):
     assert r.is_json, 'unknown /api/ path must return JSON, not HTML'
 
 
+def assert_no_executable_script(path, body):
+    """application/ld+json is structured data for search engines, which the
+    browser never executes; every other <script> is banned from public/."""
+    for tag in re.findall(r'<script[^>]*>', body, re.I):
+        assert 'application/ld+json' in tag.lower(), f'{path} has executable JS: {tag}'
+
+
 def check_public_pages(client):
     """The signed-out pages must render standalone, not as the SPA shell: Google's
     OAuth consent screen links straight at /privacy and /terms."""
@@ -115,7 +123,7 @@ def check_public_pages(client):
         assert r.status_code == 200, f'{path} should render, got {r.status_code}'
         body = r.get_data(as_text=True)
         assert marker in body, f'{path} did not render its own page'
-        assert '<script' not in body.lower(), f'{path} must render with no JS at all'
+        assert_no_executable_script(path, body)
 
     # The guides are public pages too, and they carry one <script> on purpose:
     # application/ld+json is structured data for search engines, which the
@@ -184,7 +192,7 @@ def check_marketing_host_split(client):
     body = client.get('/', headers={'Host': host}).get_data()
     assert body != app_shell, f'{host}/ served the app shell instead of the marketing site'
     assert b'Start free trial' in body, f'{host}/ did not serve the marketing site'
-    assert b'<script' not in body.lower(), 'the marketing site must render with no JS at all'
+    assert_no_executable_script(f'{host}/', body.decode())
 
     # 'Sign in' leaves for the app's own subdomain from the marketing host, and
     # stays local anywhere else -- clicking it in dev must not land in production.
@@ -326,6 +334,56 @@ def check_units_is_open_to_the_unattached(client):
     assert r.get_json() == [], r.get_json()
 
 
+def check_public_urls_and_headers(client):
+    """A trailing slash on a public page used to fall through to spa_fallback
+    and serve the app shell with a 200 -- a duplicate, wrong page for every
+    crawler. It is a 301 to the one URL now. SPA routes keep working."""
+    for path in ('/blog/', '/welcome/', '/home/', '/privacy/', '/terms/',
+                 '/legal/privacy/', '/legal/terms/', '/blog/who-is-available/'):
+        r = client.get(path + '?utm=x')
+        assert r.status_code == 301, (path, r.status_code)
+        assert r.headers['Location'].endswith(path.rstrip('/') + '?utm=x'), (path, r.headers['Location'])
+    for path in ('/alpha/accountability', '/alpha/accountability/', '/blog/not-a-real-guide/'):
+        r = client.get(path)
+        assert r.status_code == 200 and b'<html' in r.get_data().lower(), (path, r.status_code)
+
+    r = client.get('/images/site/dashboard.webp')
+    assert r.status_code == 200 and r.mimetype == 'image/webp', r.mimetype
+
+    assert 'Strict-Transport-Security' not in client.get('/privacy').headers, \
+        'HSTS on plain http is meaningless and breaks a LAN install'
+    r = client.get('/privacy', base_url='https://localhost')
+    assert r.headers.get('Strict-Transport-Security') == 'max-age=31536000; includeSubDomains', r.headers
+    # Behind the tunnel the scheme arrives in X-Forwarded-Proto, via ProxyFix.
+    r = client.get('/privacy', headers={'X-Forwarded-Proto': 'https'})
+    assert 'Strict-Transport-Security' in r.headers, 'ProxyFix https did not get HSTS'
+
+    # Every public page names its one canonical URL on the marketing domain,
+    # and the sitemap lists those URLs, not the /legal/* aliases.
+    for page, url in (('privacy.html', '/privacy'), ('terms.html', '/terms')):
+        html = open(os.path.join(ROOT, 'public', page)).read()
+        assert f'<link rel="canonical" href="https://platoonmanager.com{url}">' in html, page
+    sitemap = client.get('/sitemap.xml').get_data(as_text=True)
+    assert '/legal/' not in sitemap, 'the sitemap lists the /legal/* aliases'
+    for url in ('/privacy', '/terms'):
+        assert f'<loc>https://platoonmanager.com{url}</loc>' in sitemap, url
+
+    # Structured data: each guide's Article carries its own OG image, and the
+    # front page says what the product is.
+    for slug in server.BLOG_POSTS:
+        html = open(os.path.join(ROOT, 'public', 'blog', f'{slug}.html')).read()
+        og = re.search(r'<meta property="og:image" content="([^"]+)">', html).group(1)
+        ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
+        assert ld.get('image') == og, (slug, ld.get('image'), og)
+    home = open(os.path.join(ROOT, 'public', 'home.html')).read()
+    types = {json.loads(block)['@type'] for block in
+             re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.S)}
+    assert {'Organization', 'SoftwareApplication'} <= types, types
+    blog = open(os.path.join(ROOT, 'public', 'blog.html')).read()
+    for prop in ('property="og:image"', 'name="twitter:image"'):
+        assert prop in blog, f'blog.html has no {prop}'
+
+
 def check_audit_limit_is_clamped(client):
     """?limit= is a number off the URL: a negative one was handed straight to
     LIMIT, which Postgres refuses, and the audit page answered 500."""
@@ -351,6 +409,7 @@ def main():
     check_auth_config(client)
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()
+    check_public_urls_and_headers(client)
     check_audit_limit_is_clamped(client)
     check_units_is_open_to_the_unattached(client)
     print('ok')
