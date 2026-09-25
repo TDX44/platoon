@@ -11586,16 +11586,24 @@ window.addEventListener('popstate', () => {
 });
 
 // ─── Export CSV ───
+// A cell a spreadsheet would run as a formula (=, +, -, @, or a leading tab or
+// CR) is prefixed with ' so a note typed as =HYPERLINK(...) stays text.
+function csvCell(v) {
+  let t = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return `"${t.replace(/"/g, '""')}"`;
+}
+
 function exportCSV() {
   const today = getTodayStr();
   const rows = [['#','Rank','Last','First','Status','Notes','From','To']];
   personnel.forEach((p, i) => {
     const status = p.status === 'present'
       ? (p.present_date === today ? 'Present' : 'Unaccounted')
-      : p.status.charAt(0).toUpperCase() + p.status.slice(1);
+      : String(p.status ?? '').charAt(0).toUpperCase() + String(p.status ?? '').slice(1);
     rows.push([i+1, p.rank, p.last, p.first, status, p.notes || '', p.from || '', p.to || '']);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
