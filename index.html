@@ -4243,7 +4243,7 @@
                onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'from')" />
       </div>
       <div class="date-pick-col">
-        <label style="font-size:0.8em;" for="awayToInput">To</label>
+        <label style="font-size:0.8em;" for="awayToInput" id="awayToLabel">To</label>
         <input type="date" class="date-input rp-field" id="awayToInput" onchange="onAwayDateChange()"
                onmousedown="rpOpen(event, 'awayFromInput', 'awayToInput', 'to')" />
       </div>
@@ -8144,8 +8144,31 @@ function onAwayDateChange() {
     toEl.value = '';
   }
   toEl.min = awayFrom || '';
+  sameDayDates();
   updateNotesPreview();
   updateFutureNotice();
+}
+
+// Late and Excused are today-to-today by nature: the dates are filled in the
+// moment one is picked, so a same-day state can never be saved open-ended.
+const SAME_DAY_STATUSES = ['late', 'excused'];
+function sameDayDates() {
+  if (!SAME_DAY_STATUSES.includes(awayStatus)) return;
+  const fromEl = document.getElementById('awayFromInput');
+  const toEl = document.getElementById('awayToInput');
+  if (!awayFrom) { awayFrom = getTodayStr(); fromEl.value = awayFrom; }
+  if (!awayTo) { awayTo = awayFrom; toEl.value = awayTo; }
+  toEl.min = awayFrom;
+}
+
+// Pure: what stops the status modal from saving, or '' when nothing does.
+// Leave and Pass are always bounded; a pass with no end is a clerical error.
+function absenceFormProblem(status, from, to) {
+  if (!status) return 'Pick a status first.';
+  if ((status === 'leave' || status === 'pass') && !to) {
+    return `${status === 'leave' ? 'Leave' : 'A pass'} needs an end date.`;
+  }
+  return '';
 }
 
 // ─── Status toggles ───
@@ -8185,10 +8208,16 @@ function setAwayStatus(status) {
   awayStatus = status;
   document.querySelectorAll('.status-toggle').forEach(btn => {
     btn.className = 'status-toggle';
-    if (btn.dataset.status === status) btn.classList.add(`active-${status}`);
+    const on = btn.dataset.status === status;
+    if (on) btn.classList.add(`active-${status}`);
+    btn.setAttribute('aria-pressed', String(on));
   });
   document.getElementById('tdySchoolRow').classList.toggle('visible', status === 'tdy');
+  document.getElementById('awayToLabel').textContent =
+    status === 'leave' || status === 'pass' ? 'To (required)' : 'To';
   syncReasonField(status);
+  sameDayDates();
+  updateFutureNotice();
   updateNotesPreview();
 }
 
@@ -8260,6 +8289,10 @@ function applyTdyLists(settings) {
 
 // ─── Notes preview ───
 function updateNotesPreview() {
+  if (!awayStatus) {
+    document.getElementById('notesPreview').textContent = 'Pick a status above.';
+    return;
+  }
   const statusLabels = STATUS_LABELS;
   const parts = [statusLabels[awayStatus] || awayStatus];
 
@@ -8292,14 +8325,22 @@ function openTdyLeave(i) {
   const p = personnel[i];
   document.getElementById('tdyLeaveTitle').textContent = `${p.rank} ${p.last}, ${p.first}`;
 
-  // Set status
-  const status = (p.status === 'present') ? 'tdy' : p.status;
-  setAwayStatus(status);
+  // A present soldier opens with nothing picked: the leader has to choose,
+  // rather than saving a TDY nobody meant because it was preselected.
+  const status = (p.status === 'present') ? '' : p.status;
+
+  awayFrom = p.from || '';
+  awayTo = p.to || '';
+  document.getElementById('awayFromInput').value = awayFrom;
+  const toInput = document.getElementById('awayToInput');
+  toInput.value = awayTo;
+  toInput.min = awayFrom || '';
 
   // Restore school/location, position, or category from notes
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
   document.getElementById('reasonInput').value = '';
+  setAwayStatus(status);
   if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
@@ -8308,16 +8349,9 @@ function openTdyLeave(i) {
     } else {
       pickSet('awaySchool', p.notes);
     }
-  } else if (status === 'other' && p.notes) {
+  } else if (REASON_FIELDS[status] && p.notes) {
     document.getElementById('reasonInput').value = p.notes;
   }
-
-  awayFrom = p.from || '';
-  awayTo = p.to || '';
-  document.getElementById('awayFromInput').value = awayFrom;
-  const toInput = document.getElementById('awayToInput');
-  toInput.value = awayTo;
-  toInput.min = awayFrom || '';
 
   renderScheduledEvents(p);
 
@@ -8361,6 +8395,9 @@ async function saveBulkTdyLeave() {
 }
 
 async function saveTdyLeave() {
+  sameDayDates();
+  const problem = absenceFormProblem(awayStatus, awayFrom, awayTo);
+  if (problem) { showToast(problem, 'info'); return; }
   if (awayStatus === 'tdy') await pickSaveCustoms(['awaySchool', 'awayLocation']);
   if (bulkTdyIds.length) { await saveBulkTdyLeave(); return; }
   if (tdyLeaveIndex < 0) return;
@@ -9250,15 +9287,13 @@ function openBulkStatusModal(status) {
   tdyLeaveIndex = -1;
   document.getElementById('tdyLeaveTitle').textContent =
     `${bulkTdyIds.length} selected personnel`;
-  setAwayStatus(status);
   pickSet('awaySchool', '');
   pickSet('awayLocation', '');
-  ['reasonInput'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
+  document.getElementById('reasonInput').value = '';
   awayFrom = ''; awayTo = '';
   document.getElementById('awayFromInput').value = '';
   document.getElementById('awayToInput').value = '';
+  setAwayStatus(status);
   // The per-soldier scheduled-events list doesn't apply to a bulk edit.
   document.getElementById('scheduledEventsLabel').style.display = 'none';
   document.getElementById('scheduledEventsList').innerHTML = '';

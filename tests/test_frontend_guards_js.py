@@ -35,6 +35,10 @@ const split = bulkPresentSplit(people, new Set([1, 2, 3]));
 out.mark = split.mark.map(p => p.id);
 out.away = split.away.map(p => p.id);
 out.reportName = reportName({rank: null, last: 'Ash', first: null});
+out.problems = [['', '', ''], ['leave', '2026-03-01', ''], ['pass', '', ''],
+                ['leave', '2026-03-01', '2026-03-04'], ['tdy', '2026-03-01', ''],
+                ['late', '2026-03-01', '2026-03-01']]
+  .map(([s, f, t]) => absenceFormProblem(s, f, t));
 let calls = 0, release;
 const slow = singleFlight(() => { calls++; return new Promise(r => { release = r; }); });
 const first = slow(); slow(); slow();
@@ -71,6 +75,7 @@ def main():
         extract(src, r'function bulkPresentSplit\(people, selectedIds\) \{.*?\n\}', 'bulkPresentSplit()'),
         extract(src, r'function reportName\(p\) \{.*?\n\}', 'reportName()'),
         extract(src, r'function singleFlight\(fn\) \{.*?\n\}', 'singleFlight()'),
+        extract(src, r'function absenceFormProblem\(status, from, to\) \{.*?\n\}', 'absenceFormProblem()'),
         DRIVER,
     ])
     path = os.path.join(tempfile.mkdtemp(), 'guards.js')
@@ -94,6 +99,10 @@ def main():
     assert out['mark'] == [1] and out['away'] == [2, 3], \
         f'bulk Present would end an absence: {out}'
     assert out['reportName'] == '      Ash, ', repr(out['reportName'])
+    # Nothing picked, or Leave/Pass with no end, cannot save; the rest can.
+    p = out['problems']
+    assert p[0] and p[1] and p[2], f'an unpicked status or an open-ended leave/pass saved: {p}'
+    assert p[3:] == ['', '', ''], f'a complete absence was refused: {p}'
 
     assert out['firstResult'] == 'done' and out['callsWhileBusy'] == 1, \
         f'a second tap ran the save again while the first was in flight: {out}'
