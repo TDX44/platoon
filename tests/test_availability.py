@@ -178,6 +178,12 @@ def main():
     clear()
     add_event(P1, -9, -2, state='completed')
     assert free(ask(c, 0)) == both, 'a finished absence does not follow the soldier around'
+    # Late, then marked present: _end_running_absence() files the same-day row
+    # as completed at today. It happened, but the soldier is here now.
+    clear()
+    add_event(P1, 0, 0, status='late', state='completed')
+    assert free(ask(c, 0)) == both, 'a same-day absence ended by marking present does not cover today'
+    assert free(ask(c, 0, 1)) == both
     # An active row is treated no differently from a scheduled one.
     clear()
     add_event(P1, -1, 3, state='active')

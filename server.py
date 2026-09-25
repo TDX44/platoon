@@ -3451,6 +3451,14 @@ def get_directory():
 MAX_AVAILABILITY_DAYS = 366
 
 
+# The one exception to "the dates decide": a row already completed with
+# to_date = today. _derive_state() only completes a row the day *after* its
+# to_date, so this is a same-day absence ended by marking the soldier present
+# (_end_running_absence) — or an overlap loser whose winner still covers today.
+# Either way it must not make a soldier who is standing here unavailable.
+ENDED_TODAY_EXCLUSION = "NOT (state = 'completed' AND to_date = %s)"
+
+
 def _absence_covers(row, day_str):
     """Does this absence window cover `day_str`?
 
@@ -3523,7 +3531,7 @@ def get_availability():
     events = conn.execute(
         'SELECT * FROM scheduled_events WHERE unit_id = ANY(%s) '
         "AND (from_date = '' OR from_date <= %s) AND (to_date = '' OR to_date >= %s) "
-        'ORDER BY from_date, id', (list(ids), end, start)
+        f'AND {ENDED_TODAY_EXCLUSION} ORDER BY from_date, id', (list(ids), end, start, app_today())
     ).fetchall()
 
     by_person = {}
@@ -4008,7 +4016,8 @@ def propose_duty_rotation():
     absences = {}
     for e in conn.execute(
             "SELECT * FROM scheduled_events WHERE person_id = ANY(%s) AND (from_date = '' OR from_date <= %s) "
-            "AND (to_date = '' OR to_date >= %s) ORDER BY from_date, id", (pool_ids, end, start)).fetchall():
+            f"AND (to_date = '' OR to_date >= %s) AND {ENDED_TODAY_EXCLUSION} ORDER BY from_date, id",
+            (pool_ids, end, start, app_today())).fetchall():
         absences.setdefault(e['person_id'], []).append(e)
 
     proposal = duty_rotation.propose(days, pool_ids, history, absences, holidays,
