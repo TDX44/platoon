@@ -2804,17 +2804,33 @@ def update_person(person_id):
     err = _name_errors(data)
     if err:
         return jsonify(err), 400
-    fields, values = [], []
-    for col in ('rank', 'last', 'first', 'status', 'notes', 'from_date', 'to_date', 'present_date'):
-        if col in data:
-            fields.append(f'{col} = %s')
-            values.append(data[col])
+    for col in ('status', 'notes', 'from_date', 'to_date', 'present_date'):
+        if col in data and not isinstance(data[col], str):
+            return jsonify({'error': f'{col} must be text.', 'field': col}), 400
     conn = get_db()
     person = _person_or_none(conn, person_id)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
     if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
+    # This route only ever marks a soldier present. apiUpdate() resends the
+    # current status on every save, so that one is a no-op; anything else is
+    # an absence, and an absence is a scheduled_events row, not a string here.
+    status = data.get('status', person['status'])
+    if status not in ('present', person['status']):
+        return jsonify({'error': 'Book an absence with POST /api/personnel/<id>/schedule; '
+                                 'this route only marks a soldier present.', 'field': 'status'}), 400
+    updates = {c: data[c] for c in ('rank', 'last', 'first', 'present_date') if c in data}
+    # status/from_date/to_date/notes are _sync_person_status()'s display cache
+    # while an absence is current, so the body only writes them for a soldier
+    # who is, or is becoming, present.
+    if status == 'present':
+        if person['status'] != 'present':
+            updates.update(status='present', from_date='', to_date='', notes='')
+        if 'notes' in data:
+            updates['notes'] = data['notes']
+    fields = [f'{col} = %s' for col in updates]
+    values = list(updates.values())
     moved_to = None
     if 'unit_id' in data:
         # can_access() before int(): it already answers False for anything that
@@ -2825,10 +2841,11 @@ def update_person(person_id):
         if int(data['unit_id']) != person['unit_id']:
             moved_to = int(data['unit_id'])
             fields.append('unit_id = %s'); values.append(moved_to)
-    if not fields:
+    if not fields and 'status' not in data:
         return jsonify({'error': 'No fields to update'}), 400
-    values.append(person_id)
-    conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = %s', values)
+    if fields:
+        values.append(person_id)
+        conn.execute(f'UPDATE personnel SET {", ".join(fields)} WHERE id = %s', values)
     if moved_to is not None:
         # Child rows follow the soldier so the subtree view and RLS cache stay true.
         conn.execute('UPDATE scheduled_events SET unit_id = %s WHERE person_id = %s', (moved_to, person_id))
@@ -2837,11 +2854,11 @@ def update_person(person_id):
     # Only the transition matters: apiUpdate() resends the current status on
     # every save, so a TDY soldier being marked present-for-today still PUTs
     # status='tdy' and must not have their absence closed.
-    if data.get('status') == 'present' and person['status'] in ABSENCE_STATUSES:
+    if status == 'present' and person['status'] in ABSENCE_STATUSES:
         _end_running_absence(conn, person_id, app_today())
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
-    if 'status' in data and data['status'] != person['status']:
-        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {data["status"]}', person['unit_id'])
+    if status != person['status']:
+        log_action('UPDATE_STATUS', f'{person["rank"]} {person["last"]}, {person["first"]}: {person["status"]} -> {status}', person['unit_id'])
     return jsonify(dict(row))
 
 
@@ -2853,6 +2870,9 @@ def _name_errors(data):
     A name is required here, unlike a profile field, because a roster row with
     no name is not a person anybody can account for.
     """
+    for col in ('rank', 'last', 'first'):
+        if col in data and not isinstance(data[col], str):
+            return {'error': 'Rank and name must be text.', 'field': col}
     for col in ('last', 'first'):
         if col not in data:
             continue
@@ -3955,7 +3975,10 @@ def _end_running_absence(conn, person_id, today_str):
     so the roster said 'present' while an absence was still running underneath —
     and weeks later the roster produced an ABSENCE_COMPLETE for an absence that
     was never recorded as taken. Coming back is an early return: the absence
-    ends yesterday. One that had not started yet was a mis-entry, so it goes.
+    ends yesterday — or today, for one that only began today, which is every
+    late and excused: it happened, so it stays as history rather than ending
+    before its own start. One that had not started yet was a mis-entry, so it
+    goes.
 
     Returns the number of rows closed or removed.
     """
@@ -3965,18 +3988,19 @@ def _end_running_absence(conn, person_id, today_str):
         (person_id,)
     ).fetchall()
     for row in running:
-        if row['from_date'] and row['from_date'] > yesterday:
+        if row['from_date'] and row['from_date'] > today_str:
             conn.execute('DELETE FROM scheduled_events WHERE id = %s', (row['id'],))
             _absence_audit(conn, 'ABSENCE_CANCELLED', row,
                            f'person {person_id}: {row["status"]} from {row["from_date"]} '
                            'removed — marked present before it began')
         else:
+            end = today_str if row['from_date'] == today_str else yesterday
             conn.execute(
                 "UPDATE scheduled_events SET to_date = %s, state = 'completed' WHERE id = %s",
-                (yesterday, row['id'])
+                (end, row['id'])
             )
             _absence_audit(conn, 'ABSENCE_ENDED_EARLY', row,
-                           f'person {person_id}: {row["status"]} cut short at {yesterday} '
+                           f'person {person_id}: {row["status"]} cut short at {end} '
                            '— marked present')
     return len(running)
 

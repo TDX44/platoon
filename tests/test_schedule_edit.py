@@ -233,14 +233,62 @@ def main():
     c.get(ROSTER)          # reconcile must leave them present
     assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
 
-    # An absence marked present before it began was a mis-entry: it goes.
+    # An absence that started today and is ended today is still something that
+    # happened -- every late and excused is one. It stays as history, ending
+    # today rather than yesterday (which would put it before its own start).
     clear()
     eid = add_event('active', 0, 4, status='tdy')
+    assert c.put(f'/api/personnel/{PID}', json={'status': 'present'}).status_code == 200
+    ev = event(eid)
+    assert (ev['state'], ev['from_date'], ev['to_date']) == ('completed', day(0), day(0)), ev
+    c.get(ROSTER)          # completed is terminal: reconcile must not re-activate it
+    assert event(eid)['state'] == 'completed', event(eid)
+    assert person() == {'status': 'present', 'from_date': '', 'to_date': ''}, person()
+    for status in ('late', 'excused'):
+        clear()
+        r = c.post(f'/api/personnel/{PID}/schedule',
+                   json={'status': status, 'from_date': day(0), 'to_date': day(0), 'notes': 'why'})
+        eid = r.get_json()['id']
+        assert c.put(f'/api/personnel/{PID}', json={'status': 'present'}).status_code == 200
+        assert event(eid)['state'] == 'completed', (status, event(eid))
+        conn = dbharness.owner_conn()
+        notes = conn.execute('SELECT notes FROM personnel WHERE id = %s', (PID,)).fetchone()['notes']
+        conn.close()
+        assert notes == '', f'the {status} reason stayed on a present soldier: {notes!r}'
+
+    # One that had not begun yet was a mis-entry: it goes.
+    clear()
+    eid = add_event('active', 1, 4, status='tdy')
     c.put(f'/api/personnel/{PID}', json={'status': 'present'})
     conn = dbharness.owner_conn()
     gone = conn.execute('SELECT COUNT(*) AS n FROM scheduled_events WHERE id = %s', (eid,)).fetchone()['n']
     conn.close()
     assert gone == 0, 'an absence that never started should be removed, not kept'
+
+    # PUT /api/personnel/<id> is not a way to book an absence, or to write
+    # junk into the status column. Only 'present' or the status it already
+    # has (apiUpdate() resends it on every save) gets through.
+    clear()
+    for bad in ('leave', 'x"><img src=x>', 'unaccounted'):
+        r = c.put(f'/api/personnel/{PID}', json={'status': bad})
+        assert r.status_code == 400, (bad, r.status_code)
+        assert 'schedule' in r.get_json()['error'], r.get_json()
+    assert person()['status'] == 'present', person()
+    # ...and while an absence is running the body cannot rewrite its cache.
+    eid = add_event('active', -2, 6, status='tdy')
+    r = c.put(f'/api/personnel/{PID}', json={'status': 'tdy', 'notes': 'hacked',
+                                             'from_date': 'x', 'to_date': 'y', 'present_date': day(0)})
+    assert r.status_code == 200, r.get_json()
+    assert person() == {'status': 'tdy', 'from_date': day(-2), 'to_date': day(6)}, person()
+    conn = dbharness.owner_conn()
+    row = conn.execute('SELECT notes, present_date FROM personnel WHERE id = %s', (PID,)).fetchone()
+    conn.close()
+    assert (row['notes'], row['present_date']) == ('orig', day(0)), row
+    # Non-text names are a 400, not a 500 on .strip().
+    for body in ({'rank': 5}, {'last': ['a']}, {'first': {'x': 1}}, {'notes': 7}):
+        assert c.put(f'/api/personnel/{PID}', json=body).status_code == 400, body
+    assert c.post('/api/personnel', json={'rank': 5, 'last': 'A', 'first': 'B',
+                                          'unit_id': T['child']}).status_code == 400
 
     # Marking present for the day does NOT end a running absence — apiUpdate()
     # resends the current status, so this must stay a no-op on the event.
