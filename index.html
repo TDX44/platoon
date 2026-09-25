@@ -5352,8 +5352,7 @@ function formatDateWithYear(dateStr) {
 }
 
 function statusBadge(status) {
-  const labels = STATUS_LABELS;
-  return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
+  return `<span class="status-badge ${statusClass('badge-', status)}">${statusLabel(status)}</span>`;
 }
 
 function scheduledEventsFor(p) {
@@ -5361,7 +5360,7 @@ function scheduledEventsFor(p) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ─── Phone numbers ──────────────────────────────────────────────────────────
@@ -6918,7 +6917,7 @@ function renderDirectory() {
   const body = rows.map(r => {
     const ret = (r.status !== 'present' && r.to_date) ? formatDateShort(r.to_date) : '—';
     const nxt = r.next_absence
-      ? `${STATUS_LABELS[r.next_absence.status] || r.next_absence.status} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
+      ? `${statusLabel(r.next_absence.status)} · ${formatDateShort(r.next_absence.from_date)}–${formatDateShort(r.next_absence.to_date)}`
       : '—';
     const dash = '<span class="dir-muted">\u2014</span>';
     // data-label feeds the phone card layout, where each cell renders its own
@@ -7598,13 +7597,26 @@ const STATUS_LABELS = {
   ftr: 'FTR', late: 'Late', excused: 'Excused'
 };
 
+// A status comes back from the server as free text, so it only reaches markup
+// through these two: a known key gets its label and its class, anything else is
+// escaped and gets no class at all.
+function isKnownStatus(status) {
+  return Object.prototype.hasOwnProperty.call(STATUS_LABELS, status);
+}
+function statusLabel(status) {
+  return isKnownStatus(status) ? STATUS_LABELS[status] : escapeHtml(status);
+}
+function statusClass(prefix, status) {
+  return isKnownStatus(status) ? prefix + status : '';
+}
+
 function dashPill(status) {
-  return `<span class="dash-pill p-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
+  return `<span class="dash-pill ${statusClass('p-', status)}">${statusLabel(status)}</span>`;
 }
 
 // Flat variant for dense tables: colored dot + plain text, no pill.
 function statusText(status) {
-  return `<span class="status-cell s-${status}">${STATUS_LABELS[status] || escapeHtml(status)}</span>`;
+  return `<span class="status-cell ${statusClass('s-', status)}">${statusLabel(status)}</span>`;
 }
 
 function dashCheckbox(p) {
@@ -8299,14 +8311,13 @@ function renderScheduledEvents(p) {
     list.innerHTML = '';
     return;
   }
-  const labels = STATUS_LABELS;
   list.innerHTML = events.map(event => {
     const dateRange = (event.from_date || event.to_date)
       ? `${formatDateShort(event.from_date)} - ${formatDateShort(event.to_date)}` : 'No dates';
     return `
       <div class="scheduled-event-row">
         <div>
-          <div class="scheduled-event-title">${labels[event.status] || event.status} · ${dateRange}</div>
+          <div class="scheduled-event-title">${statusLabel(event.status)} · ${dateRange}</div>
           <div class="scheduled-event-meta">${escapeHtml(event.notes || 'No notes')}</div>
         </div>
         <button class="btn-small btn-danger" onclick="deleteScheduledEvent(${event.id})">Remove</button>
@@ -8557,6 +8568,12 @@ function reportBlockedByUnaccounted() {
   return true;
 }
 
+// One soldier's name column in a text report. Any field may be null on an
+// imported row, and a null rank must not throw halfway through the report.
+function reportName(p) {
+  return `${String(p.rank ?? '').padEnd(5)} ${p.last ?? ''}, ${p.first ?? ''}`;
+}
+
 function showReportModal(title, text, historyUnitName) {
   document.getElementById('reportTitle').textContent = title;
   document.getElementById('reportText').textContent = text;
@@ -8607,7 +8624,7 @@ function generateReport() {
   lines.push('');
 
   lines.push(`PDY ${present.length}`);
-  present.forEach(p => lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}`));
+  present.forEach(p => lines.push(`${reportName(p)}`));
 
   function reportDateRange(p) {
     if (!p.from && !p.to) return '';
@@ -8621,7 +8638,7 @@ function generateReport() {
       const parts = [];
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
+      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -8641,7 +8658,7 @@ function generateReport() {
       }
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${parts.length ? '  ' + parts.join(' | ') : ''}`);
+      lines.push(`${reportName(p)}${parts.length ? '  ' + parts.join(' | ') : ''}`);
     });
   }
 
@@ -8653,7 +8670,7 @@ function generateReport() {
     lines.push(`${heading} ${list.length}`);
     list.forEach(p => {
       const reason = (p.notes || '').trim();
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${reason ? '  ' + reason : ''}`);
+      lines.push(`${reportName(p)}${reason ? '  ' + reason : ''}`);
     });
   });
 
@@ -8665,7 +8682,7 @@ function generateReport() {
       parts.push(p.notes ? `Other: ${p.notes}` : 'Other');
       const dr = reportDateRange(p);
       if (dr) parts.push(dr);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}  ${parts.join(' | ')}`);
+      lines.push(`${reportName(p)}  ${parts.join(' | ')}`);
     });
   }
 
@@ -8674,7 +8691,7 @@ function generateReport() {
     lines.push(`FTR ${ftr.length}`);
     ftr.forEach(p => {
       const dr = reportDateRange(p);
-      lines.push(`${p.rank.padEnd(5)} ${p.last}, ${p.first}${dr ? '  ' + dr : ''}`);
+      lines.push(`${reportName(p)}${dr ? '  ' + dr : ''}`);
     });
   }
 
