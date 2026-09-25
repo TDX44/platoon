@@ -61,6 +61,18 @@
   .import-preview table { width: 100%; font-size: 0.85em; }
   .import-preview td { padding: 3px 6px; border-bottom: 1px solid #3a3a55; }
   .import-error { color: #e17055; font-size: 0.8em; margin-top: 4px; }
+  .import-file-row { margin: 8px 0; font-size: 0.85em; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .import-file-label { margin: 0; }
+  .import-mapping:empty { display: none; }
+  .import-map-title { font-size: 0.8em; font-weight: 600; margin: 8px 0 4px; color: var(--cp-muted); }
+  .import-map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); gap: 6px; }
+  .import-map-col { display: flex; flex-direction: column; gap: 2px; font-size: 0.8em; min-width: 0; margin: 0; }
+  .import-map-col span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .import-map-col select { width: 100%; min-width: 0; }
+  .import-dups { display: flex; gap: 6px; align-items: center; font-size: 0.85em; margin: 8px 0 0; }
+  .import-flag { color: var(--cp-amber); }
+  .import-row-error td { color: var(--cp-red); }
+  .import-row-dup td { opacity: 0.6; }
 
   /* Modals */
   .modal-overlay {
@@ -4150,10 +4162,20 @@
     <p class="import-hint">
       Paste one person per line. Accepted formats:<br>
       &nbsp;&bull; <code>RANK Last, First</code> &nbsp;(e.g. <em>CW2 Smith, John</em>)<br>
-      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)
+      &nbsp;&bull; <code>RANK Last First</code> &nbsp;(e.g. <em>WO1 Doe Jane</em>)<br>
+      Or paste or choose a spreadsheet saved as CSV or tab-separated, with a header row
+      (Rank, Last, First or Name, and optionally Unit, Phone, Email, MOS&hellip;).
     </p>
-    <label>Paste list</label>
+    <label for="importText">Paste list</label>
     <textarea id="importText" rows="8" placeholder="CW2 Smith, John&#10;WO1 Doe, Jane&#10;SGT Jones, Mike" oninput="previewImport()"></textarea>
+    <div class="import-file-row">
+      <label class="import-file-label" for="importFile">Choose a CSV file</label>
+      <input type="file" id="importFile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" onchange="loadImportFile(this)">
+    </div>
+    <div id="importMapping" class="import-mapping"></div>
+    <label id="importDupsRow" class="import-dups" style="display:none">
+      <input type="checkbox" id="importIncludeDups" onchange="scheduleImportDryRun()"> Also import likely duplicates
+    </label>
     <div id="importPreviewWrap" class="import-preview" style="display:none">
       <div id="importError" class="import-error"></div>
       <table id="importPreviewTable"></table>
@@ -8546,6 +8568,11 @@ function openImportModal() {
   document.getElementById('importText').value = '';
   document.getElementById('importPreviewWrap').style.display = 'none';
   document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('confirmImportBtn').textContent = 'Add to Roster';
+  importTable = null; importPreview = null; importMapping = [];
+  document.getElementById('importMapping').innerHTML = '';
+  document.getElementById('importDupsRow').style.display = 'none';
+  document.getElementById('importIncludeDups').checked = false;
   document.getElementById('importModal').classList.add('active');
   document.getElementById('importText').focus();
 }
@@ -8578,7 +8605,214 @@ function parseImportLine(line) {
   return null;
 }
 
+// ─── Spreadsheet import: CSV/TSV with a header row ───
+// The browser only splits the file and maps its columns; what a row MEANS
+// (rank spelling, which unit, duplicate or not) is POST /api/personnel/import's
+// call, asked with dry_run for the preview so it cannot promise what the real
+// import then refuses. Target keys other than name/unit are server fields.
+const IMPORT_TARGETS = [
+  ['', '— ignore —'], ['rank', 'Rank'], ['last', 'Last name'], ['first', 'First name'],
+  ['name', 'Name (Last, First)'], ['unit', 'Unit / section'],
+  ['phone', 'Phone'], ['email', 'Email'], ['dod_id', 'DoD ID'], ['dob', 'Date of birth'],
+  ['mos', 'MOS'], ['section', 'Section (profile field)'], ['clearance', 'Clearance'],
+  ['date_of_rank', 'Date of rank'], ['ets_date', 'ETS date'],
+  ['emergency_name', 'Emergency contact'], ['emergency_phone', 'Emergency phone'],
+  ['next_of_kin', 'Next of kin'], ['spouse_dependents', 'Spouse / dependents'],
+  ['address_street', 'Street'], ['address_street2', 'Street 2'], ['address_city', 'City'],
+  ['address_state', 'State'], ['address_zip', 'ZIP'],
+  ['medical_date', 'Medical date'], ['dental_date', 'Dental date'],
+];
+const IMPORT_HEADER_ALIASES = {
+  grade: 'rank', rnk: 'rank', lastname: 'last', lname: 'last', surname: 'last',
+  firstname: 'first', fname: 'first', givenname: 'first',
+  fullname: 'name', soldier: 'name', lastfirst: 'name', namelastfirst: 'name',
+  section: 'unit', squad: 'unit', platoon: 'unit', team: 'unit',
+  cell: 'phone', mobile: 'phone', cellphone: 'phone', phonenumber: 'phone',
+  emailaddress: 'email', dodid: 'dod_id', edipi: 'dod_id', dateofbirth: 'dob',
+  dor: 'date_of_rank', ets: 'ets_date',
+};
+let importTable = null, importMapping = [], importPreview = null, importSeq = 0, importTimer = null;
+
+// RFC 4180-ish: quoted cells may hold the delimiter, "" and newlines. The
+// delimiter is a tab if the first line has one (a paste out of Excel), else a
+// comma. Blank lines are dropped.
+function parseDelimited(text) {
+  const src = String(text || '').replace(/^\uFEFF/, '');
+  const firstLine = src.split(/\r?\n/).find(l => l.trim()) || '';
+  const delim = firstLine.includes('\t') ? '\t' : ',';
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  const endRow = () => { row.push(cell); cell = ''; if (row.some(c => c.trim())) rows.push(row); row = []; };
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch !== '"') cell += ch;
+      else if (src[i + 1] === '"') { cell += '"'; i++; }
+      else quoted = false;
+    } else if (ch === '"' && !cell.trim()) { quoted = true; cell = ''; }
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && src[i + 1] === '\n') i++; endRow(); }
+    else cell += ch;
+  }
+  endRow();
+  return rows;
+}
+
+function guessImportColumn(header) {
+  const key = String(header || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!key) return '';
+  if (IMPORT_HEADER_ALIASES[key]) return IMPORT_HEADER_ALIASES[key];
+  const squash = v => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const hit = IMPORT_TARGETS.find(([k, label]) => k && k !== 'section' && (squash(k) === key || squash(label) === key));
+  return hit ? hit[0] : '';
+}
+
+// A header row that names the soldier is a spreadsheet; anything else is the
+// old one-person-per-line paste.
+function importTableMode(table) {
+  if (!table.length || table[0].length < 2) return false;
+  const guesses = table[0].map(guessImportColumn);
+  return guesses.includes('name') || (guesses.includes('last') && guesses.includes('first'));
+}
+
+// Rows for the server: {rank, last, first, unit, <profile field>...}. A Name
+// column is "Last, First" — or, with no comma, "LAST FIRST [MI]", the alpha
+// roster's own order.
+function mapImportRows(table, mapping) {
+  return table.slice(1).map(cells => {
+    const row = {};
+    mapping.forEach((target, i) => {
+      const v = String(cells[i] == null ? '' : cells[i]).trim();
+      if (!target || !v) return;
+      if (target === 'name') {
+        const comma = v.indexOf(',');
+        const parts = comma >= 0 ? [v.slice(0, comma), v.slice(comma + 1)] : [v.split(/\s+/)[0], v.split(/\s+/).slice(1).join(' ')];
+        row.last = parts[0].trim();
+        row.first = parts[1].trim();
+      } else {
+        row[target] = v;
+      }
+    });
+    return row;
+  }).filter(r => Object.keys(r).length);
+}
+
+async function loadImportFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { alert('That file is too big to import (2 MB at most).'); input.value = ''; return; }
+  document.getElementById('importText').value = await file.text();
+  input.value = '';
+  previewImport();
+}
+
+function renderImportMapping() {
+  const el = document.getElementById('importMapping');
+  const options = sel => IMPORT_TARGETS.map(([k, label]) =>
+    `<option value="${k}"${k === sel ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  el.innerHTML = '<div class="import-map-title">Columns</div><div class="import-map-grid">'
+    + importTable[0].map((h, i) => `<label class="import-map-col"><span>${escapeHtml(h.trim() || `Column ${i + 1}`)}</span>`
+      + `<select onchange="setImportMapping(${i}, this.value)">${options(importMapping[i] || '')}</select></label>`).join('')
+    + '</div>';
+  document.getElementById('importDupsRow').style.display = 'flex';
+}
+
+function setImportMapping(i, value) {
+  importMapping[i] = value;
+  scheduleImportDryRun();
+}
+
+function scheduleImportDryRun() {
+  clearTimeout(importTimer);
+  importTimer = setTimeout(runImportDryRun, 250);
+}
+
+async function runImportDryRun() {
+  if (!importTable || !currentUnit) return;
+  const rows = mapImportRows(importTable, importMapping);
+  const seq = ++importSeq;
+  const res = rows.length ? await api('POST', '/personnel/import', {
+    unit_id: currentUnit.id, rows, dry_run: true,
+    include_duplicates: document.getElementById('importIncludeDups').checked,
+  }) : null;
+  if (seq !== importSeq) return;   // a newer edit is already on its way
+  importPreview = res && res.rows ? { rows, verdicts: res.rows, counts: res.counts } : null;
+  renderImportTablePreview();
+}
+
+function renderImportTablePreview() {
+  const wrap = document.getElementById('importPreviewWrap');
+  const errEl = document.getElementById('importError');
+  const table = document.getElementById('importPreviewTable');
+  const btn = document.getElementById('confirmImportBtn');
+  wrap.style.display = 'block';
+  if (!importPreview) {
+    errEl.textContent = 'Map at least a rank and a name column.';
+    table.innerHTML = '';
+    btn.disabled = true;
+    btn.textContent = 'Add to Roster';
+    return;
+  }
+  const { verdicts, counts } = importPreview;
+  errEl.textContent = [
+    counts.error ? `${counts.error} row(s) have errors and will be left out.` : '',
+    counts.duplicate ? `${counts.duplicate} likely duplicate(s) will be skipped.` : '',
+  ].filter(Boolean).join(' ');
+  const statusText = v => v.action === 'error' ? escapeHtml(v.error || 'Error')
+    : v.action === 'duplicate' ? 'Likely duplicate — skipped'
+    : v.duplicate ? 'Duplicate — importing anyway' : 'New';
+  const unitText = v => {
+    const name = escapeHtml(v.unit_name || '');
+    if (v.unit_ambiguous) return `${name} <span class="import-flag">⚠ "${escapeHtml(v.unit_label)}" matches more than one unit</span>`;
+    if (!v.unit_matched) return `${name} <span class="import-flag">⚠ "${escapeHtml(v.unit_label)}" not found</span>`;
+    return name;
+  };
+  table.innerHTML = '<tr><th>Status</th><th>Rank</th><th>Name</th><th>Unit</th></tr>'
+    + verdicts.map(v => `<tr class="${v.action === 'error' ? 'import-row-error' : v.action === 'duplicate' ? 'import-row-dup' : ''}">`
+      + `<td>${statusText(v)}</td><td>${escapeHtml(v.rank || '')}</td>`
+      + `<td>${escapeHtml(v.last || '')}${v.first ? ', ' + escapeHtml(v.first) : ''}</td><td>${unitText(v)}</td></tr>`).join('');
+  btn.disabled = !counts.add;
+  btn.textContent = `Import ${counts.add}`;
+}
+
+async function confirmTableImport() {
+  const btn = document.getElementById('confirmImportBtn');
+  if (!importPreview || !importPreview.counts.add) return;
+  btn.disabled = true;
+  const rows = importPreview.rows.filter((_, i) => importPreview.verdicts[i].action !== 'error');
+  const res = await api('POST', '/personnel/import', {
+    unit_id: currentUnit.id, rows,
+    include_duplicates: document.getElementById('importIncludeDups').checked,
+  });
+  if (!res) { btn.disabled = false; return; }   // api() has already said why
+  closeImportModal();
+  await load();
+  render();
+}
+
 function previewImport() {
+  const table = parseDelimited(document.getElementById('importText').value);
+  if (importTableMode(table)) {
+    // Keep a mapping the user has adjusted while they fix a cell; only a new
+    // header row is guessed afresh.
+    if (!importTable || importTable[0].join('\u0001') !== table[0].join('\u0001')) {
+      importMapping = table[0].map(guessImportColumn);
+      importTable = table;
+      renderImportMapping();
+    }
+    importTable = table;
+    scheduleImportDryRun();
+    return;
+  }
+  if (importTable) {
+    importTable = null; importPreview = null;
+    document.getElementById('importMapping').innerHTML = '';
+    document.getElementById('importDupsRow').style.display = 'none';
+  }
+  previewLineImport();
+}
+
+function previewLineImport() {
   const lines = document.getElementById('importText').value.split('\n');
   const parsed = [], errors = [];
   lines.forEach((line, idx) => {
@@ -8603,6 +8837,7 @@ function previewImport() {
 }
 
 async function confirmImport() {
+  if (importTable) return confirmTableImport();
   const lines = document.getElementById('importText').value.split('\n');
   const adds = [];
   lines.forEach(line => {

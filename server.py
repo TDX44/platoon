@@ -2964,6 +2964,159 @@ PROFILE_FIELDS = (
 )
 
 
+# ── Alpha-roster import ──
+# POST /api/personnel/import takes rows the client has already split out of a
+# CSV/TSV and mapped to columns. The server is the one place that decides what
+# a row means — rank spelling, which unit, duplicate or not — so the preview
+# is the same code with dry_run on, and cannot promise something the real
+# import then refuses.
+
+# Same order as RANK_ORDER in index.html.
+RANKS = ('COL', 'LTC', 'MAJ', 'CPT', '1LT', '2LT',
+         'CW5', 'CW4', 'CW3', 'CW2', 'WO1',
+         'CSM', 'SGM', '1SG', 'MSG', 'SFC', 'SSG', 'SGT', 'CPL',
+         'SPC', 'PFC', 'PV2', 'PVT')
+# Keys are what normalize_rank() leaves after upper-casing and dropping
+# spaces, dots and hyphens ("Sp-4" -> "SP4"). Only spellings with one meaning:
+# a bare "LT" could be either lieutenant, so it stays an error.
+RANK_ALIASES = {
+    'PV1': 'PVT', 'PRIVATE': 'PVT', 'SP4': 'SPC', 'SPEC': 'SPC', 'SPECIALIST': 'SPC',
+    '1STLT': '1LT', '2NDLT': '2LT', 'FIRSTLT': '1LT', 'SECONDLT': '2LT',
+    '1STSGT': '1SG', 'FIRSTSGT': '1SG', '1STSG': '1SG',
+    'SERGEANT': 'SGT', 'CORPORAL': 'CPL', 'CAPTAIN': 'CPT', 'MAJOR': 'MAJ', 'COLONEL': 'COL',
+    'CWO2': 'CW2', 'CWO3': 'CW3', 'CWO4': 'CW4', 'CWO5': 'CW5', 'W01': 'WO1',
+}
+IMPORT_MAX_ROWS = 500
+# The profile columns an alpha roster plausibly carries. Not weapons_qual (JSON),
+# flags or the legacy free-text address; those are entered on the soldier page.
+IMPORT_PROFILE_FIELDS = (
+    'phone', 'email', 'dod_id', 'dob', 'mos', 'section', 'clearance', 'date_of_rank', 'ets_date',
+    'emergency_name', 'emergency_phone', 'next_of_kin', 'spouse_dependents',
+    'address_street', 'address_street2', 'address_city', 'address_state', 'address_zip',
+    'medical_date', 'dental_date',
+)
+
+
+def normalize_rank(raw):
+    """A rank off a spreadsheet as the app spells it, or None."""
+    key = re.sub(r'[\s.\-]', '', raw if isinstance(raw, str) else '').upper()
+    key = RANK_ALIASES.get(key, key)
+    return key if key in RANKS else None
+
+
+def _unit_gate(conn, raw):
+    """(unit_id, None), or (None, response): 404 for a unit RLS does not hand
+    over (another tenant's, or none at all), 403 for one in this tenant but
+    outside the caller's subtree."""
+    try:
+        unit_id = int(raw)
+    except (TypeError, ValueError):
+        return None, (jsonify({'error': 'unit_id is required.'}), 400)
+    if _unit_row(conn, unit_id) is None:
+        return None, (jsonify({'error': 'Not found'}), 404)
+    if not can_access(unit_id):
+        return None, (jsonify({'error': 'Forbidden'}), 403)
+    return unit_id, None
+
+
+def _name_key(last, first):
+    """Rank-agnostic identity for duplicate detection."""
+    return (' '.join(last.lower().split()), ' '.join(first.lower().split()))
+
+
+def _import_row(r, default_unit, unit_by_label, unit_name, seen, include_dups):
+    """One row's verdict. Mutates `seen` when the row will be added, so a
+    repeat further down the same file reads as a duplicate of it."""
+    if not isinstance(r, dict) or any(v is not None and not isinstance(v, str) for v in r.values()):
+        return {'error': 'Every cell must be text.', 'action': 'error'}
+    raw_rank = (r.get('rank') or '').strip()
+    last, first = (r.get('last') or '').strip(), (r.get('first') or '').strip()
+    rank = normalize_rank(raw_rank)
+    error = None
+    if rank is None:
+        error = f'Unknown rank "{raw_rank}".' if raw_rank else 'Rank is missing.'
+    else:
+        bad = _name_errors({'last': last, 'first': first})
+        error = bad and bad['error']
+    label = (r.get('unit') or '').strip()
+    matches = unit_by_label.get(label.lower(), set()) if label else set()
+    target = next(iter(matches)) if len(matches) == 1 else default_unit
+    profile = {f: r[f].strip() for f in IMPORT_PROFILE_FIELDS if (r.get(f) or '').strip()}
+    if not error:
+        errors = validation.validate_profile(profile)
+        if errors:
+            error = f'{errors[0][0]}: {errors[0][1]}'
+    key = _name_key(last, first)
+    duplicate = key in seen
+    action = 'error' if error else ('duplicate' if duplicate and not include_dups else 'add')
+    if action == 'add':
+        seen.add(key)
+    return {'rank': rank or raw_rank, 'last': last, 'first': first, 'unit_id': target,
+            'unit_name': unit_name.get(target, ''), 'unit_label': label,
+            'unit_matched': not label or len(matches) == 1, 'unit_ambiguous': len(matches) > 1,
+            'duplicate': duplicate, 'profile': profile, 'error': error, 'action': action}
+
+
+@app.route('/api/personnel/import', methods=['POST'])
+@attached_required
+def import_personnel():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    default_unit, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    rows = data.get('rows')
+    if not isinstance(rows, list) or not rows:
+        return jsonify({'error': 'Nothing to import.'}), 400
+    if len(rows) > IMPORT_MAX_ROWS:
+        return jsonify({'error': f'Import {IMPORT_MAX_ROWS} rows or fewer at a time.'}), 400
+    include_dups = data.get('include_duplicates') is True
+
+    # Units are matched only inside the caller's subtree, so a row can never
+    # name its way past can_access; an unmatched or ambiguous label falls back
+    # to the unit the import was started from and says so.
+    subtree = list(current_subtree())
+    units = conn.execute('SELECT id, name, slug FROM units WHERE id = ANY(%s)', (subtree,)).fetchall()
+    unit_by_label, unit_name = {}, {}
+    for u in units:
+        unit_name[u['id']] = u['name']
+        for label in {u['name'].strip().lower(), u['slug'].lower()}:
+            unit_by_label.setdefault(label, set()).add(u['id'])
+    seen = {_name_key(p['last'] or '', p['first'] or '') for p in conn.execute(
+        'SELECT last, first FROM personnel WHERE unit_id = ANY(%s)', (subtree,)).fetchall()}
+
+    out = []
+    for i, r in enumerate(rows):
+        verdict = _import_row(r, default_unit, unit_by_label, unit_name, seen, include_dups)
+        verdict['index'] = i
+        out.append(verdict)
+    counts = {k: sum(1 for v in out if v['action'] == k) for k in ('add', 'duplicate', 'error')}
+    if data.get('dry_run') is True:
+        return jsonify({'rows': out, 'counts': counts})
+    if counts['error']:
+        return jsonify({'error': f'{counts["error"]} row(s) have errors; fix or leave them out first.',
+                        'rows': out, 'counts': counts}), 400
+
+    # One request is one transaction: a failure part-way leaves nothing behind.
+    added = []
+    for v in out:
+        if v['action'] != 'add':
+            continue
+        person_id = conn.execute(
+            'INSERT INTO personnel (rank, last, first, unit_id, root_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+            (v['rank'], v['last'], v['first'], v['unit_id'], _root())).fetchone()['id']
+        if v['profile']:
+            cols = ['person_id', 'root_id', *v['profile']]
+            conn.execute(f'INSERT INTO personnel_profile ({", ".join(cols)}) '
+                         f'VALUES ({", ".join(["%s"] * len(cols))})',
+                         (person_id, _root(), *v['profile'].values()))
+        added.append(person_id)
+    log_action('IMPORT_PERSONNEL', f'{len(added)} added, {counts["duplicate"]} duplicates skipped', default_unit)
+    people = conn.execute('SELECT * FROM personnel WHERE id = ANY(%s) ORDER BY id', (added,)).fetchall()
+    return jsonify({'added': len(added), 'skipped_duplicates': counts['duplicate'],
+                    'people': [dict(p) for p in people]}), 201
+
+
 @app.route('/api/personnel/<int:person_id>/profile', methods=['GET'])
 @attached_required
 def get_profile(person_id):
