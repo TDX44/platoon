@@ -101,7 +101,7 @@ UPLOAD_DRIVER = r'''
 const out = {};
 let alerts, calls, canvases, refreshed, blobFor;
 
-globalThis.alert = (m) => alerts.push(m);
+globalThis.showToast = (m) => alerts.push(m);
 globalThis.api = async (method, path, body) => { calls.push([method, path, body]); return { success: true }; };
 globalThis.refreshUnitLogos = async () => { refreshed += 1; };
 globalThis.createImageBitmap = async () => ({ width: 1000, height: 500, close() { closed = true; } });

@@ -143,11 +143,14 @@
   .status-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75em; font-weight: 600;
   }
-  .badge-leave { background: #fdcb6e; color: #222; }
-  .badge-pass { background: #ffeaa7; color: #222; }
-  .badge-tdy { background: #0984e3; color: #fff; }
-  .badge-other { background: #e17055; color: #fff; }
-  .badge-ftr { background: #d63031; color: #fff; }
+  body .badge-present { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  body .badge-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  body .badge-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  body .badge-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  body .badge-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  body .badge-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  body .badge-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  body .badge-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
 
   .returned-badge {
     display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7em;
@@ -196,13 +199,6 @@
     transition: all 0.2s;
   }
   .status-toggle:hover { border-color: #666; color: #e0e0e0; }
-  .status-toggle.active-tdy { border-color: #0984e3; background: #0984e322; color: #74b9ff; }
-  .status-toggle.active-leave { border-color: #fdcb6e; background: #fdcb6e22; color: #fdcb6e; }
-  .status-toggle.active-pass { border-color: #ffeaa7; background: #ffeaa722; color: #ffeaa7; }
-  .status-toggle.active-other { border-color: #e17055; background: #e1705522; color: #e17055; }
-  .status-toggle.active-ftr { border-color: #d63031; background: #d6303122; color: #ff7675; }
-  .status-toggle.active-late { border-color: #e17055; background: #e1705522; color: #ff9f7f; }
-  .status-toggle.active-excused { border-color: #00b894; background: #00b89422; color: #55efc4; }
 
   /* TDY School field */
   .tdy-school-row { display: none; }
@@ -641,6 +637,22 @@
     --cp-steel: #146bc5;  --cp-steel-bg: #eaf4fc;
     --cp-red: #c73e3e;    --cp-red-bg: #fcecec;
     --cp-violet: #7a63b8; --cp-violet-bg: #f0edf8;
+    /* One colour per status, shared by pills, badges, dots and the status
+       modal's toggles. FTR is the only strong red (a solid fill); Late is
+       orange, Excused violet, Pass teal, Scheduled magenta, so no two
+       statuses read alike. Every pair is AA (>= 4.5:1) text on its ground. */
+    --cp-st-present: #1f7a3d; --cp-st-present-bg: #e8f5ec;
+    --cp-st-tdy: #1a5fb4;     --cp-st-tdy-bg: #e8f1fc;
+    --cp-st-leave: #8a5300;   --cp-st-leave-bg: #fdf2dc;
+    --cp-st-pass: #0b6e79;    --cp-st-pass-bg: #e2f4f5;
+    --cp-st-late: #b3400d;    --cp-st-late-bg: #fdeee4;
+    --cp-st-excused: #6a45b0; --cp-st-excused-bg: #f1ecfa;
+    --cp-st-other: #4b5563;   --cp-st-other-bg: #eef0f3;
+    --cp-st-ftr: #ffffff;     --cp-st-ftr-bg: #b42318;
+    --cp-st-sched: #a0266f;   --cp-st-sched-bg: #fbe9f3;
+    /* Notices: info (scheduled, neutral facts) and warn (destructive). */
+    --cp-info: #1a5fb4;  --cp-info-bg: #e8f1fc;  --cp-info-border: #b8d3f3;
+    --cp-warn: #8a5300;  --cp-warn-bg: #fdf2dc;  --cp-warn-border: #efd49a;
     --cp-side-bg: #ffffff;
     --cp-side-border: #e3e8ee;
     --cp-side-text: #475467;
@@ -716,6 +728,17 @@
     --cp-steel: #61a5e6;  --cp-steel-bg: #16283c;
     --cp-red: #dd6b6b;    --cp-red-bg: #2e1a1a;
     --cp-violet: #a08fd6; --cp-violet-bg: #221f30;
+    --cp-st-present: #6fcf8e; --cp-st-present-bg: #15291c;
+    --cp-st-tdy: #7ab4ee;     --cp-st-tdy-bg: #15263a;
+    --cp-st-leave: #e6b85c;   --cp-st-leave-bg: #2c2210;
+    --cp-st-pass: #5ccbd6;    --cp-st-pass-bg: #0f2a2d;
+    --cp-st-late: #f39a62;    --cp-st-late-bg: #33200f;
+    --cp-st-excused: #b8a3ee; --cp-st-excused-bg: #241d36;
+    --cp-st-other: #b4bec9;   --cp-st-other-bg: #232a33;
+    --cp-st-ftr: #1a0503;     --cp-st-ftr-bg: #f07a72;
+    --cp-st-sched: #ec8fc6;   --cp-st-sched-bg: #321527;
+    --cp-info: #7ab4ee;  --cp-info-bg: #15263a;  --cp-info-border: #2c4a6e;
+    --cp-warn: #e6b85c;  --cp-warn-bg: #2c2210;  --cp-warn-border: #5a4520;
     --cp-side-bg: #10141a;
     --cp-side-border: #262d37;
     --cp-side-text: #8b95a5;
@@ -1002,7 +1025,6 @@
     border-color: var(--theme_danger);
   }
   body.dark-mode .btn-tdy-leave,
-  body.dark-mode .badge-tdy,
   body.dark-mode .platoon-badge {
     background: #1d2a3b;
     color: var(--theme_action);
@@ -1058,23 +1080,15 @@
   body.dark-mode .notes-preview,
   body.dark-mode .report-text,
   body.dark-mode #resetSummary,
-  body.dark-mode .insight-card,
-  body.dark-mode #futureScheduleNotice {
+  body.dark-mode .insight-card {
     background: var(--theme_surface-soft) !important;
     border-color: var(--theme_border) !important;
     color: var(--theme_text) !important;
   }
-  body.dark-mode .badge-leave,
-  body.dark-mode .badge-pass,
   body.dark-mode .returning-badge {
     background: #3a300f;
     color: #fde68a;
   }
-  body.dark-mode .badge-other {
-    background: #3a2418;
-    color: #fdba74;
-  }
-  body.dark-mode .badge-ftr,
   body.dark-mode .present-btn.unaccounted {
     background: #3a1d20;
     color: var(--theme_danger);
@@ -1573,23 +1587,9 @@
     border-radius: 6px;
     letter-spacing: 0;
   }
-  .badge-leave,
-  .badge-pass,
   .returning-badge {
     background: #fff7da;
     color: #7a4f01;
-  }
-  .badge-tdy {
-    background: #eaf2ff;
-    color: var(--theme_action);
-  }
-  .badge-other {
-    background: #fff1e8;
-    color: #9a3412;
-  }
-  .badge-ftr {
-    background: #fff5f4;
-    color: var(--theme_danger);
   }
   .platoon-badge.admin-badge {
     background: #f1f5f9;
@@ -1613,12 +1613,15 @@
   }
   /* Prefixed with body so these beat the body.light-mode / body.dark-mode
      base rules above — without it the selected status has no highlight. */
-  body .status-toggle[class*="active-"] {
-    border-color: var(--theme_action);
-    background: var(--cp-accent-soft, #eaf2ff);
-    color: var(--theme_action);
-    font-weight: 700;
-  }
+  body .status-toggle[class*="active-"] { font-weight: 700; border-color: currentColor; }
+  body .status-toggle.active-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  body .status-toggle.active-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  body .status-toggle.active-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  body .status-toggle.active-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  body .status-toggle.active-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  body .status-toggle.active-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  body .status-toggle.active-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  body .status-toggle.active-ftr { border-color: var(--cp-st-ftr-bg); }
   .date-display,
   body.light-mode .date-display,
   .notes-preview,
@@ -2609,13 +2612,14 @@
     content: ''; width: 7px; height: 7px; border-radius: 50%; flex: none;
     background: var(--cp-muted);
   }
-  .status-cell.s-present::before { background: var(--cp-green); }
-  .status-cell.s-tdy::before     { background: var(--cp-steel); }
-  .status-cell.s-leave::before,
-  .status-cell.s-pass::before    { background: var(--cp-amber); }
-  .status-cell.s-ftr::before     { background: var(--cp-red); }
-  .status-cell.s-late::before    { background: var(--cp-red); }
-  .status-cell.s-excused::before { background: var(--cp-steel); }
+  .status-cell.s-present::before { background: var(--cp-st-present); }
+  .status-cell.s-tdy::before { background: var(--cp-st-tdy); }
+  .status-cell.s-leave::before { background: var(--cp-st-leave); }
+  .status-cell.s-pass::before { background: var(--cp-st-pass); }
+  .status-cell.s-late::before { background: var(--cp-st-late); }
+  .status-cell.s-excused::before { background: var(--cp-st-excused); }
+  .status-cell.s-other::before { background: var(--cp-st-other); }
+  .status-cell.s-ftr::before { background: var(--cp-st-ftr-bg); }
 
   /* ── Soldier detail page ── */
   .soldier-view { display: none; }
@@ -2784,11 +2788,6 @@
     box-shadow: 0 0 0 3px rgba(27,97,201,0.12);
   }
 
-  #futureScheduleNotice {
-    background: #f3f7ff !important;
-    border-color: #cfe0ff !important;
-    color: var(--theme_action) !important;
-  }
   .tdy-field-separator::before,
   .tdy-field-separator::after {
     background: var(--theme_border);
@@ -3543,8 +3542,8 @@
   .sec-needs .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
   .sec-present .dash-section-count { background: var(--dash-green-bg); color: var(--dash-green); border-color: transparent; }
   .sec-away .dash-section-count { background: var(--dash-blue-bg); color: var(--dash-blue); border-color: transparent; }
-  .sec-ftr .dash-section-count { background: var(--dash-red-bg); color: var(--dash-red); border-color: transparent; }
-  .sec-sched .dash-section-count { background: var(--dash-amber-bg); color: var(--dash-amber); border-color: transparent; }
+  .sec-ftr .dash-section-count { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); border-color: transparent; }
+  .sec-sched .dash-section-count { background: var(--cp-st-sched-bg); color: var(--cp-st-sched); border-color: transparent; }
   .dash-section-spacer { flex: 1; }
   .dash-section-chev { color: var(--dash-faint); font-size: 0.8em; transition: transform 0.15s; }
   .dash-section.collapsed .dash-section-chev { transform: rotate(-90deg); }
@@ -3577,16 +3576,32 @@
     content: ''; width: 6px; height: 6px; border-radius: 50%;
     background: currentColor; flex: none;
   }
-  .dash-pill.p-present { background: var(--dash-green-bg); color: var(--dash-green); }
-  .dash-pill.p-leave, .dash-pill.p-pass { background: var(--dash-amber-bg); color: var(--dash-amber); }
-  .dash-pill.p-tdy { background: var(--dash-blue-bg); color: var(--dash-blue); }
-  .dash-pill.p-other { background: var(--dash-hover); color: var(--dash-muted); }
-  .dash-pill.p-ftr { background: var(--dash-red-bg); color: var(--dash-red); }
-  .dash-pill.p-sched { background: var(--dash-amber-bg); color: var(--dash-amber); }
-  /* Late borrows FTR's red at low strength — it is a problem, just a smaller
-     one. Excused sits with the accounted-for blues. */
-  .dash-pill.p-late { background: var(--dash-red-bg); color: var(--dash-red); }
-  .dash-pill.p-excused { background: var(--dash-blue-bg); color: var(--dash-blue); }
+  .dash-pill.p-present { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  .dash-pill.p-tdy { background: var(--cp-st-tdy-bg); color: var(--cp-st-tdy); }
+  .dash-pill.p-leave { background: var(--cp-st-leave-bg); color: var(--cp-st-leave); }
+  .dash-pill.p-pass { background: var(--cp-st-pass-bg); color: var(--cp-st-pass); }
+  .dash-pill.p-late { background: var(--cp-st-late-bg); color: var(--cp-st-late); }
+  .dash-pill.p-excused { background: var(--cp-st-excused-bg); color: var(--cp-st-excused); }
+  .dash-pill.p-other { background: var(--cp-st-other-bg); color: var(--cp-st-other); }
+  .dash-pill.p-ftr { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  .dash-pill.p-sched { background: var(--cp-st-sched-bg); color: var(--cp-st-sched); }
+  .app-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: var(--cp-radius-lg); font-size: 0.9em;
+    z-index: 9999; max-width: 90vw; text-align: center; border: 1px solid transparent;
+    box-shadow: var(--cp-shadow-lg);
+  }
+  .app-toast-error   { background: var(--cp-st-ftr-bg); color: var(--cp-st-ftr); }
+  .app-toast-success { background: var(--cp-st-present); color: var(--cp-surface); }
+  .app-toast-info    { background: var(--cp-text-strong); color: var(--cp-surface); }
+  /* Boxed notices inside modals. Plain = neutral surface; info/warn tint. */
+  .cp-notice {
+    margin-top: 8px; padding: 8px 10px; border-radius: var(--cp-radius);
+    background: var(--cp-subtle); border: 1px solid var(--cp-border);
+    color: var(--cp-text); font-size: 0.85em;
+  }
+  .cp-notice-info { background: var(--cp-info-bg); border-color: var(--cp-info-border); color: var(--cp-info); }
+  .cp-notice-warn { background: var(--cp-warn-bg); border-color: var(--cp-warn-border); color: var(--cp-warn); }
   .dash-badge-returning { font-size: 0.7em; font-weight: 800; color: var(--dash-green); letter-spacing: 0.04em; white-space: nowrap; }
   .dash-badge-returned { font-size: 0.7em; font-weight: 800; color: var(--dash-blue); letter-spacing: 0.04em; margin-left: 6px; }
 
@@ -4220,7 +4235,7 @@
     <div class="notes-preview-label">Generated Note</div>
     <div class="notes-preview" id="notesPreview"></div>
 
-    <div id="futureScheduleNotice" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;background:#6c5ce722;border:1px solid #6c5ce7;font-size:0.82em;color:#a29bfe;">
+    <div id="futureScheduleNotice" class="cp-notice cp-notice-info" style="display:none">
       &#128337; Start date is in the future — this will be <strong>scheduled</strong> and activate automatically on the start date.
     </div>
 
@@ -4601,14 +4616,14 @@ async function uploadUnitLogo(input) {
   input.value = '';                       // so the same file can be picked again
   if (!file || !currentUnit) return;
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
-    alert('Choose a PNG, JPG or WebP image.');
+    showToast('Choose a PNG, JPG or WebP image.');
     return;
   }
   let bitmap;
   try {
     bitmap = await createImageBitmap(file);
   } catch (e) {
-    alert('That file could not be read as an image.');
+    showToast('That file could not be read as an image.');
     return;
   }
   // A photo can stay over 400 KB even at 512px, so step down once or twice
@@ -4624,7 +4639,7 @@ async function uploadUnitLogo(input) {
   if (!blob) {
     // Two different failures. Telling someone their image is too detailed when
     // the canvas simply refused to encode sends them to fix the wrong thing.
-    alert(encoded
+    showToast(encoded
       ? 'That image is too detailed to fit under 400 KB. Try a simpler one.'
       : 'That image could not be converted to a PNG. Try a different file.');
     return;
@@ -4712,14 +4727,16 @@ startCheckout = singleFlight(startCheckout);
 startFormation = singleFlight(startFormation);
 
 let _toastTimer = null;
-function showToast(msg) {
+// type is 'error' (the default: api() failures), 'success' or 'info'.
+function showToast(msg, type = 'error') {
   let el = document.getElementById('apiToast');
   if (!el) {
     el = document.createElement('div');
     el.id = 'apiToast';
-    el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#d63031;color:#fff;padding:10px 18px;border-radius:8px;font-size:0.9em;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);max-width:90vw;text-align:center;';
     document.body.appendChild(el);
   }
+  el.className = `app-toast app-toast-${['success', 'info'].includes(type) ? type : 'error'}`;
+  el.setAttribute('role', type === 'error' ? 'alert' : 'status');
   el.textContent = msg;
   el.style.display = 'block';
   clearTimeout(_toastTimer);
@@ -5206,7 +5223,7 @@ function timezoneSettingsRow(isOwner) {
 async function saveOrgTimezone(zone) {
   const res = await api('PUT', `/settings?unit=${currentUnit.id}`, { timezone: zone });
   if (!res || res.error) {
-    alert(res && res.error ? res.error : 'Could not change the time zone.');
+    showToast(res && res.error ? res.error : 'Could not change the time zone.');
     renderSettings();            // put the control back to the stored value
     return;
   }
@@ -6656,7 +6673,7 @@ async function addTdyListItem() {
   const input = document.getElementById('tdyListAdd');
   const value = input.value.trim().replace(/\s+/g, ' ');   // match the server's normalisation
   if (!value) return;
-  if (listHasValue(value)) { showToast('That entry is already on the list.'); return; }
+  if (listHasValue(value)) { showToast('That entry is already on the list.', 'info'); return; }
   tdyLists[listsKind] = [...tdyLists[listsKind], value];   // append; order is the user's
   await saveTdyLists();
 }
@@ -6953,7 +6970,7 @@ function closePersonDetails() {
 function editPersonById(id) {
   const i = personnel.findIndex(p => p.id === id);
   if (i < 0) {
-    alert('Open the roster for this unit first, then edit from there.');
+    showToast('Open the roster for this unit first, then edit from there.');
     return;
   }
   openEditModal(i);
@@ -7403,7 +7420,7 @@ async function saveProfile() {
   if (res && res.error) {
     // The server names the field it rejected; put the message where it belongs.
     if (res.field) setFieldError('pf_' + res.field, res.error);
-    else alert(res.error);
+    else showToast(res.error);
     return;
   }
   if (btn) {
@@ -7428,7 +7445,7 @@ function openAbsenceModal(eventId = null) {
   if (eventId === null) return;
 
   const ev = profileAbsences.find(a => a.id === eventId);
-  if (!ev) { alert('That absence is no longer on record.'); return; }
+  if (!ev) { showToast('That absence is no longer on record.'); return; }
   editingAbsenceId = eventId;
   editingAbsenceNotes = ev.notes || '';
   document.getElementById('tdyLeaveTitle').textContent = `Edit Absence — ${p.rank} ${p.last}`;
@@ -7475,7 +7492,7 @@ function syncAbsenceEditMode() {
 async function removeAbsence(eventId) {
   if (!await confirmDialog('Remove this absence?', '', 'Remove')) return;
   const res = await api('DELETE', `/schedules/${eventId}`);
-  if (res && res.error) { alert(res.error); return; }
+  if (res && res.error) { showToast(res.error); return; }
   await load();
   renderProfileAbsences();
 }
@@ -8287,7 +8304,7 @@ async function saveBulkTdyLeave() {
     })
   ));
   const failed = results.filter(r => !r || r.error).length;
-  if (failed) alert(`${failed} of ${ids.length} could not be saved.`);
+  if (failed) showToast(`${failed} of ${ids.length} could not be saved.`);
   await load();   // server reconciled; pull the truth
   clearBulkSelect();
   closeTdyLeaveModal();
@@ -8321,7 +8338,7 @@ async function saveTdyLeave() {
       location: ''
     });
     if (!res || res.error) {
-      alert(res && res.error ? res.error : 'Could not save the absence.');
+      showToast(res && res.error ? res.error : 'Could not save the absence.');
       return;
     }
     closeTdyLeaveModal();
@@ -8340,7 +8357,7 @@ async function saveTdyLeave() {
     notes: notesVal
   });
   if (!event || event.error) {
-    alert(event && event.error ? event.error : 'Could not save absence.');
+    showToast(event && event.error ? event.error : 'Could not save absence.');
     return;
   }
   await load();   // server reconciled; pull the truth
@@ -8402,7 +8419,7 @@ async function deleteScheduledEvent(eventId) {
   const p = personnel[tdyLeaveIndex];
   const res = await api('DELETE', `/schedules/${eventId}`);
   if (res && res.error) {
-    alert(res.error);
+    showToast(res.error);
     return;
   }
   p.scheduled_events = scheduledEventsFor(p).filter(event => event.id !== eventId);
@@ -8595,7 +8612,7 @@ function previewImport() {
   wrap.style.display = 'block';
   errEl.textContent = errors.length ? `Could not parse ${errors.length} line(s): ${errors.join('; ')}` : '';
   table.innerHTML = parsed.length
-    ? '<tr><th style="text-align:left;padding:3px 6px;color:#aaa">Rank</th><th style="text-align:left;padding:3px 6px;color:#aaa">Name</th></tr>'
+    ? '<tr><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Rank</th><th style="text-align:left;padding:3px 6px;color:var(--cp-muted)">Name</th></tr>'
       + parsed.map(p => `<tr><td>${escapeHtml(p.rank)}</td><td>${escapeHtml(p.last)}, ${escapeHtml(p.first)}</td></tr>`).join('')
     : '';
   btn.disabled = parsed.length === 0;
@@ -8617,7 +8634,7 @@ async function confirmImport() {
     if (!newPerson || !newPerson.id) {
       // Stopping is right — the rest of the list is unverified — but stopping
       // without saying so is how half an import looked like a whole one.
-      alert(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
+      showToast(`Stopped at ${r.rank} ${r.last}, ${r.first}: ` +
             `${(newPerson && newPerson.error) || 'the server refused it.'} ` +
             'Everyone before this was added.');
       break;
@@ -8644,7 +8661,7 @@ function reportBlockedByUnaccounted() {
   const unaccounted = personnel.filter(isUnaccounted);
   if (!unaccounted.length) return false;
   const names = unaccounted.map(p => `${p.rank} ${p.last}, ${p.first}`).join('\n');
-  alert(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
+  showToast(`Cannot generate report — ${unaccounted.length} personnel still unaccounted for:\n\n${names}`);
   return true;
 }
 
@@ -9133,7 +9150,7 @@ function clearBulkSelect() {
 }
 async function applyBulkStatus() {
   const status = document.getElementById('bulkStatusSelect').value;
-  if (!status) { alert('Select a status to apply.'); return; }
+  if (!status) { showToast('Select a status to apply.'); return; }
   if (!bulkSelected.size) return;
 
   if (status === 'present') {
@@ -9141,7 +9158,7 @@ async function applyBulkStatus() {
     // server, so a bulk tap must never do it: those are marked from their own row.
     const { mark, away } = bulkPresentSplit(personnel, bulkSelected);
     if (!mark.length) {
-      showToast('Everyone selected is away on an absence. Mark them present from their own row.');
+      showToast('Everyone selected is away on an absence. Mark them present from their own row.', 'info');
       return;
     }
     const note = away.length
@@ -9244,7 +9261,7 @@ async function openHistory() {
   const history = await api('GET', `/reports?unit=${currentUnit.id}`);
   const list = document.getElementById('historyList');
   if (!history || !history.length) {
-    list.innerHTML = '<p style="color:#636e72;font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
+    list.innerHTML = '<p style="color:var(--cp-muted);font-size:0.85em;padding:10px 0">No saved reports yet. Generate a report to save it here.</p>';
   } else {
     list.innerHTML = history.map(r => {
       const ts = (r.created_at || '').replace('T', ' ').slice(0, 16);
@@ -9356,7 +9373,7 @@ async function addDutyEntry() {
   const personId = parseInt(document.getElementById('dutyPerson').value, 10);
   const person = personnel.find(p => p.id === personId);
   if (!person) {
-    alert('Select a person for duty.');
+    showToast('Select a person for duty.');
     return;
   }
   // The server owns rank/last/first now — it fills the snapshot from the
@@ -9370,13 +9387,13 @@ async function addDutyEntry() {
   };
   const row = await api('POST', '/duty', payload);
   if (!row || row.error) {
-    alert(row && row.error ? row.error : 'Could not add duty.');
+    showToast(row && row.error ? row.error : 'Could not add duty.');
     return;
   }
   document.getElementById('dutyNotes').value = '';
   await loadDutyRoster();
   if (row.conflict) {
-    alert(`Heads up: ${person.rank} ${person.last} is ${row.conflict.label} on that date.\n\nThe duty entry was still added.`);
+    showToast(`Heads up: ${person.rank} ${person.last} is ${row.conflict.label} on that date. The duty entry was still added.`, 'info');
   }
 }
 
@@ -9384,7 +9401,7 @@ async function deleteDutyEntry(id) {
   if (!await confirmDialog('Remove this duty entry?', '', 'Remove')) return;
   const res = await api('DELETE', `/duty/${id}`);
   if (res && res.error) {
-    alert(res.error);
+    showToast(res.error);
     return;
   }
   currentDutyEntries = currentDutyEntries.filter(row => row.id !== id);
@@ -11118,7 +11135,7 @@ function openClerkProfile() {
   if (clerk && typeof clerk.openUserProfile === 'function') {
     clerk.openUserProfile();
   } else {
-    alert('Clerk account management is not ready yet.');
+    showToast('Clerk account management is not ready yet.');
   }
 }
 
@@ -11459,10 +11476,10 @@ async function refreshUserList() {
     const unit = unitLabel(unitById(u.unit_id));
     const badges = unit
       ? `<span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${escapeHtml(unit)} \u00b7 ${escapeHtml(u.role || '')}</span>`
-      : `<span style="color:#636e72;font-size:0.78em">No access</span>`;
+      : `<span style="color:var(--cp-muted);font-size:0.78em">No access</span>`;
     return `<div class="user-row">
       <div class="user-row-name-block">
-        <div class="user-row-name">${label}${isSelf ? ' <span style="color:#636e72;font-size:0.72em">(you)</span>' : ''}</div>
+        <div class="user-row-name">${label}${isSelf ? ' <span style="color:var(--cp-muted);font-size:0.72em">(you)</span>' : ''}</div>
         ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
       </div>
       <div class="user-row-badges">${badges}</div>
@@ -11611,7 +11628,7 @@ function copyInviteLink(btn) {
 async function revokeInvite(token) {
   if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
   const result = await api('DELETE', `/invites/${token}`);
-  if (result && result.error) { alert(result.error); return; }
+  if (result && result.error) { showToast(result.error); return; }
   // Only repaint the modal's list when the modal is actually on screen.
   if (document.getElementById('userMgmtModal').classList.contains('active')) await refreshInviteList();
   await refreshAccessViews();
@@ -11685,7 +11702,7 @@ async function refreshAccessViews() {
 async function deleteUser(userId, username) {
   if (!await confirmDialog(`Remove app access for "${username}"?`, 'Their Clerk account will stay active.', 'Remove')) return;
   const result = await api('DELETE', `/users/${userId}`);
-  if (result && result.error) { alert(result.error); return; }
+  if (result && result.error) { showToast(result.error); return; }
   await refreshUserList();
   await refreshAccessViews();
 }
@@ -11814,10 +11831,10 @@ function resetDay() {
   const unaccounted = personnel.filter(p => p.status === 'present' && p.present_date !== today).length;
   const tdy = personnel.filter(p => ['tdy','leave','pass','other','ftr'].includes(p.status)).length;
   document.getElementById('resetSummary').innerHTML =
-    `<div>Present today: <strong style="color:#00b894">${present}</strong></div>` +
-    `<div>Unaccounted: <strong style="color:#e17055">${unaccounted}</strong></div>` +
-    `<div>Away (TDY/Leave/etc): <strong style="color:#74b9ff">${tdy}</strong></div>` +
-    `<div style="margin-top:8px;color:#fdcb6e;">After reset: all ${present + unaccounted} present soldiers will need to be marked again.</div>`;
+    `<div>Present today: <strong style="color:var(--cp-st-present)">${present}</strong></div>` +
+    `<div>Unaccounted: <strong style="color:var(--cp-red)">${unaccounted}</strong></div>` +
+    `<div>Away (TDY/Leave/etc): <strong style="color:var(--cp-st-tdy)">${tdy}</strong></div>` +
+    `<div style="margin-top:8px;color:var(--cp-warn);">After reset: all ${present + unaccounted} present soldiers will need to be marked again.</div>`;
   document.getElementById('resetConfirmModal').classList.add('active');
 }
 function closeResetConfirm() { document.getElementById('resetConfirmModal').classList.remove('active'); }
@@ -11933,7 +11950,7 @@ window.addEventListener('storage', e => {
 async function exportBackup() {
   try {
     const res = await fetch('/api/backup');
-    if (!res.ok) { alert('Export failed.'); return; }
+    if (!res.ok) { showToast('Export failed.'); return; }
     const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -11941,7 +11958,7 @@ async function exportBackup() {
     a.download = `platoon-backup-${today}.json`;
     a.click();
   } catch(e) {
-    alert('Export failed: ' + e.message);
+    showToast('Export failed: ' + e.message);
   }
 }
 
@@ -12087,8 +12104,8 @@ initApp();
 <div class="modal-overlay" id="resetConfirmModal">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:360px;">
     <h2>&#9888; Reset Day</h2>
-    <p style="font-size:0.9em;color:#b2bec3;margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
-    <div id="resetSummary" style="background:#1a1a2e;border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;line-height:1.8;"></div>
+    <p style="font-size:0.9em;color:var(--cp-muted);margin-bottom:10px;">This will clear all present markings. Everyone will need to be marked present again.</p>
+    <div id="resetSummary" class="cp-notice" style="margin-bottom:14px;line-height:1.8;"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeResetConfirm()">Cancel</button>
       <button class="btn-small btn-add" onclick="confirmReset()">Reset</button>
@@ -12100,9 +12117,9 @@ initApp();
 <div class="modal-overlay" id="restoreModal">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:380px;">
     <h2>&#128228; Import Backup</h2>
-    <p style="font-size:0.85em;color:#ff7675;margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
+    <p class="cp-notice cp-notice-warn" style="margin-bottom:12px;">&#9888; This will overwrite all personnel, settings, and users with the backup data.</p>
     <label style="display:block;margin-bottom:6px;">Select backup file (.json)</label>
-    <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:#1a1a2e;border:1px solid #444;border-radius:5px;color:#e0e0e0;margin-bottom:12px;">
+    <input type="file" id="restoreFile" accept=".json" style="width:100%;padding:8px;background:var(--cp-input);border:1px solid var(--cp-border);border-radius:var(--cp-radius);color:var(--cp-text);margin-bottom:12px;">
     <div id="restoreMsg" style="display:none;margin-bottom:10px;font-size:0.85em;"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeRestoreModal()">Cancel</button>
@@ -12115,7 +12132,7 @@ initApp();
 <div class="modal-overlay" id="sessionWarnModal" style="z-index:9999;">
   <div class="modal" role="dialog" aria-modal="true" style="max-width:320px;text-align:center;">
     <h2>&#9201; Session Expiring</h2>
-    <p style="color:#b2bec3;margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
+    <p style="color:var(--cp-muted);margin-bottom:16px;">You'll be signed out in <span id="sessionCountdown">60</span> seconds due to inactivity.</p>
     <button class="btn-login" onclick="extendSession()">Stay Signed In</button>
   </div>
 </div>
