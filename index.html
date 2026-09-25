@@ -6287,7 +6287,7 @@ function availabilityRow(p, span) {
   const partial = p.whole_range ? '' :
     `<span class="avail-part">${p.days.length} of ${span} days</span>`;
   const note = p.notes || p.location || '';
-  return `<div class="avail-row" onclick="openSoldierPage(${p.id})">
+  return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
       <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
       <span class="avail-why">${dashPill(p.status)}<span class="avail-meta">${availabilityWindow(p)}</span>${partial}</span>
       ${note ? `<span class="avail-note">${escapeHtml(note)}</span>` : ''}
@@ -6295,7 +6295,7 @@ function availabilityRow(p, span) {
 }
 
 function availabilityNameRow(p) {
-  return `<div class="avail-row" onclick="openSoldierPage(${p.id})">
+  return `<div class="avail-row" onclick="openSoldierPage(${p.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
       <span class="avail-name">${escapeHtml(p.rank)} ${escapeHtml(p.last)}, ${escapeHtml(p.first)}</span>
     </div>`;
 }
@@ -6983,7 +6983,7 @@ function renderDirectory() {
     const dash = '<span class="dir-muted">\u2014</span>';
     // data-label feeds the phone card layout, where each cell renders its own
     // heading because the table header is not on screen.
-    return `<tr onclick="openSoldierPage(${r.id})">
+    return `<tr onclick="openSoldierPage(${r.id})" onkeydown="clickOnKey(event)" tabindex="0">
       <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(r.last)}, ${escapeHtml(r.first)}</td>
       ${showUnit ? `<td data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
       <td data-label="Status">${statusText(r.status)}</td>
@@ -8485,6 +8485,15 @@ function openEditModal(i) {
   document.getElementById('addLast').focus();
 }
 
+// Enter/Space on a clickable non-button (a row, a card) does what a click does.
+// Only on the element itself: a link or button inside it handles its own keys.
+function clickOnKey(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  if (event.target !== event.currentTarget) return;
+  event.preventDefault();
+  event.currentTarget.click();
+}
+
 function openSoldierPageFromKey(event, id) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
@@ -9239,7 +9248,7 @@ async function openHistory() {
   } else {
     list.innerHTML = history.map(r => {
       const ts = (r.created_at || '').replace('T', ' ').slice(0, 16);
-      return `<div class="history-item" onclick="viewHistory(${r.id})">
+      return `<div class="history-item" onclick="viewHistory(${r.id})" onkeydown="clickOnKey(event)" role="button" tabindex="0">
         <div class="history-item-ts">${ts} &nbsp;·&nbsp; ${escapeHtml(r.created_by || '')}</div>
         <div class="history-item-summary">${escapeHtml(r.unit_name || 'Report')}</div>
       </div>`;
