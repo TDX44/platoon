@@ -3647,7 +3647,6 @@
   .dash-preview-head { font-weight: 700; color: var(--dash-text); font-size: 0.92em; margin-bottom: 2px; }
   .dash-preview-date { font-size: 0.78em; color: var(--dash-faint); margin-bottom: 10px; }
   .dash-preview-actions { display: flex; flex-direction: column; gap: 8px; }
-  .dash-preview-note { font-size: 0.74em; color: var(--dash-faint); margin-top: 10px; line-height: 1.4; }
 
   /* Bottom nav (mobile only) */
   .dash-bottomnav {
@@ -3957,7 +3956,7 @@
     <span class="dash-brand-name">Platoon Manager</span>
   </div>
   <nav class="dash-nav" id="mainNav" aria-label="Main navigation">
-    <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+    <button class="dash-nav-item" data-nav="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Home</button>
     <button class="dash-nav-item" data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
     <button class="dash-nav-item" data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
     <button class="dash-nav-item" data-nav="availability" onclick="openAvailability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg>Availability</button>
@@ -4040,7 +4039,6 @@
       <button class="dash-btn dash-btn-secondary" onclick="generateReport()">Wickr</button>
       <button class="dash-btn dash-btn-ghost" onclick="exportCSV()">Export CSV</button>
     </div>
-    <p class="dash-preview-note">Copy and view use the standard report format — the generated report is unchanged.</p>
   </div>
   <div class="dash-card dash-filters" id="dashFiltersCard">
     <details class="dash-filters-details" id="dashFiltersDetails">
@@ -4078,7 +4076,7 @@
 
 
 <nav class="dash-bottomnav" aria-label="Mobile navigation">
-  <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Dashboard</button>
+  <button onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10"/></svg>Home</button>
   <button data-nav="directory" onclick="openDirectory()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="4" cy="6" r="0.5"/></svg>Directory</button>
   <button data-nav="accountability" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg>Accountability</button>
   <button onclick="generateReport()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Reports</button>
@@ -5089,7 +5087,7 @@ function settingsNavHtml(active, opts) {
   const items = settingsNavItems(opts).map(it => it.group
     ? `<div class="settings-nav-group">${escapeHtml(it.group)}</div>`
     : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`);
-  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Dashboard</button>`
+  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Accountability</button>`
     + `<div class="settings-nav-title">Settings</div>` + items.join('');
 }
 
