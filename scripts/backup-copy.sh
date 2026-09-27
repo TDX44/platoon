@@ -30,8 +30,8 @@
 # Restore from this Drive copy (app stopped). The dump lives on the Drive
 # box; the database lives on prodsrv02, so it has to travel there first:
 #
-#   scp "/mnt/e/My Drive/platoon db backup/<file>.dump" tdx44@10.10.50.200:/tmp/
-#   ssh tdx44@10.10.50.200
+#   scp "/mnt/e/My Drive/platoon db backup/<file>.dump" tdx44@10.10.60.2:/tmp/
+#   ssh tdx44@10.10.60.2
 #   cd /opt/homelab/platoon
 #   docker compose stop app
 #   # The role must exist first: pg_dump captures GRANTs but not roles, and a
@@ -50,7 +50,7 @@
 # case, which a restore onto a rebuilt cluster is the reason this matters).
 set -euo pipefail
 
-PROD="${PLATOON_PROD_HOST:-tdx44@10.10.50.200}"
+PROD="${PLATOON_PROD_HOST:-tdx44@10.10.60.2}"
 REMOTE_DIR="${PLATOON_PROD_BACKUPS:-/opt/homelab/platoon/backups}"
 DEST="${PLATOON_BACKUP_DEST:-/mnt/e/My Drive/platoon db backup}"
 KEEP_DAYS="${PLATOON_BACKUP_KEEP_DAYS:-30}"

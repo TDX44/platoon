@@ -1035,6 +1035,11 @@ ssh prodsrv02 'cd /opt/homelab/platoon && git pull && docker compose up -d --bui
 ordinary one-liner above runs the new image before the data is migrated,
 which is not recoverable by redeploying.
 
+prodsrv02 is the public server for the SaaS projects (standard and plan in
+`~/github/CLAUDE.md`, "Infrastructure standard"). Its old address `10.10.50.200`
+no longer routes. The `platoon-dev` stack at `/opt/homelab/platoon-dev` (port
+5055, platoondev.carr7.com) is slated for retirement: don't build on it.
+
 `docker-compose.yml` runs two services: `app` (gunicorn `-w 2` on :5000) and
 `cloudflared` (the public ingress tunnel; `TUNNEL_TOKEN` from `.env`).
 
