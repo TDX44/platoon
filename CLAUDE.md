@@ -1037,8 +1037,10 @@ which is not recoverable by redeploying.
 
 prodsrv02 is the public server for the SaaS projects (standard and plan in
 `~/github/CLAUDE.md`, "Infrastructure standard"). Its old address `10.10.50.200`
-no longer routes. The `platoon-dev` stack at `/opt/homelab/platoon-dev` (port
-5055, platoondev.carr7.com) is slated for retirement: don't build on it.
+no longer routes. The `platoon-dev` stack and platoondev.carr7.com were retired
+2026-09-27; its final DB dump and directory are in `/opt/backups/retired/` on
+prodsrv02. The prod compose project name is pinned (`COMPOSE_PROJECT_NAME=platoon`
+in the prod `.env`), and only Platoon's own containers are on `platoon_default`.
 
 `docker-compose.yml` runs two services: `app` (gunicorn `-w 2` on :5000) and
 `cloudflared` (the public ingress tunnel; `TUNNEL_TOKEN` from `.env`).
