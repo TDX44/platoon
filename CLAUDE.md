@@ -244,8 +244,14 @@ soldier's unit from `unitTreeOrder()`, so HQ first and then each platoon and
 its squads in turn) and sorted by `rankSort()` within a group; anyone already
 away on a current absence is skipped but handed back as `known` so the finish
 screen can show them and let a wrong one be corrected. The card reads rank +
-last name, first name smaller, and the sub-unit. Late / Excused / Other take one
-optional reason step (wording from `REASON_FIELDS`) that travels as `notes`.
+last name, first name smaller, and the sub-unit. Excused / Other take one
+optional reason step (wording from `REASON_FIELDS`) that travels as `notes`;
+Late saves on the tap, and a late soldier's roster row carries the same ✓ as
+Needs Action to mark them present when they arrive. A soldier flagged
+`personnel.no_formation` ("Doesn't attend formation", on the Edit Person modal)
+is skipped entirely — not asked, not in `known`, not in the finish tally — but is
+still accounted for by hand on the roster; the Strength report counts them as
+"Not in formation" instead of PDY, the Detailed report lists them under PDY.
 "Everyone else present" marks the rest of the queue that is still unaccounted
 (`formationRemaining()`), after a confirm with the count — never anyone on a
 current absence. It writes only through the existing APIs (`PUT
@@ -397,7 +403,8 @@ history, and they complete themselves overnight like everything else. That is
 why they are in `ABSENCE_STATUSES` rather than a separate flag. The roster row
 and the report both drop the date range for them (`isSameDayState`) — a
 today-to-today window is noise. `REASON_FIELDS` in `index.html` is the one place
-that decides which statuses get the free-text reason box and how it is worded.
+that decides which statuses get the free-text reason box and how it is worded
+(late deliberately has none).
 
 **Repeating absences** are not a new kind of absence. A `recurrence` on
 `POST .../schedule` (`{type: 'weekly', weekdays: [0..6, Monday = 0], until}` or

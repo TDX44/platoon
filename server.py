@@ -428,6 +428,7 @@ def init_db():
                 from_date    TEXT DEFAULT '',
                 to_date      TEXT DEFAULT '',
                 present_date TEXT DEFAULT '',
+                no_formation BOOLEAN NOT NULL DEFAULT false,
                 unit_id      INTEGER NOT NULL,
                 root_id      INTEGER NOT NULL
             )
@@ -672,6 +673,10 @@ def init_db():
         cols = _columns(cur, 'personnel')
         if 'present_date' not in cols:
             cur.execute("ALTER TABLE personnel ADD COLUMN present_date TEXT DEFAULT ''")
+        # Accounted for by hand every day, but never stands in formation:
+        # formation mode skips them and the Strength report counts them apart.
+        if 'no_formation' not in cols:
+            cur.execute('ALTER TABLE personnel ADD COLUMN no_formation BOOLEAN NOT NULL DEFAULT false')
 
         ucols = _columns(cur, 'users')
         if 'pin_hash' not in ucols:
@@ -3020,14 +3025,15 @@ def add_person():
     unit_id = data.get('unit_id')
     if not can_access(unit_id):
         return jsonify({'error': 'Forbidden'}), 403
-    err = _name_errors(data)
+    err = _name_errors(data) or _no_formation_error(data)
     if err:
         return jsonify(err), 400
     conn = get_db()
     cur = conn.execute(
-        'INSERT INTO personnel (rank, last, first, unit_id, root_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        'INSERT INTO personnel (rank, last, first, no_formation, unit_id, root_id) '
+        'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
         (data.get('rank', '').strip(), data.get('last', '').strip(), data.get('first', '').strip(),
-         int(unit_id), _root())
+         data.get('no_formation', False), int(unit_id), _root())
     )
     new_id = cur.fetchone()['id']
     row = conn.execute('SELECT * FROM personnel WHERE id = %s', (new_id,)).fetchone()
@@ -3039,7 +3045,7 @@ def add_person():
 @attached_required
 def update_person(person_id):
     data = request.get_json() or {}
-    err = _name_errors(data)
+    err = _name_errors(data) or _no_formation_error(data)
     if err:
         return jsonify(err), 400
     for col in ('status', 'notes', 'from_date', 'to_date', 'present_date'):
@@ -3058,7 +3064,7 @@ def update_person(person_id):
     if status not in ('present', person['status']):
         return jsonify({'error': 'Book an absence with POST /api/personnel/<id>/schedule; '
                                  'this route only marks a soldier present.', 'field': 'status'}), 400
-    updates = {c: data[c] for c in ('rank', 'last', 'first', 'present_date') if c in data}
+    updates = {c: data[c] for c in ('rank', 'last', 'first', 'present_date', 'no_formation') if c in data}
     # status/from_date/to_date/notes are _sync_person_status()'s display cache
     # while an absence is current, so the body only writes them for a soldier
     # who is, or is becoming, present.
@@ -3098,6 +3104,12 @@ def update_person(person_id):
     if status != person['status']:
         log_action('UPDATE_STATUS', f'{_display_name(person)}: {person["status"]} -> {status}', person['unit_id'])
     return jsonify(dict(row))
+
+
+def _no_formation_error(data):
+    if 'no_formation' in data and not isinstance(data['no_formation'], bool):
+        return {'error': 'no_formation must be true or false.', 'field': 'no_formation'}
+    return None
 
 
 def _name_errors(data):
@@ -4578,6 +4590,9 @@ def import_backup():
         # status is the display cache the roster renders; a value the app
         # would never write drops the row (and so its dependents) here.
         if r.get('status', 'present') in person_statuses:
+            # A junk flag is not worth the soldier: fall back to the default.
+            if not isinstance(r.get('no_formation', False), bool):
+                r = {k: v for k, v in r.items() if k != 'no_formation'}
             people.append(r)
         else:
             skipped_rows += 1

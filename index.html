@@ -4242,6 +4242,8 @@
       <label for="addUnitSelect">Unit</label>
       <select id="addUnitSelect"></select>
     </div>
+    <label class="dash-check" style="margin-top:10px"><input type="checkbox" id="addNoFormation">
+      Doesn't attend formation</label>
     <label id="addNotesLabel">Notes (optional)</label>
     <input type="text" id="addNotes" placeholder="e.g. POC: SGT Jones" />
     <div class="modal-buttons" style="justify-content:space-between;">
@@ -4967,6 +4969,7 @@ async function load() {
       unit_id: p.unit_id, status: p.status, notes: p.notes || '',
       from: p.from_date || '', to: p.to_date || '',
       present_date: p.present_date || '',
+      no_formation: !!p.no_formation,
       // Active absences are represented by the person's own status; the
       // scheduled list shows upcoming (state === 'scheduled') events only.
       scheduled_events: (p.scheduled_events || []).filter(e => e.state === 'scheduled')
@@ -5056,7 +5059,7 @@ async function apiUpdate(p, { markPresent = true } = {}) {
   // ponytail: an absence is owned by the server (_sync_person_status); only a
   // 'present' mark is ours to send. Resending a stale absence status 400s.
   const body = { rank: p.rank, last: p.last, first: p.first, unit_id: p.unit_id,
-                 present_date: p.present_date || '' };
+                 present_date: p.present_date || '', no_formation: !!p.no_formation };
   // An edit (markPresent: false) never sends status: a stale tab that still
   // thinks the soldier is present would otherwise end an absence another
   // leader has just booked. Notes still go; the server keeps them only for a
@@ -6669,6 +6672,8 @@ const FORMATION_REASONS = ['late', 'excused', 'leave', 'pass', 'tdy', 'other', '
 function formationQueue(people, todayStr, groupOf = () => 0) {
   const queue = [], known = [];
   for (const p of people) {
+    // Accounted for by hand, never at formation: not asked, not listed.
+    if (p.no_formation) continue;
     // Already away on a current absence: the app knows where they are, and
     // asking about someone who is on leave in front of the platoon is pure
     // tax. Skipped from the queue, NOT dropped — the finish screen lists them
@@ -6851,7 +6856,7 @@ async function formationKnownPresent(id) {
 }
 
 function formationTally() {
-  const roster = personnel;
+  const roster = personnel.filter(p => !p.no_formation);
   const present = roster.filter(isPresentToday).length;
   const away = roster.filter(p => p.status !== 'present').length;
   return { total: roster.length, present, away, left: roster.length - present - away };
@@ -8207,7 +8212,7 @@ function dashNeedsRow(p) {
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
     <div>${dashName(p, i)}${dashMobileTop('Not yet accounted for')}</div>
-    <div class="dash-row-meta"><span>Not yet accounted for today</span></div>
+    <div class="dash-row-meta"><span>Not yet accounted for today${p.no_formation ? ' · not at formation' : ''}</span></div>
     <div class="dash-row-actions">
       <button class="dash-btn dash-btn-secondary dash-btn-sm dash-btn-setstatus" onclick="openTdyLeave(${i})">Set Status</button>
       <button class="dash-btn dash-btn-primary dash-btn-sm dash-btn-check"
@@ -8256,7 +8261,8 @@ function dashAwayRow(p, todayStr) {
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
     <div>${dashName(p, i)}${dashMobileTop(dashPill(p.status) + returning)}</div>
     <div class="dash-row-meta">${meta}</div>
-    <div class="dash-row-actions">${dashRowMenu([
+    <div class="dash-row-actions">${p.status === 'late' ? `<button class="dash-btn dash-btn-primary dash-btn-sm dash-btn-check"
+              onclick="markPresent(${i})" title="Arrived: mark present" aria-label="Mark present">&#10003;</button>` : ''}${dashRowMenu([
       ['View profile', `openProfile(${i})`],
       ['Mark Present', `markPresent(${i})`],
       ['Update status…', `openTdyLeave(${i})`],
@@ -8601,11 +8607,6 @@ const REASON_FIELDS = {
     label: 'Category',
     placeholder: 'e.g. Quarters, Staff Duty Recovery',
     options: ['Quarters', 'Staff Duty Recovery', 'CQ Recovery', 'Appointment', 'Detail'],
-  },
-  late: {
-    label: 'Why are they late?',
-    placeholder: 'e.g. Traffic, vehicle trouble',
-    options: ['Traffic', 'Vehicle trouble', 'Childcare', 'Called ahead', 'Overslept'],
   },
   excused: {
     label: 'Excused for',
@@ -8982,6 +8983,7 @@ function openAddModal() {
   clearFieldError('addFirst');
   document.getElementById('addNotes').value = '';
   document.getElementById('addNotes').disabled = false;
+  document.getElementById('addNoFormation').checked = false;
   document.getElementById('addNotesLabel').textContent = 'Notes (optional)';
   document.getElementById('deletePersonBtn').style.display = 'none';
   syncAddUnitSelect(currentUnit.id);
@@ -8998,6 +9000,7 @@ function openEditModal(i) {
   document.getElementById('addRank').value = p.rank;
   document.getElementById('addLast').value = p.last;
   document.getElementById('addFirst').value = p.first;
+  document.getElementById('addNoFormation').checked = !!p.no_formation;
   clearFieldError('addLast');
   clearFieldError('addFirst');
   const notesEl = document.getElementById('addNotes');
@@ -9050,21 +9053,24 @@ async function savePerson() {
   });
   if (bad) { document.getElementById(bad).focus(); return; }
   const notes = document.getElementById('addNotes').value.trim();
+  const noFormation = document.getElementById('addNoFormation').checked;
   if (editIndex >= 0) {
     const p = personnel[editIndex];
-    p.rank = rank; p.last = last; p.first = first;
+    p.rank = rank; p.last = last; p.first = first; p.no_formation = noFormation;
     if (p.status === 'present') p.notes = notes;
     const moved = addModalUnitId();
     if (moved !== p.unit_id) p.unit_id = moved;
     await apiUpdate(p, { markPresent: false });
   } else {
-    const newPerson = await api('POST', '/personnel', { rank, last, first, unit_id: addModalUnitId() });
+    const newPerson = await api('POST', '/personnel', { rank, last, first, no_formation: noFormation,
+                                                         unit_id: addModalUnitId() });
     if (!newPerson || !newPerson.id) return;
     personnel.push({
       id: newPerson.id, rank: newPerson.rank, last: newPerson.last, first: newPerson.first,
       unit_id: newPerson.unit_id, status: newPerson.status, notes: newPerson.notes || '',
       from: newPerson.from_date || '', to: newPerson.to_date || '',
       present_date: newPerson.present_date || '',
+      no_formation: !!newPerson.no_formation,
       scheduled_events: []
     });
   }
@@ -9429,21 +9435,27 @@ function reportCategories(splitLeavePass) {
 // Anyone whose status is not one of these is counted (and listed) as Other,
 // so the categories always add up to Assigned.
 const REPORT_AWAY = ['tdy', 'leave', 'pass', 'late', 'excused', 'other', 'ftr'];
-function reportBucket(p, today) {
-  if (p.status === 'present') return p.present_date === today ? 'pdy' : 'unaccounted';
+// strength: the formation's own count, where someone accounted for but never
+// at formation is 'noform' rather than PDY. The Detailed report lists them as PDY.
+function reportBucket(p, today, strength = false) {
+  if (p.status === 'present') {
+    if (p.present_date !== today) return 'unaccounted';
+    return strength && p.no_formation ? 'noform' : 'pdy';
+  }
   return REPORT_AWAY.includes(p.status) ? p.status : 'other';
 }
 
-function reportCounts(people, today) {
-  const c = { assigned: people.length, pdy: 0, unaccounted: 0 };
+function reportCounts(people, today, strength = false) {
+  const c = { assigned: people.length, pdy: 0, noform: 0, unaccounted: 0 };
   REPORT_AWAY.forEach(k => { c[k] = 0; });
-  people.forEach(p => { c[reportBucket(p, today)]++; });
+  people.forEach(p => { c[reportBucket(p, today, strength)]++; });
   return c;
 }
 
 function reportCountsLine(c, splitLeavePass) {
   const n = key => key.split('+').reduce((sum, k) => sum + c[k], 0);
   const parts = [`${c.assigned} Assigned`, `${c.pdy} PDY`];
+  if (c.noform) parts.push(`${c.noform} Not in formation`);
   reportCategories(splitLeavePass).forEach(([key, label]) => { if (n(key)) parts.push(`${n(key)} ${label}`); });
   if (c.unaccounted) parts.push(`${c.unaccounted} Unaccounted`);
   return parts.join(', ');
@@ -9451,7 +9463,7 @@ function reportCountsLine(c, splitLeavePass) {
 
 // Per sub-unit lines plus a total. Anyone directly in the viewed unit (or
 // somewhere no group claims) is filed under HQ, so the lines add up.
-function reportBreakdown(people, ctx, splitLeavePass) {
+function reportBreakdown(people, ctx, splitLeavePass, strength = false) {
   const groups = ctx.groups || [];
   if (!groups.length) return [];
   const claimed = new Set();
@@ -9460,11 +9472,11 @@ function reportBreakdown(people, ctx, splitLeavePass) {
     const ids = new Set(g.ids);
     const members = people.filter(p => ids.has(p.unit_id));
     members.forEach(p => claimed.add(p));
-    if (members.length) lines.push(`${g.name}: ${reportCountsLine(reportCounts(members, ctx.today), splitLeavePass)}`);
+    if (members.length) lines.push(`${g.name}: ${reportCountsLine(reportCounts(members, ctx.today, strength), splitLeavePass)}`);
   });
   const hq = people.filter(p => !claimed.has(p));
-  if (hq.length) lines.push(`HQ: ${reportCountsLine(reportCounts(hq, ctx.today), splitLeavePass)}`);
-  lines.push(`TOTAL: ${reportCountsLine(reportCounts(people, ctx.today), splitLeavePass)}`);
+  if (hq.length) lines.push(`HQ: ${reportCountsLine(reportCounts(hq, ctx.today, strength), splitLeavePass)}`);
+  lines.push(`TOTAL: ${reportCountsLine(reportCounts(people, ctx.today, strength), splitLeavePass)}`);
   return lines;
 }
 
@@ -9499,10 +9511,10 @@ function buildReport(people, opts, ctx) {
   const split = !!opts.splitLeavePass;
   const lines = [ctx.unitName, ctx.dateLabel];
   if (opts.format === 'strength') {
-    const breakdown = reportBreakdown(people, ctx, split);
+    const breakdown = reportBreakdown(people, ctx, split, true);
     lines.push('');
     if (breakdown.length) lines.push(...breakdown);
-    else lines.push(reportCountsLine(reportCounts(people, ctx.today), split));
+    else lines.push(reportCountsLine(reportCounts(people, ctx.today, true), split));
     return lines.join('\n');
   }
 

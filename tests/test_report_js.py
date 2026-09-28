@@ -70,10 +70,10 @@ def run(cases, people=ROSTER):
         extract(src, r'function reportName\(p\) \{.*?\n\}', 'reportName()'),
         extract(src, r'function reportCategories\(splitLeavePass\) \{.*?\n\}', 'reportCategories()'),
         extract(src, r'const REPORT_AWAY = \[.*?\];', 'REPORT_AWAY'),
-        extract(src, r'function reportBucket\(p, today\) \{.*?\n\}', 'reportBucket()'),
-        extract(src, r'function reportCounts\(people, today\) \{.*?\n\}', 'reportCounts()'),
+        extract(src, r'function reportBucket\(p, today, strength = false\) \{.*?\n\}', 'reportBucket()'),
+        extract(src, r'function reportCounts\(people, today, strength = false\) \{.*?\n\}', 'reportCounts()'),
         extract(src, r'function reportCountsLine\(c, splitLeavePass\) \{.*?\n\}', 'reportCountsLine()'),
-        extract(src, r'function reportBreakdown\(people, ctx, splitLeavePass\) \{.*?\n\}', 'reportBreakdown()'),
+        extract(src, r'function reportBreakdown\(people, ctx, splitLeavePass, strength = false\) \{.*?\n\}', 'reportBreakdown()'),
         extract(src, r'function reportDateRange\(p\) \{.*?\n\}', 'reportDateRange()'),
         extract(src, r'function reportDetailLine\(p, bucket\) \{.*?\n\}', 'reportDetailLine()'),
         extract(src, r'function buildReport\(people, opts, ctx\) \{.*?\n\}', 'buildReport()'),
@@ -141,6 +141,13 @@ def main():
     odd = [soldier(1, 'SPC', 'Odd', 'quarters')]
     out = run([['odd', detailed, []]], people=odd)
     assert 'OTHER 1' in out['odd'].split('\n'), out['odd']
+    # Someone accounted for by hand but never at formation is PDY on the
+    # Detailed report and counted apart on the Strength (formation) report.
+    nf = [soldier(1, 'SFC', 'Boone'), soldier(2, 'SPC', 'Clerk', no_formation=True),
+          soldier(3, 'SPC', 'Late', present=False, no_formation=True)]
+    out = run([['d', detailed, []], ['s', {**detailed, 'format': 'strength'}, []]], people=nf)
+    assert 'PDY 2' in out['d'].split('\n') and 'Not in formation' not in out['d'], out['d']
+    assert out['s'].split('\n')[-1] == '3 Assigned, 1 PDY, 1 Not in formation, 1 Unaccounted', out['s']
     check_history_retry()
     print('ok')
 

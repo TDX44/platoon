@@ -290,6 +290,17 @@ def main():
     assert c.post('/api/personnel', json={'rank': 5, 'last': 'A', 'first': 'B',
                                           'unit_id': T['child']}).status_code == 400
 
+    # "Doesn't attend formation" is a plain boolean on the soldier, set on
+    # create or edit; anything else is a 400, not a cast error.
+    assert c.put(f'/api/personnel/{PID}', json={'no_formation': 'yes'}).status_code == 400
+    r = c.put(f'/api/personnel/{PID}', json={'no_formation': True})
+    assert r.status_code == 200 and r.get_json()['no_formation'] is True, r.get_json()
+    r = c.post('/api/personnel', json={'rank': 'SPC', 'last': 'Nf', 'first': 'B',
+                                       'unit_id': T['child'], 'no_formation': True})
+    assert r.status_code == 201 and r.get_json()['no_formation'] is True, r.get_json()
+    assert c.delete(f"/api/personnel/{r.get_json()['id']}").status_code == 200
+    assert c.put(f'/api/personnel/{PID}', json={'no_formation': False}).get_json()['no_formation'] is False
+
     # Marking present for the day does NOT end a running absence — apiUpdate()
     # resends the current status, so this must stay a no-op on the event.
     clear()

@@ -108,6 +108,12 @@ def main():
     out = run([soldier(1, present_date=TODAY), soldier(2, status='tdy')])
     assert out['queue'] == [], out['queue']
 
+    # 6b. Someone who never stands in formation is neither asked nor listed,
+    #     whatever their status; they are accounted for by hand on the roster.
+    out = run([soldier(1), dict(soldier(2), no_formation=True),
+               dict(soldier(3, status='leave'), no_formation=True)])
+    assert out == {'queue': [1], 'known': []}, out
+
     # 7. An empty roster is not a crash.
     assert run([]) == {'queue': [], 'known': []}
 
