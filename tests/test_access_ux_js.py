@@ -308,6 +308,29 @@ def test_user_text_never_becomes_code(src):
     assert 'addEventListener(' in wire, 'the unit-row chips have no handlers'
 
 
+def test_an_existing_account_can_be_moved_without_a_link(src, node):
+    """The Units page used to offer only an invite link for someone already here."""
+    pick = extract(src, r'function unitAssignCandidates\(.*?\n\}', 'unitAssignCandidates()')
+    rows = [{'id': 1, 'role': 'owner', 'unit_id': 1, 'editable': True},
+            {'id': 2, 'role': 'leader', 'unit_id': 2, 'editable': True},
+            {'id': 3, 'role': 'leader', 'unit_id': 3, 'editable': True},
+            {'id': 4, 'role': 'leader', 'unit_id': 3, 'editable': False},
+            {'id': 5, 'role': 'leader', 'unit_id': 3, 'editable': True}]
+    path = os.path.join(tempfile.mkdtemp(), 'assign.js')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(pick + f'\nconsole.log(JSON.stringify(['
+                 f'unitAssignCandidates({json.dumps(rows)}, 2, 5).map(p => p.id),'
+                 f'unitAssignCandidates(null, 2, 5)]));')
+    proc = subprocess.run([node, path], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got == [[3], []], got
+    form = extract(src, r'function unitAssignForm\(.*?\n\}', 'unitAssignForm()')
+    assert 'escapeHtml(' in form and 'assignExistingLeader(${unitId})' in form
+    save = extract(src, r'async function assignExistingLeader\(.*?\n\}', 'assignExistingLeader()')
+    assert "{ unit_id: unitId }" in save, 'the move must not send a role: the server keeps the one they have'
+
+
 ACCESS_ROWS = [
     {'id': 11, 'username': 'boss', 'full_name': 'Alice Owner', 'email': 'a@x.mil', 'unit_id': 1,
      'unit_name': 'HHC', 'role': 'owner', 'editable': False},
@@ -377,6 +400,7 @@ def main():
     test_every_access_write_refreshes_the_page(src)
     test_an_invite_says_what_it_grants(src)
     test_user_text_never_becomes_code(src)
+    test_an_existing_account_can_be_moved_without_a_link(src, node)
     test_the_inline_script_still_parses(src, node)
     print('ok')
 

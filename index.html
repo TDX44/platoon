@@ -6357,7 +6357,37 @@ function unitInviteForm(u, isOwner) {
     <button class="btn-small btn-add" onclick="createUnitInvite(${u.id})">Create link</button>
     <button class="btn-small btn-cancel" onclick="unitInviteFor = null; renderUnits()">Cancel</button>
     <div class="role-help" id="unitInviteRoleHelp">${escapeHtml(roleHelp('leader'))}</div>
+  </div>${unitAssignForm(u.id)}`;
+}
+
+// Someone who already has an account here needs no link: move them. Leaders the
+// server would let this caller change, not already at the unit; an owner is a
+// root role and yourself is the Access page's business, so neither is offered.
+function unitAssignCandidates(users, unitId, selfId) {
+  return (Array.isArray(users) ? users : []).filter(p =>
+    p.editable && p.role !== 'owner' && p.unit_id !== unitId && p.id !== selfId);
+}
+
+function unitAssignForm(unitId) {
+  const people = unitAssignCandidates(unitUsers, unitId, currentUser && currentUser.id);
+  if (!people.length) return '';
+  const options = people.map(p =>
+    `<option value="${p.id}">${escapeHtml((p.full_name || p.username || '') + ' — ' + (p.unit_name || ''))}</option>`).join('');
+  return `<div class="unit-row-form">
+    <select id="unitAssignUser" aria-label="Someone already in the organization">${options}</select>
+    <button class="btn-small btn-add" onclick="assignExistingLeader(${unitId})">Move here</button>
+    <div class="role-help">Already has an account? Move them to this unit, no link needed.</div>
   </div>`;
+}
+
+async function assignExistingLeader(unitId) {
+  const sel = document.getElementById('unitAssignUser');
+  if (!sel || !sel.value) return;
+  const result = await api('PUT', `/users/${Number(sel.value)}`, { unit_id: unitId });
+  if (!result) return;   // api() has already said why
+  if (result.error) { showToast(result.error); return; }
+  unitInviteFor = null;
+  await refreshUnitsPage();
 }
 
 function wireUnitRowActions(view) {
