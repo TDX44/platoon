@@ -4031,6 +4031,21 @@
      instance: the server answers /api/admin/* with 404 to everyone else. -->
 <div id="adminScreen"></div>
 
+<!-- The one confirmation modal. Every destructive action asks through
+     confirmDialog() below; nothing calls the browser's native confirm().
+     Outside #platoonScreen: /admin and the home screen ask through it too,
+     and inside a hidden screen it opened where nobody could see it. -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <div id="confirmBody"></div>
+    <div class="modal-buttons">
+      <button class="btn-small btn-cancel" id="confirmCancelBtn" onclick="settleConfirm(false)">Cancel</button>
+      <button class="btn-small btn-danger" id="confirmOkBtn" onclick="settleConfirm(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── Platoon Screen ─── -->
 <div id="platoonScreen">
 <div class="dash-layout">
@@ -4521,19 +4536,6 @@
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeListEdit()">Cancel</button>
       <button class="btn-small btn-add" onclick="saveListEdit()">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- The one confirmation modal. Every destructive action asks through
-     confirmDialog() below; nothing calls the browser's native confirm(). -->
-<div class="modal-overlay" id="confirmModal">
-  <div class="modal" role="dialog" aria-modal="true">
-    <h2 id="confirmTitle">Are you sure?</h2>
-    <div id="confirmBody"></div>
-    <div class="modal-buttons">
-      <button class="btn-small btn-cancel" id="confirmCancelBtn" onclick="settleConfirm(false)">Cancel</button>
-      <button class="btn-small btn-danger" id="confirmOkBtn" onclick="settleConfirm(true)">Confirm</button>
     </div>
   </div>
 </div>

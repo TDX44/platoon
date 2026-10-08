@@ -62,6 +62,11 @@ def extract(source, pattern, what):
 
 def main():
     src = open(INDEX, encoding='utf-8').read()
+    # The confirm dialog is asked from /admin and the home screen too. Inside
+    # #platoonScreen it opened hidden there and the button looked dead; after
+    # the script, the load-time listener on it finds nothing.
+    assert src.index('id="confirmModal"') < src.index('id="platoonScreen"') < src.index('<script>\nconst RANK_ORDER'), \
+        'the confirm modal must sit at body level, before #platoonScreen and the script'
     js = '\n'.join([
         extract(src, r'const STATUS_LABELS = \{.*?\};', 'STATUS_LABELS'),
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
