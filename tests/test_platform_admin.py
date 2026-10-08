@@ -467,6 +467,75 @@ def test_the_drill_down_names_no_soldier(fx):
     assert 'stripe' not in raw.lower(), 'a Stripe id reached the drill-down payload'
 
 
+def _user_row(user_id):
+    conn = dbharness.owner_conn()
+    try:
+        return conn.execute('SELECT unit_id, root_id, role FROM users WHERE id = %s', (user_id,)).fetchone()
+    finally:
+        conn.close()
+
+
+def test_the_operator_moves_an_account_across_organizations(fx):
+    """Someone who signed up and joined nothing, or made their own organization,
+    is out of every owner's reach. The operator can attach them anywhere."""
+    a, b = fx['a'], fx['b']
+    url = '/api/admin/users/{}/unit'
+    # Gated like everything else, and it writes nothing when refused.
+    stray = fx['stray'][0]['id']
+    assert install(Clerk({}), session_sub=None).put(url.format(stray), json={'unit_id': a['child']}).status_code == 401
+    assert install(Clerk({'clerk_rando': 'someone@example.com'}), session_sub='clerk_rando').put(
+        url.format(stray), json={'unit_id': a['child']}).status_code == 404
+    assert _user_row(stray)['unit_id'] is None
+
+    client = install(Clerk({'clerk_boss': ADMIN_EMAIL}), session_sub='clerk_boss')
+    assert client.put(url.format(stray), json={}).status_code == 400
+    assert client.put(url.format(stray), json={'unit_id': 999999}).status_code == 404
+    assert client.put(url.format(999999), json={'unit_id': a['child']}).status_code == 404
+
+    # An unattached account lands as a leader, in that unit's tenant.
+    r = client.put(url.format(stray), json={'unit_id': a['child']})
+    assert r.status_code == 200, (r.status_code, r.get_json())
+    assert dict(_user_row(stray)) == {'unit_id': a['child'], 'root_id': a['root'], 'role': 'leader'}
+
+    # The only owner of an organization with a soldier in it stays put.
+    solo = dbharness.make_tree('Solo Co')
+    owner = dbharness.make_user(solo['root'], 'owner', 'solo-owner')
+    conn = dbharness.owner_conn()
+    try:
+        soldier = conn.execute("INSERT INTO personnel (rank, last, first, unit_id, root_id) "
+                               "VALUES ('SGT', 'Solo', 'Z', %s, %s) RETURNING id",
+                               (solo['root'], solo['root'])).fetchone()['id']
+        conn.execute("INSERT INTO subscriptions (user_id, root_id, billing_mode, updated_at) "
+                     "VALUES (%s, %s, 'default', now())", (owner['id'], solo['root']))
+        conn.commit()
+    finally:
+        conn.close()
+    r = client.put(url.format(owner['id']), json={'unit_id': b['child']})
+    assert r.status_code == 409, (r.status_code, r.get_json())
+    assert _user_row(owner['id'])['root_id'] == solo['root']
+
+    # With nothing left behind, they go: owner does not travel, and the
+    # subscription row follows them or RLS would hide it from its own account.
+    conn = dbharness.owner_conn()
+    try:
+        conn.execute('DELETE FROM personnel WHERE id = %s', (soldier,))
+        conn.commit()
+    finally:
+        conn.close()
+    r = client.put(url.format(owner['id']), json={'unit_id': b['child']})
+    assert r.status_code == 200, (r.status_code, r.get_json())
+    assert dict(_user_row(owner['id'])) == {'unit_id': b['child'], 'root_id': b['root'], 'role': 'leader'}
+    conn = dbharness.owner_conn()
+    try:
+        assert conn.execute('SELECT root_id FROM subscriptions WHERE user_id = %s',
+                            (owner['id'],)).fetchone()['root_id'] == b['root']
+        for root in (solo['root'], b['root']):
+            assert conn.execute("SELECT count(*) AS n FROM audit_log WHERE root_id = %s "
+                                "AND action = 'ADMIN_MOVE_USER'", (root,)).fetchone()['n'] == 1, root
+    finally:
+        conn.close()
+
+
 def test_the_payload_carries_no_secrets(fx):
     """Read-only is not the same as harmless. The dashboard shows shape and
     size, never contents: no soldier is named in it, no invite token is in it,
@@ -510,6 +579,8 @@ ADMIN_FUNCTIONS = [
     'admin_organizations(text)',
     'admin_recent_users(int)',
     'admin_billing_rows()',
+    'admin_org_units(int)',
+    'admin_move_user(int, int)',
 ]
 
 
@@ -642,7 +713,7 @@ def test_every_admin_call_is_behind_the_decorator():
     src = open(os.path.join(_ROOT, 'server.py'), encoding='utf-8').read()
     code = re.sub(r'#[^\n]*|"""[\s\S]*?"""', '', src)
     blocks = re.split(r'\n(?=@app\.route|\ndef )', code)
-    callers = [b for b in blocks if re.search(r'\badmin_(totals|organizations|recent_users|billing_rows)\s*\(', b)]
+    callers = [b for b in blocks if re.search(r'\badmin_(totals|organizations|recent_users|billing_rows|org_units|move_user)\s*\(', b)]
     assert callers, 'no code calls the admin_ functions at all — did they get renamed?'
     for block in callers:
         assert '@platform_admin_required' in block, (
@@ -698,6 +769,7 @@ def main():
         test_me_reports_the_flag()
         test_an_ordinary_user_never_asks_clerk()
         test_rls_is_untouched_by_the_admin_functions(fx)
+        test_the_operator_moves_an_account_across_organizations(fx)
         test_public_cannot_execute()
         test_every_definer_function_pins_its_search_path()
         test_the_one_cross_tenant_read_leaves_a_trace(fx)

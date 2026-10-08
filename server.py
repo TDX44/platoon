@@ -2436,6 +2436,31 @@ def admin_set_billing_mode(user_id):
     return jsonify({'user_id': user_id, 'billing_mode': mode})
 
 
+@app.route('/api/admin/users/<int:user_id>/unit', methods=['PUT'])
+@platform_admin_required
+def admin_move_user_route(user_id):
+    """Attach any account to any unit, across organizations. The rule is
+    admin_move_user() in sql/admin_functions.sql; this is its only caller."""
+    unit_id = (request.get_json(silent=True) or {}).get('unit_id')
+    if not isinstance(unit_id, int) or isinstance(unit_id, bool):
+        return jsonify({'error': 'unit_id is required'}), 400
+    conn = get_db()
+    sub = g.auth_claims.get('sub')
+    row = conn.execute('SELECT * FROM admin_move_user(%s, %s)', (user_id, unit_id)).fetchone()
+    if row['outcome'] == 'not_found':
+        return jsonify({'error': 'Not found'}), 404
+    if row['outcome'] == 'last_owner':
+        return jsonify({'error': 'That account is the only owner of an organization that still has '
+                                 'other accounts or personnel. Make someone else an owner there first.'}), 409
+    # One audit row in each organization it touched: the one they left has as
+    # much right to know as the one they joined.
+    for root in sorted({r for r in (row['old_root'], row['new_root']) if r is not None}):
+        set_tenant(conn, root)
+        log_action('ADMIN_MOVE_USER', f'user {user_id} moved to unit {unit_id} by the platform admin')
+    app.logger.info('platform admin %s moved user %s to unit %s', sub, user_id, unit_id)
+    return jsonify({'user_id': user_id, 'unit_id': unit_id, 'root_id': row['new_root']})
+
+
 # ── User management ──
 # RLS keeps a caller inside their own root. Reading the account list is
 # org-wide; every write is also bounded by current_subtree()/can_access().

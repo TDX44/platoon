@@ -10703,6 +10703,44 @@ function adminOrgDetailHtml(detail) {
     </section>`;
 }
 
+// Put any account on the instance into one of this organization's units. Both
+// selects carry integer ids as values; every label is a server string and goes
+// through adminCell(). The handler reads the selects, nothing is interpolated
+// into it.
+function adminMoveFormHtml(detail, users) {
+  const units = (detail && detail.units || []).filter(u => Number.isInteger(Number(u.unit_id)));
+  const people = (users || []).filter(u => Number.isInteger(Number(u.user_id)));
+  if (!units.length || !people.length) return '';
+  const who = people.slice().sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')))
+    .map(u => `<option value="${Number(u.user_id)}">${adminCell(u.email || u.full_name)} (${adminCell(u.org_name || 'no organization')})</option>`).join('');
+  const where = units.map(u =>
+    `<option value="${Number(u.unit_id)}">${'\u00a0\u00a0'.repeat(Math.min(Number(u.depth) || 0, 6))}${adminCell(u.unit_name)}</option>`).join('');
+  return `
+    <section class="admin-section">
+      <h2>Add an account to this organization</h2>
+      <p class="admin-muted">Any account, wherever it is now. They join as a leader of the unit you pick; no invite link.</p>
+      <select id="adminMoveUser" class="admin-filter" aria-label="Account">${who}</select>
+      <select id="adminMoveUnit" class="admin-filter" aria-label="Unit">${where}</select>
+      <button type="button" class="admin-btn" onclick="adminMoveUser()">Add to unit</button>
+    </section>`;
+}
+
+async function adminMoveUser() {
+  const user = document.getElementById('adminMoveUser');
+  const unit = document.getElementById('adminMoveUnit');
+  if (!user || !unit || !adminOrgDetail) return;
+  const orgId = adminOrgDetail.org_id;
+  const ok = await confirmDialog('Move this account?',
+    `${user.options[user.selectedIndex].text} becomes a leader of ${unit.options[unit.selectedIndex].text.trim()} ` +
+    `in ${adminOrgDetail.org_name}. They lose access to wherever they are now.`, 'Move');
+  if (!ok) return;
+  const r = await api('PUT', `/admin/users/${Number(user.value)}/unit`, { unit_id: Number(unit.value) });
+  if (!r) return;   // api() has already said why
+  if (r.error) { showToast(r.error); return; }
+  await refreshAdmin();
+  await openAdminOrg(orgId);
+}
+
 // The whole page, from one payload. Pure, so tests/test_platform_admin_js.py
 // can run it under node and prove no server string ever becomes markup.
 function adminOverviewHtml(data, orgSort, userSort) {
@@ -10817,7 +10855,7 @@ function renderAdmin() {
   const active = document.activeElement;
   const refocus = !!(active && active.classList && active.classList.contains('admin-filter'));
   view.innerHTML = adminOrgDetail
-    ? adminOrgDetailHtml(adminOrgDetail)
+    ? adminOrgDetailHtml(adminOrgDetail) + adminMoveFormHtml(adminOrgDetail, adminData && adminData.recent_users)
     : adminOverviewHtml(adminData, adminOrgSort, adminUserSort);
   if (refocus) {
     const box = view.querySelector('.admin-filter');

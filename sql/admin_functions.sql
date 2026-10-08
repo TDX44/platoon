@@ -17,7 +17,7 @@
 -- word — never a Stripe customer or subscription id.
 --
 -- THE DATABASE CANNOT TELL AN ADMIN REQUEST FROM ANY OTHER. platoon_app holds
--- EXECUTE on all three functions, because that is the role the application
+-- EXECUTE on every function here, because that is the role the application
 -- connects as — so any signed-in request could read every tenant if the Python
 -- side let it. Every caller of an admin_ function MUST sit behind
 -- @platform_admin_required in server.py, and tests/test_platform_admin.py
@@ -45,6 +45,7 @@ DROP FUNCTION IF EXISTS admin_organisations(text);
 DROP FUNCTION IF EXISTS admin_recent_users(int);
 DROP FUNCTION IF EXISTS admin_billing_rows();
 DROP FUNCTION IF EXISTS admin_org_units(int);
+DROP FUNCTION IF EXISTS admin_move_user(int, int);
 
 CREATE OR REPLACE FUNCTION admin_totals(p_now text)
 RETURNS TABLE (organizations bigint, unit_count bigint, personnel_count bigint,
@@ -154,12 +155,56 @@ LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$
    ORDER BY t.depth, t.name;
 $$;
 
+-- THE ONE WRITE IN THIS FILE. The operator attaches an account to a unit in any
+-- organization: someone who signed up and joined nothing, or who made an
+-- organization of their own by mistake, cannot be reached by that
+-- organization's owner (RLS) and an invite never moves an attached account.
+--
+-- They arrive as a leader. Owner is a root role an owner grants; it is kept
+-- only when an owner is put back on their own root. The rows keyed on the
+-- account that carry root_id go with it -- left behind, RLS would hide the
+-- account's own subscription from it and the next sign-in would try to insert
+-- a second one.
+--
+-- Refused ('last_owner') when it would take the only owner out of an
+-- organization that still has other accounts or any personnel: nobody left
+-- could ever administer it. An organization that is just that one account is
+-- left behind empty.
+CREATE OR REPLACE FUNCTION admin_move_user(p_user_id int, p_unit_id int)
+RETURNS TABLE (outcome text, old_root int, new_root int)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+DECLARE
+  usr users%ROWTYPE;
+  dest_root int;
+  new_role text;
+BEGIN
+  SELECT * INTO usr FROM users u WHERE u.id = p_user_id FOR UPDATE;
+  SELECT un.root_id INTO dest_root FROM units un WHERE un.id = p_unit_id;
+  IF usr.id IS NULL OR dest_root IS NULL THEN
+    RETURN QUERY SELECT 'not_found'::text, NULL::int, NULL::int;
+    RETURN;
+  END IF;
+  new_role := CASE WHEN usr.role = 'owner' AND p_unit_id = usr.root_id THEN 'owner' ELSE 'leader' END;
+  IF usr.role = 'owner' AND new_role <> 'owner'
+     AND NOT EXISTS (SELECT 1 FROM users o WHERE o.root_id = usr.root_id AND o.role = 'owner' AND o.id <> usr.id)
+     AND (EXISTS (SELECT 1 FROM users o WHERE o.root_id = usr.root_id AND o.id <> usr.id)
+          OR EXISTS (SELECT 1 FROM personnel p WHERE p.root_id = usr.root_id)) THEN
+    RETURN QUERY SELECT 'last_owner'::text, usr.root_id, dest_root;
+    RETURN;
+  END IF;
+  UPDATE users u SET unit_id = p_unit_id, root_id = dest_root, role = new_role WHERE u.id = p_user_id;
+  UPDATE subscriptions s SET root_id = dest_root WHERE s.user_id = p_user_id;
+  UPDATE notification_prefs n SET root_id = dest_root WHERE n.user_id = p_user_id;
+  UPDATE notification_sends n SET root_id = dest_root WHERE n.user_id = p_user_id;
+  RETURN QUERY SELECT 'ok'::text, usr.root_id, dest_root;
+END $$;
+
 DO $$
 DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY[
     'admin_totals(text)', 'admin_organizations(text)', 'admin_recent_users(int)',
-    'admin_billing_rows()', 'admin_org_units(int)']
+    'admin_billing_rows()', 'admin_org_units(int)', 'admin_move_user(int, int)']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO platoon_app', f);

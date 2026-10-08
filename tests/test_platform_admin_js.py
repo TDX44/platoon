@@ -96,6 +96,9 @@ console.log(JSON.stringify({
   byPaying: adminOverviewHtml(PAYLOAD, { key: 'billing_active', dir: -1 }, userSort),
   detail: adminOrgDetailHtml(DETAIL),
   detailLoading: adminOrgDetailHtml(null),
+  move: adminMoveFormHtml({ units: [{ unit_id: 4, unit_name: '<b>1st</b>', depth: 1 }, { unit_id: '4)"><x', unit_name: 'bad' }] },
+                          [{ user_id: 9, email: '<script>a@b.c', org_name: null }, { user_id: 'x', email: 'bad' }]),
+  moveNone: adminMoveFormHtml({ units: [] }, [{ user_id: 9, email: 'a@b.c' }]),
   filtered: (() => {
     adminUserFilter = 'boss';
     const html = adminOverviewHtml(PAYLOAD, orgSort, userSort);
@@ -158,6 +161,7 @@ def render(src, node):
         extract(src, r'function adminWatchlistHtml\(.*?\n\}', 'adminWatchlistHtml()'),
         extract(src, r'function adminOrgLink\(.*?\n\}', 'adminOrgLink()'),
         extract(src, r'function adminOrgDetailHtml\(.*?\n\}', 'adminOrgDetailHtml()'),
+        extract(src, r'function adminMoveFormHtml\(.*?\n\}', 'adminMoveFormHtml()'),
         extract(src, r'function adminOverviewHtml\(.*?\n\}', 'adminOverviewHtml()'),
         extract(src, r'function clearPlatformAdmin\(\) \{.*?\n\}', 'clearPlatformAdmin()'),
         DRIVER,
@@ -188,6 +192,15 @@ def test_a_hostile_organization_name_is_never_markup(out):
                     'tbody', '/tbody', 'tr', '/tr', 'th', '/th', 'td', '/td',
                     'ul', '/ul', 'li', '/li', 'input'}, \
         f'a server string opened a tag of its own: {sorted(tags)}'
+
+
+def test_the_move_form_carries_ids_as_values_and_names_as_text(out):
+    html = out['move']
+    assert re.findall(r'<option value="([^"]*)"', html) == ['9', '4'], html
+    assert '<script>' not in html and '<b>' not in html, 'a server string became markup'
+    assert 'no organization' in html, 'an unattached account does not say where it is'
+    assert re.findall(r'onclick="([^"]*)"', html) == ['adminMoveUser()'], html
+    assert out['moveNone'] == '', 'a form with no unit to pick is offered anyway'
 
 
 def test_no_handler_carries_anything_but_a_literal(out):
@@ -380,6 +393,7 @@ def main():
     out = render(src, node)
     test_a_hostile_organization_name_is_never_markup(out)
     test_no_handler_carries_anything_but_a_literal(out)
+    test_the_move_form_carries_ids_as_values_and_names_as_text(out)
     test_numbers_go_through_the_page_formatter(out)
     test_missing_values_read_as_missing_not_as_null(out)
     test_both_tables_sort_through_the_shared_helpers(out, src)

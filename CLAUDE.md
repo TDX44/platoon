@@ -739,16 +739,16 @@ not the admin is attached to a unit, and answers a signed-in non-admin with
 `platform_admin`, and that flag costs a Clerk call only when the stored email
 already matches the list, so an ordinary sign-in never touches Clerk.
 
-**What it may show.** Every number comes from the three `admin_*` SECURITY
+**What it may show.** Every number comes from the read-only `admin_*` SECURITY
 DEFINER functions in **`sql/admin_functions.sql`**, installed at boot beside
 `auth_functions.sql`. That file's header is the rule: counts, sizes,
 timestamps, organization names/slugs, and app users' email/name/role — and
 nothing else. No soldier names, no profile rows, no audit `details`, no invite
 tokens, no logo bytes, no Clerk ids. **The database cannot tell an admin
-request from any other** — `platoon_app` holds EXECUTE on all three — so every
+request from any other** — `platoon_app` holds EXECUTE on all of them — so every
 Python caller must sit behind `platform_admin_required`, and
 `tests/test_platform_admin.py` greps `server.py` to prove it. The file drops
-all three functions before recreating them: `CREATE OR REPLACE` cannot change
+every function before recreating it: `CREATE OR REPLACE` cannot change
 a `RETURNS TABLE` column list, and a statement that raises in there aborts
 `init_db()`'s transaction, which is the app failing to boot. Postgres's DDL is
 transactional, so there is no window where a concurrent request finds the
@@ -758,6 +758,19 @@ Because `log_action()` needs a tenant and this read belongs to none, the
 dashboard logs to `app.logger` instead: one info line per read, a warning per
 refusal and per unverifiable request, identified by the token's `sub` and
 never by anything out of the request.
+
+**The one write** is `PUT /api/admin/users/<id>/unit`: the operator attaches
+any account to any unit, across organizations (`admin_move_user()` in
+`sql/admin_functions.sql`; the form sits at the bottom of an organization's
+drill-down). It exists because nobody else can do it: an account that signed up
+and joined nothing, or made its own organization, is outside every owner's RLS,
+and an invite never moves an attached account. The account lands as a
+**leader** (owner is kept only when an owner is put back on their own root),
+its `subscriptions` / `notification_prefs` / `notification_sends` rows change
+`root_id` with it, and one `ADMIN_MOVE_USER` audit row is written in each
+organization touched. It answers **409** rather than take the only owner out of
+an organization that still has other accounts or personnel. (The comp toggle,
+`billing_set_mode`, is the other operator write and lives under Billing.)
 
 **The slug `admin` is reserved** (`RESERVED_SLUGS` in `server.py`, applied in
 `slugify()`, which the root path, the child path **and `/api/backup/restore`**
