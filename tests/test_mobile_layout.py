@@ -676,27 +676,28 @@ def check_topbar(page, width, screen, slot):
 
 
 NAV_VISIBLE_JS = "(sel) => { const el = document.querySelector(sel); return !!el && el.getClientRects().length > 0; }"
-SETTINGS_SECTIONS = ('general', 'people', 'data')
+SETTINGS_SECTIONS = ('profile', 'preferences', 'general', 'people', 'timezone', 'data')
 PERSONAL_SECTIONS = ('profile', 'preferences')
 
 
 def check_settings(page, width):
-    """Every settings section, with the settings nav swapped in for the main
-    one (the sidebar on a desktop, the tab row on a phone)."""
+    """Every settings section, with the one settings nav up (under the main
+    nav on a desktop, the tab row on a phone)."""
     page.evaluate('openSettings()')
     assert page.evaluate("document.body.classList.contains('settings-mode')"), (
-        f'settings @ {width}px: the settings nav did not replace the main nav')
+        f'settings @ {width}px: the settings nav did not open')
     assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
         f'settings @ {width}px: the Unit logo row did not render')
     nav = '#settingsTabs' if width < 900 else '#settingsNav'
-    assert not page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"billing\"]')"), (
-        f'settings @ {width}px: Billing is personal and belongs to the account menu, not the settings nav')
-    assert page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"admin\"]')"), (
-        f'settings @ {width}px: the operator does not see Platform admin in the settings nav')
+    assert page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"billing\"]')"), (
+        f'settings @ {width}px: Billing is missing from the settings nav')
+    assert not page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"admin\"]')"), (
+        f'settings @ {width}px: Platform admin belongs on the account menu, not the settings nav')
     for section in SETTINGS_SECTIONS:
         page.evaluate(f"openSettings(true, '{section}')")
         if width >= 900:
-            assert not page.evaluate(NAV_VISIBLE_JS, '#mainNav'), f'settings @ {width}px: both navs are showing'
+            assert page.evaluate(NAV_VISIBLE_JS, '#mainNav'), f'settings @ {width}px: {section} hid the main nav'
+            assert page.evaluate(NAV_VISIBLE_JS, '#settingsNav'), f'settings @ {width}px: {section} has no settings nav'
         on = page.evaluate(f"document.querySelector('{nav} .active').dataset.settings")
         assert on == section, f'settings @ {width}px: {section} open but {on} lit'
         check_no_horizontal_overflow(page, width, f'settings/{section}')
@@ -715,18 +716,15 @@ def check_settings(page, width):
     check_nothing_clips_inside(page, width, '#accessUserList .user-row', 'access rows')
     if width < 900:
         check_tap_targets(page, width, '#accessUserList .row-icon-btn', 'access row buttons')
-    # Personal pages come from the account menu: the main nav stays, no tabs.
+    # Personal pages are also on the account menu; opened from there they land
+    # in the same settings layout, and the menu marks them too.
     for section in PERSONAL_SECTIONS:
         page.evaluate(f"goToSettings('{section}')")
-        assert not page.evaluate("document.body.classList.contains('settings-mode')"), (
-            f'settings @ {width}px: {section} brought up the organization settings nav')
+        assert page.evaluate("document.body.classList.contains('settings-mode')"), (
+            f'settings @ {width}px: {section} opened without the settings nav')
         lit = page.evaluate(f"document.querySelector('#userMenu [data-personal=\"{section}\"]').classList.contains('active')")
         assert lit, f'settings @ {width}px: the account menu does not mark {section} as the open page'
         check_no_horizontal_overflow(page, width, f'settings/{section}')
-        assert not page.evaluate(NAV_VISIBLE_JS, '#settingsNav'), (
-            f'settings @ {width}px: {section} shows the settings nav under the main nav')
-        if width >= 900:
-            assert page.evaluate(NAV_VISIBLE_JS, '#mainNav'), f'settings @ {width}px: {section} hid the main nav'
     # A full page of its own still reads as settings.
     page.evaluate('(async () => { openUnits(); await refreshUnitsPage(); })()')
     page.wait_for_timeout(50)
@@ -926,11 +924,11 @@ def run_checks(page, base_url):
         check_no_horizontal_overflow(page, width, 'availability')
         page.evaluate('closeAvailabilityPage()')
 
-        # Units: four levels of indent, leader chips and invite chips.
+        # Units: four levels of indent and leader chips.
         page.evaluate('(async () => { openUnits(); await refreshUnitsPage(); })()')
         page.wait_for_timeout(50)
-        assert page.evaluate("document.querySelectorAll('.unit-chip-invite').length"), (
-            f'units @ {width}px: no invite chips rendered — fixture is stale')
+        assert page.evaluate("document.querySelectorAll('.unit-chip-user, .unit-chip-owner').length"), (
+            f'units @ {width}px: no leader chips rendered — fixture is stale')
         check_no_horizontal_overflow(page, width, 'units')
         page.evaluate('closeUnits()')
 

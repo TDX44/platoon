@@ -3,11 +3,11 @@ of index.html and run under node.
 
 Run with: python tests/test_settings_nav_js.py
 
-Settings used to be two different menus — a hamburger on the home screen and
-a page inside a unit — and are now one area with one nav. These are the pure
-parts of that: which entries the nav offers (the operator's only when the flag
-says so), which one is lit, what the search box finds, and that a soldier's
-name typed by a leader never becomes markup or lands inside an onclick.
+Settings are one area with one nav, grouped by who a change affects: your
+account, this unit, the organization. These are the pure parts of that: which
+entries the nav offers and under which group, which one is lit, what the
+search box finds, and that a soldier's name typed by a leader never becomes
+markup or lands inside an onclick.
 """
 import json
 import os
@@ -37,10 +37,10 @@ const PEOPLE = ''' + json.dumps(PEOPLE) + r''';
 const UNITS = ''' + json.dumps(UNITS) + r''';
 const HOSTILE = ''' + json.dumps(HOSTILE) + r''';
 const out = {};
-out.navUser = settingsNavHtml('data', { admin: false });
-out.navAdmin = settingsNavHtml('general', { admin: true });
-out.tabsUser = settingsTabsHtml('units', { admin: false });
-out.tabsAdmin = settingsTabsHtml('schools', { admin: true });
+out.navUser = settingsNavHtml('data');
+out.tabsUser = settingsTabsHtml('units');
+out.groups = ['profile', 'billing', 'general', 'units', 'tdy', 'audit', 'people', 'timezone', 'data', 'nope']
+  .map(settingsGroupOf);
 const pages = SEARCH_PAGES.map(p => ({ label: p.label, hint: p.hint, words: p.words }));
 const strip = rs => rs.map(r => [r.group, r.kind, r.id, r.label]);
 out.searchEmpty = globalSearchResults('   ', PEOPLE, UNITS, pages);
@@ -49,6 +49,8 @@ out.searchByRank = strip(globalSearchResults('spc plac', PEOPLE, UNITS, pages));
 out.searchPlatoon = strip(globalSearchResults('platoon', PEOPLE, UNITS, pages));
 out.searchDark = strip(globalSearchResults('dark', PEOPLE, UNITS, pages));
 out.searchInvoice = strip(globalSearchResults('INVOICE', PEOPLE, UNITS, pages));
+out.searchZone = strip(globalSearchResults('time zone', PEOPLE, UNITS, pages));
+out.searchInvite = strip(globalSearchResults('invite', PEOPLE, UNITS, pages));
 out.searchMany = globalSearchResults('sameton', PEOPLE, UNITS, pages).length;
 out.searchHomeScreen = strip(globalSearchResults('fixtureton', [], UNITS, pages));
 const hostile = globalSearchResults('img', PEOPLE, UNITS, pages);
@@ -93,9 +95,9 @@ def render():
         extract(src, r'function unitBySlug\(slug\) \{.*?\n\}', 'unitBySlug()'),
         extract(src, r'function kindLabel\(kind\) \{.*?\n\}', 'kindLabel()'),
         extract(src, r'const SETTINGS_NAV = \[.*?\n\];', 'SETTINGS_NAV'),
-        extract(src, r'function settingsNavItems\(opts\) \{.*?\n\}', 'settingsNavItems()'),
-        extract(src, r'function settingsNavHtml\(active, opts\) \{.*?\n\}', 'settingsNavHtml()'),
-        extract(src, r'function settingsTabsHtml\(active, opts\) \{.*?\n\}', 'settingsTabsHtml()'),
+        extract(src, r'function settingsGroupOf\(key\) \{.*?\n\}', 'settingsGroupOf()'),
+        extract(src, r'function settingsNavHtml\(active\) \{.*?\n\}', 'settingsNavHtml()'),
+        extract(src, r'function settingsTabsHtml\(active\) \{.*?\n\}', 'settingsTabsHtml()'),
         extract(src, r'const SEARCH_PAGES = \[.*?\n\];', 'SEARCH_PAGES'),
         extract(src, r'const SEARCH_LIMIT = \{.*?\};', 'SEARCH_LIMIT'),
         extract(src, r'function globalSearchResults\(.*?\n\}', 'globalSearchResults()'),
@@ -117,22 +119,23 @@ def keys(html):
     return re.findall(r'data-settings="(\w+)"', html)
 
 
-def test_the_nav_is_organization_only_with_one_lit_entry(out):
+ALL_KEYS = ['profile', 'preferences', 'billing', 'general', 'units', 'tdy', 'audit',
+            'people', 'timezone', 'data']
+
+
+def test_one_nav_grouped_by_who_a_change_affects(out):
     nav = out['navUser']
-    assert 'Organization' in nav and 'Personal' not in nav, \
-        'personal settings live in the account menu, not the settings sidebar'
-    assert keys(nav) == ['general', 'people', 'units', 'schools', 'locations', 'data', 'audit'], keys(nav)
+    assert keys(nav) == ALL_KEYS, keys(nav)
+    groups = re.findall(r'settings-nav-group">([^<]*)<', nav)
+    assert groups == ['Your account', 'This unit', 'Organization'], groups
     assert nav.count(' active"') == 1 and 'data-settings="data" aria-current="page"' in nav, nav
-    assert 'dashGoAccountability()' in nav, 'there is no way back out of settings'
     assert "onclick=\"openUnits()\"" in nav and "onclick=\"openAuditLog()\"" in nav, \
         'full pages keep their own open*()'
-
-
-def test_the_operator_entry_needs_the_flag(out):
-    assert 'admin' not in keys(out['navUser']) and 'Platform' not in out['navUser']
-    assert 'admin' not in keys(out['tabsUser'])
-    assert keys(out['navAdmin'])[-1] == 'admin' and 'Platform' in out['navAdmin']
-    assert 'openAdmin()' in out['navAdmin'] and 'admin' in keys(out['tabsAdmin'])
+    assert 'openAdmin' not in nav, 'the operator page belongs on the account menu, not here'
+    for gone in ('openDutyRoster', 'openHistory', 'resetDay', 'exportCSV'):
+        assert gone not in nav, f'{gone} is a daily task, not a setting'
+    assert out['groups'] == ['Your account', 'Your account', 'This unit', 'This unit', 'This unit',
+                             'This unit', 'Organization', 'Organization', 'Organization', ''], out['groups']
 
 
 def test_the_tabs_are_the_same_nav(out):
@@ -146,9 +149,11 @@ def test_search_finds_people_units_and_pages(out):
     assert out['searchRay'] == [['People', 'person', 1, 'SGT Fixtureton, Ray']], out['searchRay']
     assert ['People', 'person', 2, 'SPC Placeholder, Nia'] in out['searchByRank'], out['searchByRank']
     assert [r[:3] for r in out['searchPlatoon'] if r[0] == 'Units'] == [['Units', 'unit', 2]], out['searchPlatoon']
-    assert any(r[3] == 'Units' for r in out['searchPlatoon']), 'the words on a page count too ("platoon" → Units)'
+    assert any(r[3] == 'Sub-units' for r in out['searchPlatoon']), 'the words on a page count too ("platoon" → Sub-units)'
     assert [r[3] for r in out['searchDark']] == ['Preferences'], out['searchDark']
     assert [r[3] for r in out['searchInvoice']] == ['Billing'], 'search is case-insensitive'
+    assert [r[3] for r in out['searchZone']] == ['Time zone'], out['searchZone']
+    assert [r[3] for r in out['searchInvite']] == ['Accounts & invites'], out['searchInvite']
     assert out['searchMany'] == 6, 'people are capped so pages and units still show'
     assert out['searchHomeScreen'] == [], 'no roster on the home screen means no people offered'
 
@@ -191,9 +196,13 @@ def test_the_wiring(src):
     menu = extract(src, r'<div class="user-menu" id="userMenu".*?\n          </div>', 'the account menu')
     for section in ('profile', 'preferences', 'billing'):
         assert f'data-personal="{section}"' in menu, f'the account menu has no {section} entry'
+    assert 'Organization settings' not in menu and "goToSettings('people')" not in menu, \
+        'the account menu duplicates the settings nav again'
     active_key = extract(src, r'function activeSettingsKey\(\) \{.*?\n\}', 'activeSettingsKey()')
-    assert 'PERSONAL_SECTIONS.includes(settingsSection) ? null' in active_key, \
-        'a personal page would bring up the organization settings sidebar'
+    assert "return settingsSection;" in active_key, \
+        'a personal page opens without the settings nav, so settings have two layouts again'
+    assert re.search(r'body\.settings-mode #mainNav \{ display: none', src) is None, \
+        'opening settings hides the main nav again'
     assert 'hamburger' not in re.sub(r'<style>.*?</style>', '', src, flags=re.S), \
         'the home-screen hamburger menu is back'
     open_settings = extract(src, r'function openSettings\(push = true, section = null\) \{.*?\n\}', 'openSettings()')
@@ -206,8 +215,7 @@ def test_the_wiring(src):
 def main():
     out = render()
     src = open(INDEX, encoding='utf-8').read()
-    test_the_nav_is_organization_only_with_one_lit_entry(out)
-    test_the_operator_entry_needs_the_flag(out)
+    test_one_nav_grouped_by_who_a_change_affects(out)
     test_the_tabs_are_the_same_nav(out)
     test_search_finds_people_units_and_pages(out)
     test_a_hostile_name_never_becomes_markup(out)

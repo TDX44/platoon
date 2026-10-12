@@ -208,31 +208,35 @@ theirs.
 button, and the account menu — that `placeTopbar()` moves between
 `#homeTopbarSlot` and `#dashTopbarSlot` whenever `showAppScreen()` shows the
 home screen or the dashboard, so there is one set of ids and handlers. (It
-replaced the home screen's hamburger menu.) The account menu splits
-**Personal** (Profile & account, Preferences, Billing) from **Organization**
-(Access, Organization settings), plus Platform admin for the
-operator. The search box offers people on the loaded roster, the units you
+replaced the home screen's hamburger menu.) The account menu holds
+**Your account** (Profile, Preferences, Billing), **All settings**, Platform
+admin for the operator, and Sign out; it does not repeat the settings nav. The search box offers people on the loaded roster, the units you
 lead and every page and setting (`SEARCH_PAGES`); `globalSearchResults()` is
 pure and a result runs by index, so a typed name never reaches an onclick.
 `/` or Ctrl/Cmd-K focuses it. Anything that needs a unit and is opened from
 the home screen (`goToSettings()`, `goToPage()`) enters the user's own unit
 first.
 
-**Settings** come in two kinds. `/<unit>/settings` is General (logo,
-time zone); `/<unit>/settings/<section>` is `profile`, `preferences`,
-`billing`, `people` (shown as "Access") or `data` (`SETTINGS_SECTIONS`, all
-rendered by `renderSettings()`), and `/<unit>/billing` is an alias for the
-Billing section. The **personal** ones (`PERSONAL_SECTIONS`: profile,
-preferences, billing) are reached only from the account menu, open under the
-main nav, and light their menu item rather than any nav entry. The
-**organization** ones have a sidebar of their own. Units, Schools, Locations
-and the Audit log stay full pages but count as organization settings: while
-any of those is open, `syncNavActive()`
-sets `body.settings-mode`, which swaps the sidebar's main nav for the settings
-nav (`SETTINGS_NAV`, rendered by `settingsNavHtml()`) and, below 900px, shows
-the same entries as a row of tabs (`#settingsTabs`). A new settings page is a
-`SETTINGS_NAV` entry plus, if it is a section rather than a page,
-a `SETTINGS_SECTIONS` entry and a branch in `renderSettings()`.
+**Settings** are one area with one nav (`SETTINGS_NAV`, rendered by
+`settingsNavHtml()`), grouped by who a change affects: **Your account**
+(`profile`, `preferences`, `billing`), **This unit**, the unit being viewed
+(`general`, shown as "Logo"; the Units page as "Sub-units"; Schools and
+Locations as one "TDY lists" entry, key `tdy`; the Audit log), and
+**Organization** (`people`, shown as "Accounts & invites"; `timezone`; `data`,
+shown as "Backup & restore"). `/<unit>/settings` is the logo,
+`/<unit>/settings/<section>` the other sections (`SETTINGS_SECTIONS`, all
+rendered by `renderSettings()`), and `/<unit>/billing` is an alias for
+Billing. While any of them is open `syncNavActive()` sets
+`body.settings-mode`, which shows the settings nav **under** the main nav's
+Settings entry (the main nav stays) and, below 900px, the same entries as a
+row of tabs (`#settingsTabs`). The page's scope line is the entry's group
+(`settingsGroupOf()`). Daily tasks are not settings: duty roster, report
+history, Export CSV and Reset day live on the Accountability "More" menu only.
+Accounts & invites is the one place that invites leaders and moves an account
+to another unit (Edit access → unit); the Units page shows each unit's leaders
+and links there. A new settings page is a `SETTINGS_NAV` entry plus, if it is
+a section rather than a page, a `SETTINGS_SECTIONS` entry and a branch in
+`renderSettings()`.
 
 **Formation mode** is the exception to the full-page pattern: a fixed
 full-screen overlay (`#formationOverlay`, `body.formation-active`), not a
@@ -631,7 +635,7 @@ the server would refuse. Writes did not widen: `PUT`/`DELETE
 /api/users/<id>` are gated exactly as before. Soldiers and everything else
 (personnel, absences, duty, reports, availability, audit) stay
 subtree-scoped, and so do invites (`GET /api/invites`) — they are
-credentials. The list is Settings → Access (`/<unit>/settings/people`,
+credentials. The list is Settings → Accounts & invites (`/<unit>/settings/people`,
 `loadAccessPage()` / `accessUsersHtml()`), a settings section, not a modal;
 edit and remove buttons appear only on `editable` rows. Any other caller of
 `/api/users` that means "people I can manage" must filter on `editable`

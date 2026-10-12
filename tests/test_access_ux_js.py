@@ -176,16 +176,18 @@ def test_the_page_says_what_it_does(src):
     assert 'loadAccessPage()' in opener, 'opening Settings → Access does not load its lists'
 
     units = extract(src, r'function renderUnits\(\) \{.*?\n\}', 'renderUnits()')
-    assert 'Invite leader' in units, 'the unit row has no one-step invite'
-    assert 'unitLeaderChips(' in units and 'unitInviteChips(' in units, \
-        'the unit row shows neither its leaders nor its open invites'
+    # One place hands out and moves access: Accounts & invites. The Units page
+    # shows who leads what and points there, it does not grow a second form.
+    assert 'Invite leader' not in units and 'Move here' not in src, \
+        'the Units page has its own invite/move form again — that is Accounts & invites\' job'
+    assert "openSettings(true,'people')" in units, 'the Units page does not point at Accounts & invites'
+    assert 'unitLeaderChips(' in units, 'the unit row does not show its leaders'
     assert 'leadersByUnit(' in units, 'renderUnits() does not group the loaded people by unit'
     assert 'No leader yet' in extract(src, r'function unitLeaderChips\(.*?\n\}', 'unitLeaderChips()'), \
         'a unit with nobody must say so'
     # One fetch for the page, not one per row.
     page = extract(src, r'async function refreshUnitsPage\(\) \{.*?\n\}', 'refreshUnitsPage()')
-    assert "'/users'" in page and "'/invites'" in page, \
-        'the people and invites behind the rows are not loaded with the page'
+    assert "'/users'" in page, 'the leaders behind the rows are not loaded with the page'
     assert "'/users'" not in units and "'/invites'" not in units, \
         'renderUnits() fetches while rendering — it must draw from what the page loaded'
 
@@ -211,7 +213,7 @@ def test_the_page_never_claims_what_it_could_not_load(src):
     """api() returns null on failure. Drawn as [], that reads as "nobody"."""
     page = extract(src, r'async function refreshUnitsPage\(\) \{.*?\n\}', 'refreshUnitsPage()')
     assert 'ACCESS_FAILED' in page, \
-        'a failed /api/users or /api/invites is stored as an empty list, which is a lie'
+        'a failed /api/users is stored as an empty list, which is a lie'
     assert not re.search(r'unit(?:Users|Invites) = \w+ \|\| \[\]', page), \
         'the || [] fallback is back: a failed fetch would render as "No leader yet"'
 
@@ -227,14 +229,9 @@ def test_the_page_never_claims_what_it_could_not_load(src):
         '"No leader yet" is reachable before the fetch lands or after it fails'
     assert tail  # the string is there at all
 
-    invites = extract(src, r'function unitInviteChips\(.*?\n\}', 'unitInviteChips()')
-    assert 'failed' in invites and 'pending' in invites, \
-        'a failed invite load silently reads as "no pending invites"'
-
     # A previous unit's chips must not flash on the next visit.
     opener = extract(src, r'function openUnits\(push = true\) \{.*?\n\}', 'openUnits()')
-    assert 'unitUsers = null' in opener and 'unitInvites = null' in opener, \
-        'openUnits() leaves the last visit\'s people and invites on screen'
+    assert 'unitUsers = null' in opener, 'openUnits() leaves the last visit\'s people on screen'
 
 
 def test_every_access_write_refreshes_the_page(src):
@@ -261,41 +258,25 @@ def test_every_access_write_refreshes_the_page(src):
         'the chip handler refreshes even when the revoke was declined'
 
 
-def test_an_invite_says_what_it_grants(src):
-    invites = extract(src, r'function unitInviteChips\(.*?\n\}', 'unitInviteChips()')
-    assert re.search(r"role === 'owner'", invites), \
-        'a pending OWNER invite chip looks exactly like a leader invite'
-    form = extract(src, r'function unitInviteForm\(.*?\n\}', 'unitInviteForm()')
-    assert form.count('unitInviteRoleHelp') == 1 and 'canOwn ?' not in form.split('unitInviteRoleHelp')[0][-40:], \
-        'the role help only appears for an owner; a leader inviting a leader is the common case'
-    assert "roleHelp('leader')" in form, \
-        'with no select to follow, the help line has nothing to say'
-
-
 def test_user_text_never_becomes_code(src):
     """Names, labels and tokens are server strings; they go in as data."""
     units = extract(src, r'function renderUnits\(\) \{.*?\n\}', 'renderUnits()')
-    invite = extract(src, r'function unitInviteChips\(.*?\n\}', 'unitInviteChips()')
     leaders = extract(src, r'function unitLeaderChips\(.*?\n\}', 'unitLeaderChips()')
-    for name, block in (('renderUnits', units), ('unitInviteChips', invite),
-                        ('unitLeaderChips', leaders)):
+    for name, block in (('renderUnits', units), ('unitLeaderChips', leaders)):
         for attr in re.findall(r'onclick="[^"]*"', block):
             # Unit ids are numbers the page put there; anything else must not
             # be pasted into an attribute that the browser will execute.
-            assert re.fullmatch(r'onclick="[A-Za-z0-9_ .=;()${}\[\]\'/+-]*"', attr), attr
+            assert re.fullmatch(r'onclick="[A-Za-z0-9_ .,=;()${}\[\]\'/+-]*"', attr), attr
             for interp in re.findall(r'\$\{([^}]*)\}', attr):
                 assert re.fullmatch(r'[A-Za-z0-9_.]*\.id', interp.strip()), \
                     f'{name} interpolates {interp!r} into an onclick attribute'
-    for block, what in ((invite, 'invite'), (leaders, 'leader')):
-        assert 'data-' in block, f'the {what} chips carry no data- attributes to read from'
+    assert 'data-' in leaders, 'the leader chips carry no data- attributes to read from'
 
     # Escaping by coverage, not by presence: every interpolation that carries a
     # server string has to be wrapped, not just one of them somewhere nearby.
-    form = extract(src, r'function unitInviteForm\(.*?\n\}', 'unitInviteForm()')
     server_strings = ('label', 'created_by', 'token', 'full_name', 'username',
                       'url', 'unit_name', 'name', 'bits')
-    for name, block in (('unitLeaderChips', leaders), ('unitInviteChips', invite),
-                        ('unitInviteForm', form)):
+    for name, block in (('unitLeaderChips', leaders),):
         # The innermost ${...} are the leaves that actually reach the markup.
         for expr in re.findall(r'\$\{([^{}]*)\}', block):
             if not any(re.search(rf'\b{w}\b', expr) for w in server_strings):
@@ -308,27 +289,17 @@ def test_user_text_never_becomes_code(src):
     assert 'addEventListener(' in wire, 'the unit-row chips have no handlers'
 
 
-def test_an_existing_account_can_be_moved_without_a_link(src, node):
-    """The Units page used to offer only an invite link for someone already here."""
-    pick = extract(src, r'function unitAssignCandidates\(.*?\n\}', 'unitAssignCandidates()')
-    rows = [{'id': 1, 'role': 'owner', 'unit_id': 1, 'editable': True},
-            {'id': 2, 'role': 'leader', 'unit_id': 2, 'editable': True},
-            {'id': 3, 'role': 'leader', 'unit_id': 3, 'editable': True},
-            {'id': 4, 'role': 'leader', 'unit_id': 3, 'editable': False},
-            {'id': 5, 'role': 'leader', 'unit_id': 3, 'editable': True}]
-    path = os.path.join(tempfile.mkdtemp(), 'assign.js')
-    with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(pick + f'\nconsole.log(JSON.stringify(['
-                 f'unitAssignCandidates({json.dumps(rows)}, 2, 5).map(p => p.id),'
-                 f'unitAssignCandidates(null, 2, 5)]));')
-    proc = subprocess.run([node, path], capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr
-    got = json.loads(proc.stdout)
-    assert got == [[3], []], got
-    form = extract(src, r'function unitAssignForm\(.*?\n\}', 'unitAssignForm()')
-    assert 'escapeHtml(' in form and 'assignExistingLeader(${unitId})' in form
-    save = extract(src, r'async function assignExistingLeader\(.*?\n\}', 'assignExistingLeader()')
-    assert "{ unit_id: unitId }" in save, 'the move must not send a role: the server keeps the one they have'
+def test_an_existing_account_can_be_moved_without_a_link(src):
+    """Someone already here needs no invite link: Edit access picks their unit."""
+    opener = extract(src, r'async function openUserEditModal\(.*?\n\}', 'openUserEditModal()')
+    assert "'userUnit'" in opener, 'the account editor has no unit picker'
+    save = extract(src, r'async function saveUserEdit\(\) \{.*?\n\}', 'saveUserEdit()')
+    assert "getElementById('userUnit')" in save and 'unit_id' in save, \
+        'saving an account does not send the unit picked for it'
+    lead = re.search(r"people:\s*\{[^}]*lead: '([^']*)'", src)
+    assert lead and 'edit their account' in lead.group(1), \
+        'Accounts & invites does not say that moving someone is done by editing their account'
+
 
 
 ACCESS_ROWS = [
@@ -398,9 +369,8 @@ def main():
     test_access_page_under_node(src, node)
     test_the_page_never_claims_what_it_could_not_load(src)
     test_every_access_write_refreshes_the_page(src)
-    test_an_invite_says_what_it_grants(src)
     test_user_text_never_becomes_code(src)
-    test_an_existing_account_can_be_moved_without_a_link(src, node)
+    test_an_existing_account_can_be_moved_without_a_link(src)
     test_the_inline_script_still_parses(src, node)
     print('ok')
 

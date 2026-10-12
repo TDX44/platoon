@@ -2203,22 +2203,18 @@
   }
   body.settings-mode .dash-header, body.settings-active .dash-header { display: none; }
 
-  /* ── Settings nav: replaces the main nav while a settings page is open ── */
+  /* ── Settings nav: opens under the main nav's Settings entry ── */
   /* .dash-nav.settings-nav, not .settings-nav: .dash-nav's display:flex comes
-     later in this sheet and would win a tie, showing both navs at once. */
+     later in this sheet and would win a tie. The main nav stays; its spacer
+     folds so Settings sits right above its own entries. */
   .dash-nav.settings-nav { display: none; }
-  body.settings-mode #mainNav { display: none; }
-  body.settings-mode .dash-nav.settings-nav { display: flex; overflow-y: auto; min-height: 0; }
-  body.settings-mode .dash-brand > img { max-width: 72px; }
-  .settings-nav-back {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    background: none; border: none; cursor: pointer; text-align: left;
-    color: var(--cp-side-text); font: inherit; font-size: 0.82em; font-weight: 600;
-    padding: 8px 12px; border-radius: var(--cp-radius);
+  body.settings-mode #mainNav { flex: none; }
+  body.settings-mode #mainNav .dash-section-spacer { display: none; }
+  body.settings-mode .dash-nav.settings-nav {
+    display: flex; overflow-y: auto; min-height: 0; padding-left: 14px;
+    border-left: 1px solid var(--cp-side-border); margin-left: 18px;
   }
-  .settings-nav-back:hover { color: var(--cp-side-strong); background: var(--cp-side-hover-bg); }
-  .settings-nav-back svg { width: 15px; height: 15px; stroke: currentColor; flex: none; }
-  .settings-nav-title { font-size: 1.05em; font-weight: 700; color: var(--cp-side-strong); padding: 8px 12px 2px; }
+  body.settings-mode .dash-brand > img { max-width: 72px; }
   .settings-nav-group {
     font-size: 0.66em; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
     color: var(--cp-side-text); opacity: 0.75; padding: 14px 12px 4px;
@@ -3968,13 +3964,12 @@
               <span id="userMenuEmail"></span>
               <span class="user-menu-role" id="userMenuRole"></span>
             </div>
-            <div class="user-menu-label">Personal</div>
-            <button type="button" role="menuitem" data-personal="profile" onclick="closeUserMenu();goToSettings('profile')">Profile &amp; account</button>
+            <div class="user-menu-label">Your account</div>
+            <button type="button" role="menuitem" data-personal="profile" onclick="closeUserMenu();goToSettings('profile')">Profile</button>
             <button type="button" role="menuitem" data-personal="preferences" onclick="closeUserMenu();goToSettings('preferences')">Preferences</button>
             <button type="button" role="menuitem" data-personal="billing" onclick="closeUserMenu();openBillingPage()">Billing</button>
-            <div class="user-menu-label">Organization</div>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('people')">Access</button>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('general')">Organization settings</button>
+            <div class="user-menu-sep" role="separator"></div>
+            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('general')">All settings</button>
             <!-- Shown only to the operator of this instance (currentUser.platform_admin,
                  which /api/me only returns after Clerk has confirmed the address). -->
             <button id="adminMenuItem" type="button" role="menuitem" onclick="closeUserMenu();openAdmin()" style="display:none">Platform admin</button>
@@ -4206,10 +4201,8 @@
       <button onclick="closeMoreSheet();startFormation()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg><span class="more-label">Formation Mode</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button onclick="openAvailability();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg><span class="more-label">Who&#39;s Available</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
-    <div class="more-group-label">Lists &amp; rosters</div>
+    <div class="more-group-label">Rosters</div>
     <div class="more-group">
-      <button onclick="openTdyLists(&#39;schools&#39;);closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/></svg><span class="more-label">Schools</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
-      <button onclick="openTdyLists(&#39;locations&#39;);closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span class="more-label">Locations</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button onclick="openDutyRoster();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18"/></svg><span class="more-label">Duty Roster</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <div class="more-group-label">Data</div>
@@ -4916,7 +4909,6 @@ addDutyEntry = singleFlight(addDutyEntry);
 proposeRotation = singleFlight(proposeRotation);
 saveRotation = singleFlight(saveRotation);
 createInvite = singleFlight(createInvite);
-createUnitInvite = singleFlight(createUnitInvite);
 createChildUnit = singleFlight(createChildUnit);
 saveUnitRename = singleFlight(saveUnitRename);
 saveHeaderRename = singleFlight(saveHeaderRename);
@@ -5238,24 +5230,23 @@ function clearDashFilters() {
   render();
 }
 // ─── Settings (full page) ───────────────────────────────────────────────────
-// Two kinds of settings. Personal ones (your account, your preferences, your
-// billing) are reached from the account menu in the top bar and open as plain
-// pages under the main nav. Organization ones (this unit and the tree under
-// it) have the sidebar: while one is open the main nav is swapped for the
-// settings nav (body.settings-mode, set by syncNavActive()), so Units,
-// Schools, Locations and the Audit log — full pages of their own — read as
-// settings pages too. /<unit>/settings is General; /<unit>/settings/<section>
-// is the rest, personal sections included.
+// One settings area, one nav, grouped by who a change affects: your account,
+// the unit being viewed, the organization. While any of its pages is open the
+// settings nav shows under the main nav's Settings entry (body.settings-mode,
+// set by syncNavActive()) — the main nav stays — so Units, the TDY lists and
+// the Audit log, full pages of their own, read as settings pages too.
+// /<unit>/settings is General; /<unit>/settings/<section> is the rest.
 const SETTINGS_SECTIONS = {
-  profile:     { title: 'Profile & account', lead: 'Who you are signed in as, and how you sign in.' },
+  profile:     { title: 'Profile', lead: 'Who you are signed in as, and how you sign in.' },
   preferences: { title: 'Preferences', lead: 'How Platoon Manager looks on this device.' },
   billing:     { title: 'Billing', lead: 'Your plan, payment method and invoices.' },
-  general:     { title: 'General', lead: 'The unit’s logo and the organization’s duty day.' },
-  people:      { title: 'Access', lead: 'Every account in the organization, and the links that bring new leaders in. You can change the ones in your own units.' },
-  data:        { title: 'Data & backup', lead: 'Records, exports, backups and the daily reset.' },
+  general:     { title: 'Logo', lead: 'This unit’s logo. Sub-units without one of their own use it too.' },
+  people:      { title: 'Accounts & invites', lead: 'Every account in the organization, and the links that bring new leaders in. To put someone in a different unit, edit their account. You can change the ones in your own units.' },
+  timezone:    { title: 'Time zone', lead: 'The organization’s duty day: when the roster rolls over and absences start and end.' },
+  data:        { title: 'Backup & restore', lead: 'A full snapshot of everything you can reach, and putting one back.' },
 };
 let settingsSection = 'general';
-// Sections that belong to the account menu, not to the settings sidebar.
+// Your account, not the unit: also on the account menu, and the page says so.
 const PERSONAL_SECTIONS = ['profile', 'preferences', 'billing'];
 
 function openSettings(push = true, section = null) {
@@ -5295,55 +5286,61 @@ function goToSettings(section) {
 }
 
 // The settings nav. Pure over its arguments (tests/test_settings_nav_js.py
-// runs it under node): `active` is the lit key, `opts.admin` adds the
-// operator's entry. Sections of the settings page carry their key; the rest
-// are full pages with their own open*() and keep them.
+// runs it under node): `active` is the lit key. Sections of the settings page
+// carry their key; the rest are full pages with their own open*() and keep them.
 const SETTINGS_NAV = [
-  { group: 'Organization' },
-  { key: 'general', label: 'General', open: "openSettings(true,'general')",
-    icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>' },
-  { key: 'people', label: 'Access', open: "openSettings(true,'people')",
-    icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M18 14a6.5 6.5 0 013.5 6"/>' },
-  { key: 'units', label: 'Units', open: 'openUnits()',
+  { group: 'Your account' },
+  { key: 'profile', label: 'Profile', open: "openSettings(true,'profile')",
+    icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>' },
+  { key: 'preferences', label: 'Preferences', open: "openSettings(true,'preferences')",
+    icon: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>' },
+  { key: 'billing', label: 'Billing', open: "openSettings(true,'billing')",
+    icon: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/>' },
+  { group: 'This unit' },
+  { key: 'general', label: 'Logo', open: "openSettings(true,'general')",
+    icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>' },
+  { key: 'units', label: 'Sub-units', open: 'openUnits()',
     icon: '<path d="M12 7v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/>' },
-  { key: 'schools', label: 'Schools', open: "openTdyLists('schools')",
-    icon: '<path d="M12 4L2 9l10 5 10-5-10-5z"/><path d="M6 11.5V17c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-5.5"/>' },
-  { key: 'locations', label: 'Locations', open: "openTdyLists('locations')",
+  { key: 'tdy', label: 'TDY lists', open: "openTdyLists('schools')",
     icon: '<path d="M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
-  { key: 'data', label: 'Data & backup', open: "openSettings(true,'data')",
-    icon: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>' },
   { key: 'audit', label: 'Audit log', open: 'openAuditLog()',
     icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>' },
-  { group: 'Platform', admin: true },
-  { key: 'admin', label: 'Platform admin', open: 'openAdmin()', admin: true,
-    icon: '<path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>' },
+  { group: 'Organization' },
+  { key: 'people', label: 'Accounts & invites', open: "openSettings(true,'people')",
+    icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M18 14a6.5 6.5 0 013.5 6"/>' },
+  { key: 'timezone', label: 'Time zone', open: "openSettings(true,'timezone')",
+    icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { key: 'data', label: 'Backup & restore', open: "openSettings(true,'data')",
+    icon: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>' },
 ];
 
-function settingsNavItems(opts) {
-  const admin = !!(opts && opts.admin);
-  return SETTINGS_NAV.filter(it => !it.admin || admin);
+// The group heading a key sits under, for the page's scope line.
+function settingsGroupOf(key) {
+  let group = '';
+  for (const it of SETTINGS_NAV) {
+    if (it.group) group = it.group;
+    else if (it.key === key) return group;
+  }
+  return '';
 }
 
-function settingsNavHtml(active, opts) {
-  const items = settingsNavItems(opts).map(it => it.group
+function settingsNavHtml(active) {
+  return SETTINGS_NAV.map(it => it.group
     ? `<div class="settings-nav-group">${escapeHtml(it.group)}</div>`
-    : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`);
-  return `<button type="button" class="settings-nav-back" onclick="dashGoAccountability()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Accountability</button>`
-    + `<div class="settings-nav-title">Settings</div>` + items.join('');
+    : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`).join('');
 }
 
-function settingsTabsHtml(active, opts) {
-  return `<div class="settings-tabs-row" role="tablist" aria-label="Settings">${settingsNavItems(opts).filter(it => !it.group).map(it =>
+function settingsTabsHtml(active) {
+  return `<div class="settings-tabs-row" role="tablist" aria-label="Settings">${SETTINGS_NAV.filter(it => !it.group).map(it =>
     `<button type="button" role="tab" class="settings-tab${it.key === active ? ' active' : ''}" aria-selected="${it.key === active}" data-settings="${it.key}" onclick="${it.open}">${escapeHtml(it.label)}</button>`).join('')}</div>`;
 }
 
-// The organization settings page that is open, as a SETTINGS_NAV key; null
-// outside settings and on a personal page (which has no sidebar of its own).
+// The settings page that is open, as a SETTINGS_NAV key; null outside settings.
 function activeSettingsKey() {
   const c = document.body.classList;
-  if (c.contains('settings-active')) return PERSONAL_SECTIONS.includes(settingsSection) ? null : settingsSection;
+  if (c.contains('settings-active')) return settingsSection;
   if (c.contains('units-active')) return 'units';
-  if (c.contains('lists-active')) return listsKind;
+  if (c.contains('lists-active')) return 'tdy';
   if (c.contains('audit-active')) return 'audit';
   return null;
 }
@@ -5355,12 +5352,11 @@ function renderSettingsNav() {
     ['settingsNav', 'settingsTabs'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
     return;
   }
-  const opts = { admin: !!(currentUser && currentUser.platform_admin) };
   const nav = document.getElementById('settingsNav');
-  if (nav) nav.innerHTML = settingsNavHtml(key, opts);
+  if (nav) nav.innerHTML = settingsNavHtml(key);
   const tabs = document.getElementById('settingsTabs');
   if (tabs) {
-    tabs.innerHTML = settingsTabsHtml(key, opts);
+    tabs.innerHTML = settingsTabsHtml(key);
     const on = tabs.querySelector('.settings-tab.active');
     // Keep the lit tab in view: on a phone it can sit several screens along.
     if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -5501,8 +5497,8 @@ function renderSettings() {
   const isOwner = !!(currentUser && currentUser.role === 'owner');
   const isDark = document.body.classList.contains('dark-mode');
   const meta = SETTINGS_SECTIONS[settingsSection] || SETTINGS_SECTIONS.general;
-  const personal = PERSONAL_SECTIONS.includes(settingsSection);
-  const scope = personal ? 'Personal' : `Organization &middot; ${escapeHtml(unitLabel(currentUnit))}`;
+  const group = settingsGroupOf(settingsSection);
+  const scope = group === 'This unit' ? `This unit &middot; ${escapeHtml(unitLabel(currentUnit))}` : escapeHtml(group);
   let body;
   if (settingsSection === 'profile') {
     const u = currentUser || {};
@@ -5552,29 +5548,21 @@ function renderSettings() {
   } else if (settingsSection === 'data') {
     body = `
       <section class="soldier-card">
-        <h3>Records</h3>
-        ${settingsNavRow('Report history', 'Reports generated on this device.', 'openHistory()')}
-        ${settingsNavRow('Duty roster', 'CQ and staff duty by date.', 'openDutyRoster()')}
-      </section>
-      <section class="soldier-card">
-        <h3>Import &amp; export</h3>
-        ${settingsRow('Export CSV', 'The current roster as a spreadsheet.', 'Export', 'exportCSV()')}
-        ${settingsRow('Export backup', 'Full JSON snapshot of the organization.', 'Export', 'exportBackup()')}
+        <h3>Backup</h3>
+        ${settingsRow('Export backup', 'Full JSON snapshot of everything you can reach.', 'Export', 'exportBackup()')}
         ${settingsRow('Import backup', 'Restore everything from a backup file.', 'Import', 'openRestoreModal()')}
-      </section>
+      </section>`;
+  } else if (settingsSection === 'timezone') {
+    body = `
       <section class="soldier-card">
-        <h3>Day</h3>
-        ${settingsRow('Reset day', 'Clear the present markings for today.', 'Reset', 'resetDay()', 'dash-btn-ghost')}
+        <h3>Duty day</h3>
+        ${timezoneSettingsRow(isOwner)}
       </section>`;
   } else {
     body = `
       <section class="soldier-card">
-        <h3>Unit</h3>
+        <h3>Logo</h3>
         ${logoSettingsRow()}
-      </section>
-      <section class="soldier-card">
-        <h3>Organization</h3>
-        ${timezoneSettingsRow(isOwner)}
       </section>`;
   }
   view.innerHTML = `
@@ -5639,8 +5627,7 @@ function syncNavActive() {
   const personal = c.contains('settings-active') && PERSONAL_SECTIONS.includes(settingsSection)
     ? settingsSection : null;
   const current =
-      personal                      ? null
-    : activeSettingsKey() !== null  ? 'settings'
+      activeSettingsKey() !== null  ? 'settings'
     : c.contains('availability-active') ? 'availability'
     : c.contains('directory-active') ? 'directory'
     : 'accountability';
@@ -6193,13 +6180,10 @@ function fieldErrorBox(inputId) { return `<div class="pf-error" id="err_${inputI
 // owner's alone; the server enforces that too, this only hides the buttons.
 let unitFormFor = null;      // unit id whose inline "add child" form is open
 let unitRenameFor = null;    // unit id whose inline rename form is open
-let unitInviteFor = null;    // unit id whose inline "invite leader" form is open
-let unitInviteLink = null;   // { unitId, url } once that form has produced one
 // Loaded once per page render, never per row: the whole point of the chips is
 // that they cost one fetch, not one fetch per unit. null until the first fetch
 // lands, ACCESS_FAILED when it did not — see accessLoadState().
 let unitUsers = null;
-let unitInvites = null;
 
 function openUnits(push = true) {
   closeSoldierPage(false);
@@ -6210,11 +6194,8 @@ function openUnits(push = true) {
   closeSettings(false);
   unitFormFor = null;
   unitRenameFor = null;
-  unitInviteFor = null;
-  unitInviteLink = null;
   // Back to "not loaded", so the last visit's chips cannot flash on this one.
   unitUsers = null;
-  unitInvites = null;
   document.body.classList.add('units-active');
   if (push) pushAppRoute(currentUnit, 'units');
   renderUnits();          // draw from what is already loaded, then fill in
@@ -6251,8 +6232,6 @@ function renderUnits() {
   const isOwner = !!(currentUser && currentUser.role === 'owner');
   const byUnit = leadersByUnit(Array.isArray(unitUsers) ? unitUsers : []);
   const peopleState = accessLoadState(unitUsers);
-  const invitesState = accessLoadState(unitInvites);
-  const today = getTodayStr();
   const rows = unitSubtree(currentUnit.id).map(id => {
     const u = unitById(id);
     if (!u) return '';
@@ -6277,26 +6256,25 @@ function renderUnits() {
       <div class="unit-row-main">
         <div class="unit-row-name">${escapeHtml(u.name)}</div>
         <div class="unit-row-meta">${escapeHtml(kindLabel(u.kind))} · ${unitHeadcount(u.id)} personnel</div>
-        <div class="unit-row-people">${unitLeaderChips(u.id, byUnit, peopleState)}${unitInviteChips(u.id, today, invitesState)}</div>
+        <div class="unit-row-people">${unitLeaderChips(u.id, byUnit, peopleState)}</div>
       </div>
-      <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; unitInviteFor = null; renderUnits()">Add child</button>
-      <button class="btn-small btn-edit" onclick="unitInviteFor = ${u.id}; unitInviteLink = null; unitFormFor = null; unitRenameFor = null; renderUnits()">Invite leader</button>
-      ${mayEdit ? `<button class="btn-small btn-edit" onclick="unitRenameFor = ${u.id}; unitFormFor = null; unitInviteFor = null; renderUnits()">Rename</button>` : ''}
+      <button class="btn-small btn-add" onclick="unitFormFor = ${u.id}; unitRenameFor = null; renderUnits()">Add child</button>
+      ${mayEdit ? `<button class="btn-small btn-edit" onclick="unitRenameFor = ${u.id}; unitFormFor = null; renderUnits()">Rename</button>` : ''}
       ${mayEdit ? `<button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>` : ''}
-      ${addForm}${renameForm}${unitInviteForm(u, isOwner)}
+      ${addForm}${renameForm}
     </div>`;
   }).join('');
   view.innerHTML = `
     <button class="soldier-back" onclick="closeUnits()">&larr; Back to roster</button>
     <div class="directory-head">
-      <h2>Units &mdash; ${escapeHtml(unitLabel(currentUnit))}</h2>
+      <h2>Sub-units &mdash; ${escapeHtml(unitLabel(currentUnit))}</h2>
       <span class="directory-count">${unitSubtree(currentUnit.id).length} in this tree</span>
     </div>
+    <div class="tdy-list-hint">Leaders are invited and moved between units under Accounts &amp; invites; a leader's name below opens the same editor.
+      <button type="button" class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openSettings(true,'people')">Accounts &amp; invites</button></div>
     ${rows}`;
   wireUnitRowActions(view);
-  syncRoleHelp('unitInviteRole');
-  const focus = document.getElementById('newChildName') || document.getElementById('renameUnitName')
-             || document.getElementById('unitInviteLabel');
+  const focus = document.getElementById('newChildName') || document.getElementById('renameUnitName');
   if (focus) focus.focus();
 }
 
@@ -6319,79 +6297,6 @@ function unitLeaderChips(unitId, byUnit, state) {
   }).join('');
 }
 
-// The invites still out for that unit, under its leaders. Tokens and labels are
-// server strings, so they travel as data- attributes, never as onclick text.
-// Silence here would read as "no pending invites", so a load that failed says
-// so rather than leaving the row looking clean.
-function unitInviteChips(unitId, today, state) {
-  if (state === 'pending') return '';
-  if (state === 'failed') return `<span class="unit-chip unit-chip-none">Couldn't load invites</span>`;
-  return unitInvites.filter(i => Number(i.unit_id) === Number(unitId)).map(i => {
-    const bits = [i.label || 'Unnamed invite'];
-    // An owner invite hands over the whole organization; say so on the chip.
-    if (i.role === 'owner') bits.push('owner');
-    bits.push(inviteExpiryLabel(i.expires_at, today));
-    if (i.created_by) bits.push('by ' + i.created_by);   // escaped once, on the join below
-    return `<span class="unit-chip unit-chip-invite">
-      <span class="unit-chip-text">${escapeHtml(bits.filter(Boolean).join(' · '))}</span>
-      <button type="button" class="unit-chip-act invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy link</button>
-      <button type="button" class="unit-chip-act unit-chip-danger invite-del-btn" data-token="${escapeHtml(i.token)}">Revoke</button>
-    </span>`;
-  }).join('');
-}
-
-// One optional box and one button. The role select only appears where there is
-// a second role to pick — an owner granting at the root itself.
-function unitInviteForm(u, isOwner) {
-  if (unitInviteFor !== u.id) return '';
-  if (unitInviteLink && unitInviteLink.unitId === u.id) {
-    return `<div class="unit-row-form">
-      <input type="text" class="invite-link-field" readonly value="${escapeHtml(unitInviteLink.url)}" onclick="this.select()" />
-      <button class="btn-small btn-add unit-invite-copy">Copy</button>
-      ${navigator.share ? '<button class="btn-small btn-edit unit-invite-share">Share</button>' : ''}
-      <button class="btn-small btn-cancel" onclick="unitInviteFor = null; unitInviteLink = null; renderUnits()">Done</button>
-    </div>`;
-  }
-  const canOwn = isOwner && currentUser && u.id === currentUser.root_id;
-  return `<div class="unit-row-form">
-    <input type="text" id="unitInviteLabel" maxlength="80" placeholder="Who is it for?" autocomplete="off" />
-    ${canOwn ? `<select id="unitInviteRole" onchange="syncRoleHelp('unitInviteRole')">${accessRoleOptions('leader', u.id)}</select>` : ''}
-    <button class="btn-small btn-add" onclick="createUnitInvite(${u.id})">Create link</button>
-    <button class="btn-small btn-cancel" onclick="unitInviteFor = null; renderUnits()">Cancel</button>
-    <div class="role-help" id="unitInviteRoleHelp">${escapeHtml(roleHelp('leader'))}</div>
-  </div>${unitAssignForm(u.id)}`;
-}
-
-// Someone who already has an account here needs no link: move them. Leaders the
-// server would let this caller change, not already at the unit; an owner is a
-// root role and yourself is the Access page's business, so neither is offered.
-function unitAssignCandidates(users, unitId, selfId) {
-  return (Array.isArray(users) ? users : []).filter(p =>
-    p.editable && p.role !== 'owner' && p.unit_id !== unitId && p.id !== selfId);
-}
-
-function unitAssignForm(unitId) {
-  const people = unitAssignCandidates(unitUsers, unitId, currentUser && currentUser.id);
-  if (!people.length) return '';
-  const options = people.map(p =>
-    `<option value="${p.id}">${escapeHtml((p.full_name || p.username || '') + ' — ' + (p.unit_name || ''))}</option>`).join('');
-  return `<div class="unit-row-form">
-    <select id="unitAssignUser" aria-label="Someone already in the organization">${options}</select>
-    <button class="btn-small btn-add" onclick="assignExistingLeader(${unitId})">Move here</button>
-    <div class="role-help">Already has an account? Move them to this unit, no link needed.</div>
-  </div>`;
-}
-
-async function assignExistingLeader(unitId) {
-  const sel = document.getElementById('unitAssignUser');
-  if (!sel || !sel.value) return;
-  const result = await api('PUT', `/users/${Number(sel.value)}`, { unit_id: unitId });
-  if (!result) return;   // api() has already said why
-  if (result.error) { showToast(result.error); return; }
-  unitInviteFor = null;
-  await refreshUnitsPage();
-}
-
 function wireUnitRowActions(view) {
   const known = new Set((Array.isArray(unitUsers) ? unitUsers : []).filter(u => u.editable).map(u => String(u.id)));
   view.querySelectorAll('.unit-chip-user').forEach(btn => {
@@ -6399,18 +6304,6 @@ function wireUnitRowActions(view) {
       if (known.has(btn.dataset.uid)) openUserEditModal(Number(btn.dataset.uid));
     });
   });
-  view.querySelectorAll('.invite-copy-btn').forEach(btn => {
-    btn.addEventListener('click', () => copyWithFeedback(inviteUrl(btn.dataset.token), btn, 'Copy link'));
-  });
-  view.querySelectorAll('.invite-del-btn').forEach(btn => {
-    // revokeInvite() refreshes this page itself, and only if it revoked
-    // anything — refreshing here too would reload on a declined confirm.
-    btn.addEventListener('click', () => revokeInvite(btn.dataset.token));
-  });
-  const copy = view.querySelector('.unit-invite-copy');
-  if (copy && unitInviteLink) copy.addEventListener('click', () => copyWithFeedback(unitInviteLink.url, copy, 'Copy'));
-  const share = view.querySelector('.unit-invite-share');
-  if (share && unitInviteLink) share.addEventListener('click', () => shareInviteLink(unitInviteLink.url));
 }
 
 function inviteUrl(token) {
@@ -6424,23 +6317,12 @@ function shareInviteLink(url) {
     .catch(e => { if (!e || e.name !== 'AbortError') showToast('Could not share that link.'); });
 }
 
-async function createUnitInvite(unitId) {
-  const label = document.getElementById('unitInviteLabel').value.trim();
-  const roleSel = document.getElementById('unitInviteRole');
-  const result = await api('POST', '/invites', { label, unit_id: unitId, role: roleSel ? roleSel.value : 'leader' });
-  if (!result || result.error) return;   // api() has already said why
-  unitInviteLink = { unitId, url: result.url };
-  await refreshUnitsPage();
-}
-
 // Every write re-pulls the tree: names, counts and parentage all move together,
 // and currentUnit is a member of that array, not a copy of one. The people and
-// the open invites come with it — one fetch each for the whole page.
+// the leaders come with it — one fetch for the whole page.
 async function refreshUnitsPage() {
   await reloadUnits();
-  const [people, invites] = await Promise.all([api('GET', '/users'), api('GET', '/invites')]);
-  unitUsers = people || ACCESS_FAILED;
-  unitInvites = invites ? invites.filter(i => i.status === 'pending') : ACCESS_FAILED;
+  unitUsers = (await api('GET', '/users')) || ACCESS_FAILED;
   renderUnits();
 }
 
@@ -9758,16 +9640,18 @@ const SEARCH_PAGES = [
   { label: 'Directory', hint: 'Page', words: 'people contacts phone', run: () => goToPage('directory') },
   { label: 'Availability', hint: 'Page', words: 'who is free available planning', run: () => goToPage('availability') },
   { label: 'Formation mode', hint: 'Page', words: 'formation count', run: () => goToPage('formation') },
-  { label: 'Profile & account', hint: 'Account menu', words: 'name email password two-factor 2fa sign out clerk', run: () => goToSettings('profile') },
-  { label: 'Preferences', hint: 'Account menu', words: 'dark mode light theme appearance', run: () => goToSettings('preferences') },
-  { label: 'Billing', hint: 'Account menu', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
-  { label: 'General', hint: 'Organization settings', words: 'logo time zone timezone duty day', run: () => goToSettings('general') },
-  { label: 'Access', hint: 'Organization settings', words: 'people invites leaders users invite roles owner', run: () => goToSettings('people') },
-  { label: 'Units', hint: 'Organization settings', words: 'platoon squad team company add rename', run: () => goToPage('units') },
-  { label: 'Schools', hint: 'Organization settings', words: 'tdy courses school', run: () => goToPage('schools') },
-  { label: 'Locations', hint: 'Organization settings', words: 'tdy places location', run: () => goToPage('locations') },
-  { label: 'Data & backup', hint: 'Organization settings', words: 'export import csv backup restore reset history duty roster', run: () => goToSettings('data') },
-  { label: 'Audit log', hint: 'Organization settings', words: 'changes history log', run: () => goToPage('audit') },
+  { label: 'Profile', hint: 'Your account', words: 'name email password two-factor 2fa sign out clerk account', run: () => goToSettings('profile') },
+  { label: 'Preferences', hint: 'Your account', words: 'dark mode light theme appearance email notifications alerts digest', run: () => goToSettings('preferences') },
+  { label: 'Billing', hint: 'Your account', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
+  { label: 'Logo', hint: 'This unit', words: 'logo image picture branding', run: () => goToSettings('general') },
+  { label: 'Sub-units', hint: 'This unit', words: 'units platoon squad team company add rename', run: () => goToPage('units') },
+  { label: 'TDY lists', hint: 'This unit', words: 'tdy schools courses locations places', run: () => goToPage('schools') },
+  { label: 'Audit log', hint: 'This unit', words: 'changes history log', run: () => goToPage('audit') },
+  { label: 'Accounts & invites', hint: 'Organization', words: 'access people invites leaders users invite roles owner move', run: () => goToSettings('people') },
+  { label: 'Time zone', hint: 'Organization', words: 'time zone timezone duty day clock', run: () => goToSettings('timezone') },
+  { label: 'Backup & restore', hint: 'Organization', words: 'export import backup restore', run: () => goToSettings('data') },
+  { label: 'Duty roster', hint: 'Page', words: 'cq staff duty rotation', run: () => goToPage('duty') },
+  { label: 'Report history', hint: 'Page', words: 'reports history saved', run: () => goToPage('history') },
 ];
 const SEARCH_LIMIT = { people: 6, units: 5, pages: 6 };
 
@@ -9869,7 +9753,7 @@ async function goToPage(page) {
   if (!currentUnit) {
     const top = currentUser && unitById(currentUser.unit_id);
     if (!top) return;
-    loading = selectUnit(top, page === 'accountability' || page === 'formation');
+    loading = selectUnit(top, ['accountability', 'formation', 'duty', 'history'].includes(page));
   }
   if (page === 'accountability') dashGoAccountability();
   else if (page === 'directory') openDirectory();
@@ -9879,6 +9763,9 @@ async function goToPage(page) {
   else if (page === 'units') openUnits();
   else if (page === 'audit') openAuditLog();
   else if (LIST_PAGES[page]) openTdyLists(page);
+  // Both are dialogs over the roster, so they wait for it like formation does.
+  else if (page === 'duty') { await loading; openDutyRoster(); }
+  else if (page === 'history') { await loading; openHistory(); }
 }
 
 // ─── Theme ───
@@ -12693,6 +12580,7 @@ async function createInvite() {
   document.getElementById('inviteModal').classList.remove('active');
   await refreshAccessViews();
   document.getElementById('inviteLinkValue').value = result.url;
+  document.getElementById('inviteShareBtn').hidden = !navigator.share;
   document.getElementById('inviteLinkModal').classList.add('active');
 }
 
@@ -13143,6 +13031,7 @@ initApp();
     <input type="text" class="invite-link-field" id="inviteLinkValue" readonly onclick="this.select()" />
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeInviteLinkModal()">Done</button>
+      <button class="btn-small btn-edit" id="inviteShareBtn" hidden onclick="shareInviteLink(document.getElementById('inviteLinkValue').value)">Share</button>
       <button class="btn-small btn-add" onclick="copyInviteLink(this)">Copy Link</button>
     </div>
   </div>

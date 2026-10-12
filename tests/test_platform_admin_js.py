@@ -328,16 +328,10 @@ def test_the_menu_entries_are_gated_on_the_flag(src):
     place = extract(src, r'function placeTopbar\(screen\) \{.*?\n\}', 'placeTopbar()')
     assert 'syncUserMenu()' in place, 'the menu is not re-synced when a screen is shown'
 
-    # The settings nav: the entry is marked admin-only, and the one filter
-    # every rendering goes through drops it unless the flag is set.
+    # The operator's page is not a unit setting: the account menu is its one
+    # entry point, so the settings nav every leader sees never names it.
     nav = extract(src, r'const SETTINGS_NAV = \[.*?\n\];', 'SETTINGS_NAV')
-    assert re.search(r"key: 'admin'[^}]*open: 'openAdmin\(\)'[^}]*admin: true", nav), \
-        'the settings nav has no admin-only Platform admin entry'
-    items = extract(src, r'function settingsNavItems\(opts\) \{.*?\n\}', 'settingsNavItems()')
-    assert '!it.admin || admin' in items, 'settingsNavItems() does not drop admin-only entries'
-    render_nav = extract(src, r'function renderSettingsNav\(\) \{.*?\n\}', 'renderSettingsNav()')
-    assert 'admin: !!(currentUser && currentUser.platform_admin)' in render_nav, \
-        'the settings nav is not gated on platform_admin'
+    assert 'openAdmin' not in nav, 'Platform admin is back in the settings nav every leader sees'
 
     for name, body in (
             ('routeAfterLogin()', extract(src, r'function routeAfterLogin\(\) \{.*?\n\}',
