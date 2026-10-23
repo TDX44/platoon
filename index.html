@@ -4465,6 +4465,7 @@
       </div>
     </div>
     <button class="btn-small btn-add" onclick="addDutyEntry()" style="width:100%;margin-bottom:8px;">Add Duty</button>
+    <button class="btn-small btn-cancel" onclick="randomDutyPick()" style="width:100%;margin-bottom:8px;">Random pick</button>
     <button class="btn-small btn-cancel" onclick="openRotationModal()" style="width:100%;margin-bottom:12px;">Generate rotation&hellip;</button>
     <div class="duty-list" id="dutyList"></div>
     <div class="modal-buttons">
@@ -10168,6 +10169,21 @@ async function deleteDutyEntry(id) {
   }
   currentDutyEntries = currentDutyEntries.filter(row => row.id !== id);
   renderDutyRoster();
+}
+
+// Picks someone free on the chosen date (the Availability page's rule, not
+// today's status) who is not already on any duty that day, and only fills the
+// Person select — Add Duty still saves it.
+async function randomDutyPick() {
+  const date = document.getElementById('dutyDate').value || getTodayStr();
+  const res = await api('GET', `/availability?unit=${currentUnit.id}&date=${encodeURIComponent(date)}`);
+  if (!res) return;   // api() has said why
+  const onDuty = new Set(currentDutyEntries.map(r => r.person_id));
+  const pool = res.available.filter(p => !onDuty.has(p.id));
+  if (!pool.length) { showToast('Nobody is free on that date.'); return; }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  document.getElementById('dutyPerson').value = String(pick.id);
+  showToast(`Picked ${pick.rank} ${pick.last} from ${pool.length} available.`, 'info');
 }
 
 // ─── Duty rotation ───
