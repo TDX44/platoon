@@ -134,6 +134,7 @@ def test_an_owners_row_is_owner_only_and_the_root_keeps_one():
 
     # ...but not moved below the root still holding owner: that is a root
     # role, and a unit_id alone used to carry it down unchanged.
+    dbharness.as_user(topkick)  # boss was just demoted; use the remaining owner.
     third = dbharness.make_user(tree['root'], 'owner', 'keep.third')
     r = c.put(f"/api/users/{third['id']}", json={'unit_id': tree['child']})
     assert r.status_code == 400, f'an owner moved below the root must become a leader: {r.get_json()}'

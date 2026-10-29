@@ -6,3 +6,8 @@ __pycache__
 .gitignore
 docker-compose.yml
 .env
+backups/
+.agents/
+.claude/
+.superpowers/
+skills-lock.json

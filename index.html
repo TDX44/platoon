@@ -2126,6 +2126,38 @@
     border-bottom: 1px solid var(--cp-hairline);
   }
   .access-you { color: var(--cp-muted); font-size: 0.72em; font-weight: 400; }
+  .access-page-top { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .access-page-top p { flex: 1 1 260px; color: var(--cp-muted); font-size: 0.85em; line-height: 1.5; }
+  .access-page-top button { min-height: 44px; flex: none; }
+  .settings-cards .access-accounts-card, .settings-cards .access-invites-card { grid-column: 1 / -1; }
+  .access-toolbar { padding: 0 18px 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .access-toolbar .directory-search { flex: 1 1 240px; min-width: 0; max-width: none; min-height: 44px; }
+  .access-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .access-filter-btn { min-height: 44px; padding: 8px 12px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); font: inherit; font-size: 0.85em; cursor: pointer; }
+  .access-filter-btn[aria-pressed="true"] { background: var(--cp-accent); color: var(--cp-accent-text); border-color: var(--cp-accent); }
+  .access-summary { width: 100%; color: var(--cp-muted); font-size: 0.8em; }
+  .access-list .user-row { flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .access-list .user-row-name-block { flex: 1 1 220px; }
+  .access-list .user-row-name, .access-list .user-row-meta, .access-group { overflow-wrap: anywhere; }
+  .access-account-scope { color: var(--cp-muted); font-size: 0.8em; margin-top: 5px; line-height: 1.4; }
+  .access-account-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+  .access-account-actions button, .access-account-actions summary, .access-list .invite-copy-btn, .access-list .invite-del-btn { min-height: 44px; height: auto; min-width: 44px; }
+  .access-account-actions .dash-btn { font-size: 0.8em; padding: 8px 10px; }
+  .access-state-badge { display: inline-block; border-radius: 4px; padding: 3px 8px; font-size: 0.75em; font-weight: 600; background: var(--cp-hover); color: var(--cp-muted); }
+  .access-state-badge.is-active { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  .access-account-more { position: relative; }
+  .access-account-more summary { cursor: pointer; padding: 10px; border: 1px solid var(--cp-border); border-radius: 6px; font-size: 0.8em; }
+  .access-account-more > div { position: absolute; z-index: 10; right: 0; top: 100%; min-width: 160px; padding: 6px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); box-shadow: 0 4px 12px #0002; }
+  .access-account-more .user-del-btn { width: 100%; color: var(--cp-red); }
+  #inviteModal .modal-buttons button, #userEditModal .modal-buttons button { min-height: 44px; }
+  .access-readonly { font-size: 0.8em; color: var(--cp-muted); align-self: center; }
+  @media (max-width: 600px) {
+    .access-list .user-row-name-block { flex-basis: 100%; }
+    .access-account-actions { margin-left: 0; width: 100%; }
+    .access-account-actions .access-account-more { margin-left: auto; }
+    .access-toolbar { padding: 0 14px 12px; }
+    .access-list .user-row { padding: 14px; }
+  }
   .settings-row-text { flex: 1 1 160px; min-width: 0; }
   .settings-logo-preview {
     flex: 0 0 auto; width: 46px; height: 46px; object-fit: contain;
@@ -4686,7 +4718,7 @@ function roleHelp(role) {
 function leadersByUnit(users) {
   const out = {};
   (users || []).forEach(u => {
-    if (u.unit_id == null) return;
+    if (u.unit_id == null || u.is_active === false) return;
     (out[u.unit_id] = out[u.unit_id] || []).push(u);
   });
   const shown = u => String(u.full_name || u.username || '');
@@ -4925,11 +4957,18 @@ async function api(method, path, body) {
   }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
-    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
+    try {
+      const j = await res.json();
+      if (j && j.code === 'account_inactive') { showInactiveAccountScreen(); return null; }
+      if (j && j.error) msg = j.error;
+    } catch (e) {}
     apiError(msg, method);
     return null;
   }
-  return res.json();
+  const data = await res.json();
+  if (path === '/me' && data && data.is_active === false) { showInactiveAccountScreen(); return null; }
+  if (accountInactive && !path.startsWith('/billing/')) return null;
+  return data;
 }
 
 // One request per action at a time — the busy flag formationMark() keeps, for
@@ -5311,7 +5350,7 @@ function openSettings(push = true, section = null) {
   document.body.classList.add('settings-active');
   if (push) pushAppRoute(currentUnit, settingsSection === 'index' ? 'settings' : `settings/${settingsSection}`);
   if (settingsSection === 'billing') loadBillingDetails();
-  if (settingsSection === 'people') { accessUsers = null; accessQuery = ''; }
+  if (settingsSection === 'people') { accessUsers = null; accessQuery = ''; accessFilter = 'active'; }
   renderSettings();
   if (settingsSection === 'people') loadAccessPage();
   syncNavActive();
@@ -5608,21 +5647,28 @@ function renderSettings() {
     // Drawn empty and filled by loadAccessPage(): the search box must not be
     // rebuilt on every keystroke, so only the lists are repainted.
     body = `
-      <section class="soldier-card">
+      <div class="access-page-top">
+        <p>${isOwner ? 'Manage leader access across your organization. Deactivation pauses app access; it does not cancel billing.' : 'You can edit leader access within your unit and its sub-units. Only an organization owner can deactivate, reactivate, or remove access.'}</p>
+        <button class="dash-btn dash-btn-primary" onclick="openInviteModal()">Invite leader</button>
+      </div>
+      <section class="soldier-card access-accounts-card">
         <div class="access-card-head">
-          <h3>Accounts</h3>
+          <h3>Leader accounts</h3>
+        </div>
+        <div class="access-toolbar">
           <input type="search" class="directory-search" id="accessSearch" placeholder="Search name, email or unit…"
                  aria-label="Search accounts" autocomplete="off" value="${escapeHtml(accessQuery)}"
                  oninput="accessQuery = this.value; renderAccessUsers()" />
+          <div class="access-filters" id="accessFilters" role="group" aria-label="Filter account activity"></div>
+          <div class="access-summary" id="accessSummary" role="status"></div>
         </div>
         <div id="accessUserList" class="access-list"></div>
       </section>
-      <section class="soldier-card">
+      <section class="soldier-card access-invites-card">
         <div class="access-card-head">
-          <h3>Open invites</h3>
-          <button class="dash-btn dash-btn-secondary dash-btn-sm" onclick="openInviteModal()">New invite</button>
+          <h3>Pending invitations <span id="pendingInviteCount"></span></h3>
         </div>
-        <div id="inviteListWrap" class="access-list"></div>
+        <div id="inviteListWrap" class="access-list"><p class="modal-empty">Loading invitations…</p></div>
       </section>`;
   } else if (settingsSection === 'data') {
     body = `
@@ -11701,7 +11747,39 @@ async function setBillingMode(userId, mode) {
 }
 
 // ─── Auth ───
+let accountInactive = false;
+
+function showInactiveAccountScreen() {
+  accountInactive = true;
+  showLoginScreen('inactive');
+  personnel = [];
+  personnelUnitId = null;
+  currentUnit = null;
+  currentSoldierId = null;
+  units = [];
+  directoryRows = [];
+  accessUsers = null;
+  bulkSelected.clear();
+  ['personnelBody', 'soldierView', 'directoryView', 'availabilityView', 'tdyListsView',
+   'auditView', 'unitsView', 'settingsView', 'unitCards'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+  // Render immediately even when Clerk is temporarily unreachable.
+  renderAuthForm();
+}
+
+async function retryInactiveAccount() {
+  const user = await syncClerkUser();
+  if (!user) return;
+  currentUser = user;
+  if (user.timezone) APP_TZ = user.timezone;
+  await loadUnits();
+  routeAfterLogin();
+}
+
 function showAppScreen(screen) {
+  if (accountInactive) { showInactiveAccountScreen(); return; }
   rememberProfileDraft();
   document.body.classList.add('app-authenticated');
   document.body.classList.toggle('dash-active', screen === 'platoon');
@@ -11902,6 +11980,7 @@ function setAuthView(view) {
 async function finalizeAuth(createdSessionId) {
   await clerk.setActive({ session: createdSessionId });
   currentUser = await syncClerkUser();
+  if (!currentUser) return;
   routeAfterLogin();
 }
 
@@ -12158,6 +12237,21 @@ function renderAuthForm() {
   setLoginStatus('');
   const subtitle = document.getElementById('loginSubtitle');
 
+  if (authView === 'inactive') {
+    if (subtitle) subtitle.textContent = 'Organization access deactivated';
+    mount.innerHTML = `<div class="auth-form">
+      <p class="auth-hint">An organization owner has deactivated your access. Your account and unit assignment are kept. Ask an owner to reactivate you.</p>
+      <button type="button" class="btn-login" id="inactiveRetry">Check access again</button>
+      <p class="auth-hint">Deactivation does not cancel a paid subscription. You can still manage or cancel your own plan.</p>
+      <button type="button" class="dash-btn dash-btn-secondary" id="inactiveBilling">Manage billing</button>
+      <button type="button" class="auth-link" id="inactiveSignout">Sign out</button>
+    </div>`;
+    document.getElementById('inactiveRetry').addEventListener('click', withBusy(document.getElementById('inactiveRetry'), 'Checking…', retryInactiveAccount));
+    document.getElementById('inactiveBilling').addEventListener('click', withBusy(document.getElementById('inactiveBilling'), 'Opening…', () => openBillingPortal('cancel')));
+    document.getElementById('inactiveSignout').addEventListener('click', withBusy(document.getElementById('inactiveSignout'), 'Signing out…', doLogout));
+    return;
+  }
+
   if (authView === 'signin') {
     if (subtitle) subtitle.textContent = 'Sign in to continue';
     mount.innerHTML = `
@@ -12407,9 +12501,11 @@ async function syncClerkUser() {
     res = await post();
   }
   const data = await res.json();
+  if (data && data.code === 'account_inactive') { showInactiveAccountScreen(); return null; }
   // Signup is self-serve now: a Clerk account with no app account gets one and
   // lands on the create-unit screen, so nothing here signs anybody back out.
   if (!res.ok) throw new Error(data.error || 'Unable to sync the Clerk user with the app.');
+  accountInactive = false;
   clearInviteToken();
   return data;
 }
@@ -12420,6 +12516,7 @@ async function doLogout() {
   }
   await fetch('/api/logout', { method: 'POST' });
   notifyPrefs = null;   // the next account's, not this one's
+  accountInactive = false;
   showLoginScreen();
 }
 
@@ -12469,6 +12566,7 @@ function parseAppRoute() {
 }
 
 function routeAfterLogin() {
+  if (accountInactive || (currentUser && currentUser.is_active === false)) { showInactiveAccountScreen(); return; }
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
@@ -12574,6 +12672,7 @@ async function initApp() {
       }
     }
     currentUser = await syncClerkUser();
+    if (accountInactive) return;
     // /api/auth/config no longer carries the zone; the user's own row does.
     if (currentUser && currentUser.timezone) APP_TZ = currentUser.timezone;
     await loadUnits();
@@ -12589,11 +12688,13 @@ async function initApp() {
 // ─── Unit routing ───
 
 async function loadHome() {
+  if (accountInactive) { showInactiveAccountScreen(); return; }
   if (!currentUser) { showLoginScreen(); return; }
   if (currentUser.needs_unit) { showCreateUnitScreen(); return; }
   showAppScreen('home');
   syncInstallButton();
   await loadUnits();
+  if (accountInactive || !currentUser) return;
   applyUnitLogo();
   renderHome();
 }
@@ -12760,46 +12861,72 @@ let editingUserRole = null;   // the role the row had when the modal opened
 // a failed fetch — see accessLoadState().
 let accessUsers = null;
 let accessQuery = '';
+let accessFilter = 'active';
+let accessLoadReq = 0;
+const accessPending = new Set();
 
 function accessPageOpen() {
   return document.body.classList.contains('settings-active') && settingsSection === 'people';
 }
 
 async function loadAccessPage() {
+  const req = ++accessLoadReq;
+  accessUsers = null;
   renderAccessUsers();
   const users = await api('GET', '/users');
-  if (!accessPageOpen()) return;
+  if (req !== accessLoadReq || !accessPageOpen()) return;
   accessUsers = users || ACCESS_FAILED;
   renderAccessUsers();
   await refreshInviteList();
 }
 
+function filterAccessUsers(users, query, filter = 'all') {
+  const q = String(query || '').trim().toLowerCase();
+  return users.filter(u => (filter === 'all' || (u.is_active !== false) === (filter === 'active')) &&
+    (!q || [u.full_name, u.username, u.email, u.unit_name]
+      .some(v => String(v || '').toLowerCase().includes(q))));
+}
+
+function accessFilterHtml(users, filter) {
+  const active = users.filter(u => u.is_active !== false).length;
+  return [['active', 'Active', active], ['inactive', 'Inactive', users.length - active], ['all', 'All', users.length]]
+    .map(([key, label, count]) => `<button type="button" class="access-filter-btn" data-filter="${key}" aria-pressed="${filter === key}">${label} (${count})</button>`).join('');
+}
+
 // Pure (tests/test_access_ux_js.py runs it under node). The rows arrive in
 // unit-tree order, so a group is a run of one unit_id.
-function accessUsersHtml(users, query, selfId, isOwner) {
+function accessUsersHtml(users, query, selfId, isOwner, filter = 'all') {
   const q = String(query || '').trim().toLowerCase();
-  const shown = q ? users.filter(u => [u.full_name, u.username, u.email, u.unit_name]
-    .some(v => String(v || '').toLowerCase().includes(q))) : users;
-  if (!shown.length) return `<p class="modal-empty">${q ? 'No account matches that search.' : 'No one yet.'}</p>`;
+  const shown = filterAccessUsers(users, query, filter);
+  if (!shown.length) return `<p class="modal-empty">${q ? 'No account matches that search and activity filter.' : filter === 'inactive' ? 'No inactive accounts.' : filter === 'active' ? 'No active leader accounts.' : 'No leader accounts yet.'}</p>`;
   let lastUnit;
   return shown.map(u => {
-    const head = u.unit_id !== lastUnit ? `<div class="access-group">${escapeHtml(u.unit_name || '')}</div>` : '';
+    const head = u.unit_id !== lastUnit ? `<div class="access-group">${escapeHtml(u.unit_name || 'Unassigned')}</div>` : '';
     lastUnit = u.unit_id;
     const isSelf = selfId != null && u.id === selfId;
-    const label = escapeHtml(u.full_name || u.username);
+    const label = escapeHtml(u.full_name || u.username || u.email || 'Unnamed account');
     // Clerk sets username to the email address for email sign-ups; only show
     // the handle when it says something the email does not.
     const handle = u.username && u.username !== u.full_name && u.username !== u.email ? `@${u.username}` : '';
     const meta = [u.email, handle].filter(Boolean).join(' • ');
     const role = u.role === 'owner' ? 'Owner' : 'Leader';
+    const active = u.is_active !== false;
+    const canManage = !!u.editable && isOwner && !isSelf;
+    const canToggle = canManage && u.can_toggle_active !== false;
+    const scope = u.role === 'owner' ? 'Organization owner' : `${u.unit_name || 'Assigned unit'} and its sub-units`;
+    const readOnly = u.role === 'owner' && !isOwner ? 'Read-only · only an owner can edit owners' : 'Read-only · outside your unit scope';
     return `${head}<div class="user-row">
       <div class="user-row-name-block">
         <div class="user-row-name">${label}${isSelf ? ' <span class="access-you">(you)</span>' : ''}</div>
         ${meta ? `<div class="user-row-meta">${escapeHtml(meta)}</div>` : ''}
+        <div class="access-account-scope">${escapeHtml(scope)}</div>
       </div>
-      <div class="user-row-badges"><span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${role}</span></div>
-      ${u.editable ? `<button class="row-icon-btn access-edit-btn" data-uid="${u.id}" title="Edit access" aria-label="Edit access for ${label}">${ICON_PENCIL}</button>` : ''}
-      ${u.editable && isOwner && !isSelf ? `<button class="row-icon-btn row-icon-danger user-del-btn" data-uid="${u.id}" title="Remove access" aria-label="Remove access for ${label}">${ICON_REMOVE}</button>` : ''}
+      <div class="user-row-badges"><span class="platoon-badge${u.role === 'owner' ? ' admin-badge' : ''}">${role}</span><span class="access-state-badge${active ? ' is-active' : ''}">${active ? 'Active' : 'Inactive'}</span></div>
+      <div class="access-account-actions">
+        ${u.editable ? `<button class="dash-btn dash-btn-secondary access-edit-btn" data-uid="${u.id}" aria-label="Edit access for ${label}">Edit access</button>` : `<span class="access-readonly">${readOnly}</span>`}
+        ${canToggle ? `<button class="dash-btn dash-btn-secondary access-toggle-btn" data-uid="${u.id}" aria-label="${active ? 'Deactivate' : 'Reactivate'} ${label}">${active ? 'Deactivate' : 'Reactivate'}</button>` : ''}
+        ${canManage ? `<details class="access-account-more"><summary aria-label="More actions for ${label}">More</summary><div><button class="dash-btn dash-btn-ghost user-del-btn" data-uid="${u.id}" aria-label="Remove access for ${label}">Remove access</button></div></details>` : ''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -12807,21 +12934,69 @@ function accessUsersHtml(users, query, selfId, isOwner) {
 function renderAccessUsers() {
   const wrap = document.getElementById('accessUserList');
   if (!wrap) return;
+  const filters = document.getElementById('accessFilters');
+  const summary = document.getElementById('accessSummary');
   const state = accessLoadState(accessUsers);
-  if (state === 'pending') { wrap.innerHTML = '<p class="modal-empty">Loading…</p>'; return; }
-  if (state === 'failed') { wrap.innerHTML = '<p class="modal-empty">Couldn’t load accounts.</p>'; return; }
+  if (filters) filters.innerHTML = '';
+  if (summary) summary.textContent = '';
+  wrap.setAttribute('aria-busy', String(state === 'pending'));
+  if (state === 'pending') { wrap.innerHTML = '<p class="modal-empty">Loading leader accounts…</p>'; return; }
+  if (state === 'failed') {
+    wrap.innerHTML = '<p class="modal-empty">Couldn’t load accounts. <button type="button" class="dash-btn dash-btn-secondary" onclick="loadAccessPage()">Try again</button></p>';
+    return;
+  }
   const isOwner = !!(currentUser && currentUser.role === 'owner');
-  wrap.innerHTML = accessUsersHtml(accessUsers, accessQuery, currentUser && currentUser.id, isOwner);
+  if (filters) {
+    filters.innerHTML = accessFilterHtml(accessUsers, accessFilter);
+    filters.querySelectorAll('[data-filter]').forEach(btn => btn.addEventListener('click', () => {
+      accessFilter = btn.dataset.filter;
+      renderAccessUsers();
+      [...filters.querySelectorAll('[data-filter]')].find(el => el.dataset.filter === accessFilter)?.focus({ preventScroll: true });
+    }));
+  }
+  if (summary) summary.textContent = `${filterAccessUsers(accessUsers, accessQuery, accessFilter).length} of ${accessUsers.length} leader accounts`;
+  wrap.innerHTML = accessUsersHtml(accessUsers, accessQuery, currentUser && currentUser.id, isOwner, accessFilter);
   // Handlers by id, never inline: display names must not reach executable attributes.
   const byId = Object.fromEntries(accessUsers.map(u => [String(u.id), u]));
   wrap.querySelectorAll('.access-edit-btn').forEach(btn =>
     btn.addEventListener('click', () => openUserEditModal(Number(btn.dataset.uid))));
+  wrap.querySelectorAll('.access-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const u = byId[btn.dataset.uid];
+      if (u) setUserActive(u.id, u.is_active === false);
+    });
+  });
   wrap.querySelectorAll('.user-del-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const u = byId[btn.dataset.uid];
       if (u) deleteUser(u.id, u.full_name || u.username);
     });
   });
+  wrap.querySelectorAll('[data-uid]').forEach(btn => {
+    if (accessPending.has(Number(btn.dataset.uid))) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
+  });
+}
+
+async function setUserActive(userId, active) {
+  if (accessPending.has(userId) || !currentUser || currentUser.role !== 'owner' || userId === currentUser.id) return;
+  const u = Array.isArray(accessUsers) && accessUsers.find(row => row.id === userId);
+  if (!u || !u.editable || u.can_toggle_active === false) return;
+  accessPending.add(userId);
+  renderAccessUsers();
+  try {
+    const name = u.full_name || u.username || u.email || 'this leader';
+    const explanation = active
+      ? 'Restore this leader’s app access with their existing unit assignment and role. Billing is unchanged.'
+      : 'This leader will lose access to organization data. Their unit assignment and role are kept for reactivation. Billing is unchanged; deactivation does not cancel their subscription.';
+    if (!await confirmDialog(`${active ? 'Reactivate' : 'Deactivate'} ${name}?`, explanation, active ? 'Reactivate' : 'Deactivate')) return;
+    const result = await api('PUT', `/users/${userId}`, { is_active: active });
+    if (!result || result.error) { showToast((result && result.error) || 'Account access was not changed. Try again.'); return; }
+    showToast(active ? 'Leader reactivated.' : 'Leader deactivated.', 'success');
+    await refreshAccessViews();
+  } finally {
+    accessPending.delete(userId);
+    if (accessPageOpen()) renderAccessUsers();
+  }
 }
 
 // ─── Invite links ───
@@ -12875,14 +13050,21 @@ function renderAccessReach(unitSelectId, targetId) {
   el.textContent = `Will see: ${names} — ${r.soldiers} soldier${r.soldiers === 1 ? '' : 's'}`;
 }
 
+let invitesLoadReq = 0;
+const invitePending = new Set();
 async function refreshInviteList() {
+  const req = ++invitesLoadReq;
+  const oldCount = document.getElementById('pendingInviteCount');
+  if (oldCount) oldCount.textContent = '';
   const invites = await api('GET', '/invites');
   const wrap = document.getElementById('inviteListWrap');
-  if (!wrap) return;
-  if (!invites) { wrap.innerHTML = '<p class="modal-empty">Couldn’t load invites.</p>'; return; }
+  if (!wrap || req !== invitesLoadReq || !accessPageOpen()) return;
+  if (!invites) { wrap.innerHTML = '<p class="modal-empty">Couldn’t load invitations. <button type="button" class="dash-btn dash-btn-secondary" onclick="refreshInviteList()">Try again</button></p>'; return; }
   const pending = invites.filter(i => i.status === 'pending');
+  const count = document.getElementById('pendingInviteCount');
+  if (count) count.textContent = `(${pending.length})`;
   if (!pending.length) {
-    wrap.innerHTML = '<p class="modal-empty">No open invites. Create one to let someone sign up.</p>';
+    wrap.innerHTML = '<p class="modal-empty">No pending invitations. Use Invite leader to share access.</p>';
     return;
   }
   const today = getTodayStr();
@@ -12897,7 +13079,7 @@ async function refreshInviteList() {
       </div>
       <div class="user-row-badges">${badges}</div>
       <button class="btn-small btn-edit invite-copy-btn" data-token="${escapeHtml(i.token)}">Copy link</button>
-      <button class="row-icon-btn row-icon-danger invite-del-btn" data-token="${escapeHtml(i.token)}" title="Revoke invite" aria-label="Revoke invite">${ICON_REMOVE}</button>
+      <button class="dash-btn dash-btn-ghost invite-del-btn" data-token="${escapeHtml(i.token)}" aria-label="Revoke invite for ${escapeHtml(i.label || 'unnamed leader')}">Revoke</button>
     </div>`;
   }).join('');
   wrap.querySelectorAll('.invite-copy-btn').forEach(btn => {
@@ -12907,6 +13089,7 @@ async function refreshInviteList() {
   wrap.querySelectorAll('.invite-del-btn').forEach(btn => {
     btn.addEventListener('click', () => revokeInvite(btn.dataset.token));
   });
+  wrap.querySelectorAll('[data-token]').forEach(btn => { btn.disabled = invitePending.has(btn.dataset.token); });
 }
 
 function openInviteModal() {
@@ -12930,6 +13113,10 @@ async function createInvite() {
     errEl.textContent = 'Pick a unit.'; errEl.style.display = 'block'; return;
   }
   const label = document.getElementById('inviteLabel').value.trim();
+  const createButton = document.getElementById('inviteCreateBtn');
+  createButton.disabled = true;
+  createButton.textContent = 'Creating…';
+  try {
   const result = await api('POST', '/invites', { label, unit_id, role });
   if (!result || result.error) {
     errEl.textContent = (result && result.error) || 'Error creating invite.'; errEl.style.display = 'block'; return;
@@ -12939,6 +13126,10 @@ async function createInvite() {
   document.getElementById('inviteLinkValue').value = result.url;
   document.getElementById('inviteShareBtn').hidden = !navigator.share;
   document.getElementById('inviteLinkModal').classList.add('active');
+  } finally {
+    createButton.disabled = false;
+    createButton.textContent = 'Create Link';
+  }
 }
 
 function closeInviteLinkModal() {
@@ -12950,13 +13141,26 @@ function copyInviteLink(btn) {
 }
 
 async function revokeInvite(token) {
-  if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
-  const result = await api('DELETE', `/invites/${token}`);
-  if (result && result.error) { showToast(result.error); return; }
-  await refreshAccessViews();
+  if (invitePending.has(token)) return;
+  invitePending.add(token);
+  const buttons = [...document.querySelectorAll('#inviteListWrap [data-token]')].filter(btn => btn.dataset.token === token);
+  buttons.forEach(btn => { btn.disabled = true; });
+  try {
+    if (!await confirmDialog('Revoke this invite link?', 'Anyone holding it will no longer be able to sign up.', 'Revoke')) return;
+    const result = await api('DELETE', `/invites/${token}`);
+    if (!result || result.error) { showToast((result && result.error) || 'Invitation was not revoked. Try again.'); return; }
+    await refreshAccessViews();
+  } finally {
+    invitePending.delete(token);
+    buttons.forEach(btn => { if (btn.isConnected) btn.disabled = false; });
+  }
 }
 
+let userEditReq = 0;
+let userEditSaving = false;
 async function openUserEditModal(userId) {
+  if (accessPending.has(userId) || userEditSaving) return;
+  const req = ++userEditReq;
   editingUserId = userId;
   document.getElementById('userEditTitle').textContent = 'Edit Access';
   document.getElementById('userEditUsername').value = '';
@@ -12970,8 +13174,9 @@ async function openUserEditModal(userId) {
   const saveBtn = document.getElementById('userEditSave');
   saveBtn.disabled = false;
   const users = await api('GET', '/users');
-  if (!users) return;
+  if (!users || req !== userEditReq) return;
   const u = users.find(x => x.id === userId);
+  if (!u) { showToast('This leader account is no longer available. Refresh the list.'); return; }
   editingUserRole = u ? u.role : null;
   if (u) {
     document.getElementById('userEditUsername').value = u.username;
@@ -12999,10 +13204,12 @@ async function openUserEditModal(userId) {
 }
 
 function closeUserEdit() {
+  userEditReq++;
   document.getElementById('userEditModal').classList.remove('active');
 }
 
 async function saveUserEdit() {
+  if (userEditSaving) return;
   const username = document.getElementById('userEditUsername').value.trim();
   const errEl = document.getElementById('userEditError');
   if (!username) {
@@ -13010,6 +13217,12 @@ async function saveUserEdit() {
   }
   const unit_id = Number(document.getElementById('userUnit').value);
   const role = document.getElementById('userRole').value;
+  if (!unit_id || !role) { errEl.textContent = 'Choose a unit and role.'; errEl.style.display = 'block'; return; }
+  userEditSaving = true;
+  const saveButton = document.getElementById('userEditSave');
+  saveButton.disabled = true;
+  saveButton.textContent = 'Saving…';
+  try {
   // Owner is a root-only role, so moving an owner below the root has to make
   // them a leader in the same request. Say so before it happens.
   if (editingUserRole === 'owner' && role !== 'owner') {
@@ -13027,6 +13240,11 @@ async function saveUserEdit() {
   }
   closeUserEdit();
   await refreshAccessViews();
+  } finally {
+    userEditSaving = false;
+    saveButton.disabled = false;
+    saveButton.textContent = 'Save';
+  }
 }
 
 // Access is shown on the Units page and on Settings → Access, so every write
@@ -13037,10 +13255,20 @@ async function refreshAccessViews() {
 }
 
 async function deleteUser(userId, username) {
-  if (!await confirmDialog(`Remove app access for "${username}"?`, 'Their Clerk account will stay active.', 'Remove')) return;
-  const result = await api('DELETE', `/users/${userId}`);
-  if (result && result.error) { showToast(result.error); return; }
-  await refreshAccessViews();
+  if (accessPending.has(userId) || !currentUser || currentUser.role !== 'owner' || userId === currentUser.id) return;
+  accessPending.add(userId);
+  renderAccessUsers();
+  try {
+    if (!await confirmDialog(`Remove app access for "${username}"?`,
+      'Remove this leader’s organization membership and unit access. Their sign-in identity is kept. The app will attempt to cancel their subscription; verify billing if cancellation fails. To pause access while keeping the assignment and billing unchanged, use Deactivate instead.', 'Remove access')) return;
+    const result = await api('DELETE', `/users/${userId}`);
+    if (!result || result.error) { showToast((result && result.error) || 'Access was not removed. Try again.'); return; }
+    await refreshAccessViews();
+    showToast('Organization access removed.', 'success');
+  } finally {
+    accessPending.delete(userId);
+    if (accessPageOpen()) renderAccessUsers();
+  }
 }
 
 // ─── Init ───
@@ -13368,7 +13596,7 @@ initApp();
 <div class="modal-overlay" id="inviteModal">
   <div class="modal" role="dialog" aria-modal="true">
     <h2>New Invite Link</h2>
-    <label>Who is it for? (optional)</label>
+    <label for="inviteLabel">Who is it for? (optional)</label>
     <input type="text" id="inviteLabel" placeholder="e.g. SFC Jones (PSG)" autocomplete="off" />
     <label for="invUnit">Unit</label>
     <select id="invUnit" onchange="syncRoleSelect('invUnit', 'invRole')"></select>
@@ -13379,7 +13607,7 @@ initApp();
     <div id="inviteError" class="login-error" style="display:none"></div>
     <div class="modal-buttons">
       <button class="btn-small btn-cancel" onclick="closeInviteModal()">Cancel</button>
-      <button class="btn-small btn-add" onclick="createInvite()">Create Link</button>
+      <button class="btn-small btn-add" id="inviteCreateBtn" onclick="createInvite()">Create Link</button>
     </div>
   </div>
 </div>
@@ -13401,7 +13629,7 @@ initApp();
 <div class="modal-overlay" id="userEditModal">
   <div class="modal" role="dialog" aria-modal="true">
     <h2 id="userEditTitle">Edit Access</h2>
-    <label>Display Name</label>
+    <label for="userEditUsername">Display Name</label>
     <input type="text" id="userEditUsername" placeholder="Display name" autocomplete="off" />
     <label for="userUnit">Unit</label>
     <select id="userUnit" onchange="syncRoleSelect('userUnit', 'userRole'); renderAccessReach('userUnit', 'userReach')"></select>

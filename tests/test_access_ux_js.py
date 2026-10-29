@@ -50,6 +50,7 @@ out.unit5 = by[5] || null;
 out.unattached = Object.keys(by).filter(k => k === 'null' || k === 'undefined');
 out.empty = leadersByUnit([]);
 out.nullUsers = leadersByUnit(null);
+out.inactiveLeaders = leadersByUnit(USERS.map(u => ({...u, is_active: u.id !== 13})));
 
 out.reachLeaf = accessReach(4);
 out.reachMid = accessReach(2);
@@ -127,6 +128,7 @@ def test_helpers_under_node(src, node):
         f'a user attached to no unit must not become a bucket: {out["unattached"]}'
     assert out['empty'] == {} and out['nullUsers'] == {}, \
         'a failed /api/users must still render rows, not throw'
+    assert '2' not in out['inactiveLeaders'], 'an inactive account must not be shown as a current unit leader'
 
     # ── accessReach ──
     assert out['reachLeaf'] == {'names': ['Alpha Team'], 'more': 0, 'soldiers': 1, 'units': 1}, \
@@ -241,6 +243,7 @@ def test_every_access_write_refreshes_the_page(src):
     for fn, pattern in (
         ('saveUserEdit()', r'async function saveUserEdit\(\) \{.*?\n\}'),
         ('deleteUser()', r'async function deleteUser\(.*?\n\}'),
+        ('setUserActive()', r'async function setUserActive\(.*?\n\}'),
         ('revokeInvite()', r'async function revokeInvite\(.*?\n\}'),
         ('createInvite()', r'async function createInvite\(\) \{.*?\n\}'),
     ):
@@ -306,7 +309,7 @@ ACCESS_ROWS = [
     {'id': 11, 'username': 'boss', 'full_name': 'Alice Owner', 'email': 'a@x.mil', 'unit_id': 1,
      'unit_name': 'HHC', 'role': 'owner', 'editable': False},
     {'id': 13, 'username': 'psg', 'full_name': 'Bravo <b>Jones</b>', 'email': 'b@x.mil', 'unit_id': 2,
-     'unit_name': '1st Platoon', 'role': 'leader', 'editable': True},
+     'unit_name': '1st Platoon', 'role': 'leader', 'editable': True, 'is_active': False},
     {'id': 15, 'username': 'me', 'full_name': 'Me Myself', 'email': 'me@x.mil', 'unit_id': 2,
      'unit_name': '1st Platoon', 'role': 'leader', 'editable': True},
 ]
@@ -324,6 +327,13 @@ out.leaderRemoves = count(accessUsersHtml(ROWS, '', 15, false), 'user-del-btn');
 const hit = accessUsersHtml(ROWS, 'hhc', 15, true);
 out.searchUnit = count(hit, 'class="user-row"');
 out.searchMiss = accessUsersHtml(ROWS, 'nobody', 15, true).includes('No account matches');
+out.inactive = accessUsersHtml(ROWS, '', 15, true, 'inactive');
+out.active = accessUsersHtml(ROWS, '', 15, true, 'active');
+out.filters = accessFilterHtml(ROWS, 'inactive');
+out.lifecycle = count(all, 'access-toggle-btn');
+out.leaderLifecycle = count(accessUsersHtml(ROWS, '', 15, false), 'access-toggle-btn');
+out.noPermission = count(accessUsersHtml(ROWS.map(u => ({...u, can_toggle_active: false})), '', 15, true), 'access-toggle-btn');
+out.readonly = all.includes('Read-only');
 console.log(JSON.stringify(out));
 '''
 
@@ -334,6 +344,8 @@ def test_access_page_under_node(src, node):
         extract(src, r'function escapeHtml\(str\) \{.*?\n\}', 'escapeHtml()'),
         extract(src, r"const ICON_PENCIL  = '[^']+';", 'ICON_PENCIL'),
         extract(src, r"const ICON_REMOVE  = '[^']+';", 'ICON_REMOVE'),
+        extract(src, r'function filterAccessUsers\(.*?\n\}', 'filterAccessUsers()'),
+        extract(src, r'function accessFilterHtml\(.*?\n\}', 'accessFilterHtml()'),
         extract(src, r'function accessUsersHtml\(.*?\n\}', 'accessUsersHtml()'),
         ACCESS_DRIVER,
     ])
@@ -350,6 +362,13 @@ def test_access_page_under_node(src, node):
     assert out['you'] == 1, 'the signed-in account is marked (you)'
     assert out['escaped'], 'a display name reached the markup unescaped'
     assert out['searchUnit'] == 1 and out['searchMiss'], f'search matches unit names and says when nothing does: {out}'
+    assert out['inactive'].count('class="user-row"') == 1 and 'Reactivate' in out['inactive']
+    assert out['active'].count('class="user-row"') == 2 and 'Bravo' not in out['active']
+    assert out['lifecycle'] == 1 and out['leaderLifecycle'] == 0 and out['noPermission'] == 0
+    assert out['readonly'], 'out-of-scope accounts must explain why controls are unavailable'
+    for label in ('Active (2)', 'Inactive (1)', 'All (3)'):
+        assert label in out['filters'], out['filters']
+    assert 'data-filter="inactive" aria-pressed="true"' in out['filters']
 
 
 def test_the_inline_script_still_parses(src, node):

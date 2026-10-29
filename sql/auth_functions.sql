@@ -45,7 +45,7 @@ RETURNS SETOF users LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT A
   UPDATE users SET clerk_user_id = p_clerk_user_id, username = p_username, email = p_email,
                    full_name = p_full_name, password_hash = 'clerk', pin_hash = '',
                    unit_id = p_unit_id, role = p_role, root_id = p_root_id
-  WHERE id = p_user_id AND clerk_user_id = ''
+  WHERE id = p_user_id AND clerk_user_id = '' AND is_active
   RETURNING *;
 $$;
 
@@ -60,7 +60,7 @@ RETURNS SETOF users LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT A
   UPDATE users u SET unit_id = i.unit_id, role = i.role, root_id = i.root_id
   FROM invites i
   WHERE i.token = p_token AND i.accepted_by = p_clerk_user_id AND p_clerk_user_id <> ''
-    AND u.id = p_user_id AND u.clerk_user_id = p_clerk_user_id AND u.unit_id IS NULL
+    AND u.id = p_user_id AND u.clerk_user_id = p_clerk_user_id AND u.unit_id IS NULL AND u.is_active
   RETURNING u.*;
 $$;
 
@@ -72,7 +72,7 @@ BEGIN
   RETURNING id INTO new_id;
   UPDATE units SET root_id = new_id WHERE id = new_id;
   UPDATE users SET unit_id = new_id, role = 'owner', root_id = new_id
-   WHERE id = p_user_id AND unit_id IS NULL;
+   WHERE id = p_user_id AND unit_id IS NULL AND is_active;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'user % is already attached to a unit', p_user_id;
   END IF;

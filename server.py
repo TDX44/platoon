@@ -343,7 +343,7 @@ def can_access(unit_id):
 
 
 def is_owner(user):
-    return bool(user) and user.get('role') == 'owner'
+    return bool(user) and user.get('role') == 'owner' and user.get('is_active', True)
 
 
 # Client routes that are not a unit. parseAppRoute() in index.html looks a
@@ -454,6 +454,7 @@ def init_db():
                 full_name     TEXT DEFAULT '',
                 unit_id       INTEGER,
                 role          TEXT NOT NULL DEFAULT 'leader',
+                is_active     BOOLEAN NOT NULL DEFAULT true,
                 root_id       INTEGER
             )
         ''')
@@ -680,6 +681,8 @@ def init_db():
             cur.execute('ALTER TABLE personnel ADD COLUMN no_formation BOOLEAN NOT NULL DEFAULT false')
 
         ucols = _columns(cur, 'users')
+        if 'is_active' not in ucols:
+            cur.execute('ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true')
         if 'pin_hash' not in ucols:
             cur.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT DEFAULT ''")
         for col in ('clerk_user_id', 'email', 'full_name'):
@@ -999,6 +1002,24 @@ def get_current_user():
 # is what attaches an account to somebody else's tree, at one unit and in one
 # role.
 INVITE_EXPIRY_DAYS = 7
+ACCOUNT_INACTIVE = 'Your account has been deactivated. Ask an organization owner to reactivate it.'
+
+
+def _inactive_response():
+    return jsonify({'error': ACCOUNT_INACTIVE, 'code': 'account_inactive', 'is_active': False}), 403
+
+
+def _lock_user_management(conn):
+    # Account changes are rare. One transaction lock also covers cross-root
+    # platform moves and restore, avoiding last-owner races and lock ordering
+    # cycles across organizations. SQL admin_move_user uses the same key.
+    conn.execute('SELECT pg_advisory_xact_lock(418761, 0)')
+
+
+def _active_owner_count(conn):
+    return conn.execute(
+        "SELECT count(*) AS n FROM users WHERE role = 'owner' AND unit_id = %s "
+        "AND clerk_user_id != '' AND is_active", (_root(),)).fetchone()['n']
 
 
 def _display_name_for_user(payload):
@@ -1060,10 +1081,13 @@ def sync_clerk_user(payload):
         username = email or f'user-{clerk_user_id[:8]}'
 
     conn = get_db()
+    _lock_user_management(conn)
     token = (payload.get('invite_token') or '').strip()
     try:
         existing = conn.execute('SELECT * FROM auth_user_by_clerk_id(%s)', (clerk_user_id,)).fetchone()
         if existing:
+            if not existing['is_active']:
+                return None, ACCOUNT_INACTIVE
             # Signed up, found nothing to join, then followed an invite link:
             # the account exists but is attached nowhere, so the invite is
             # still what attaches it. An attached account is never moved by one.
@@ -1095,6 +1119,8 @@ def sync_clerk_user(payload):
             legacy = None
 
         if legacy:
+            if not legacy['is_active']:
+                return None, ACCOUNT_INACTIVE
             unit_id, role, root_id = legacy['unit_id'], legacy['role'], legacy['root_id']
             if invite:
                 unit_id, role, root_id = invite['unit_id'], invite['role'], invite['root_id']
@@ -1127,6 +1153,8 @@ def sync_clerk_user(payload):
 
 def _unauthenticated_response():
     error = getattr(g, 'auth_error', '') or 'Unauthorized'
+    if error == ACCOUNT_INACTIVE:
+        return _inactive_response()
     return jsonify({'error': error}), _auth_status_for(error)
 
 
@@ -1386,6 +1414,22 @@ def _resolved_user():
     user = get_current_user()
     if not user:
         return None
+    # Acquire lifecycle locks before billing can lock a subscription row;
+    # deletion takes the same locks in that order before cancelling billing.
+    management = ((request.path.startswith('/api/users/') and request.method in ('PUT', 'DELETE'))
+                  or request.path == '/api/backup/restore')
+    if management:
+        _lock_user_management(get_db())
+        # A concurrent demotion/deactivation may have completed while waiting.
+        fresh = get_db().execute('SELECT * FROM auth_user_by_clerk_id(%s)',
+                                 (user.get('clerk_user_id', ''),)).fetchone()
+        if not fresh:
+            return None
+        user = dict(fresh)
+    billing_access = request.path in ('/api/me', '/api/billing/portal', '/api/billing/details', '/api/billing/refresh')
+    if not user.get('is_active', True) and not billing_access:
+        g.auth_error = ACCOUNT_INACTIVE
+        return None
     g.current_user = user
     # Declare the tenant on this request's transaction before any other
     # statement. An unattached user has no root_id and so declares no tenant
@@ -1535,6 +1579,11 @@ def platform_admin_required(f):
             return jsonify({'error': error}), _auth_status_for(error)
         g.auth_claims = claims
         sub = claims.get('sub')
+        if request.path.endswith('/unit') and request.method == 'PUT':
+            _lock_user_management(get_db())
+        local = get_db().execute('SELECT * FROM auth_user_by_clerk_id(%s)', (sub or '',)).fetchone()
+        if local and not local['is_active']:
+            return _inactive_response()
         allowed = _platform_admin_verdict(sub)
         if allowed is PLATFORM_ADMIN_UNKNOWN:
             app.logger.warning('platform admin request could not be checked with Clerk: %s', sub)
@@ -1558,7 +1607,7 @@ def _platform_admin_flag(u):
     and a menu item is not worth blocking a sign-in over. The verdict is
     cached, so an outage costs one lookup per failure TTL, not one per request.
     """
-    if (u.get('email') or '').strip().lower() not in PLATFORM_ADMIN_EMAILS:
+    if not u.get('is_active', True) or (u.get('email') or '').strip().lower() not in PLATFORM_ADMIN_EMAILS:
         return False
     return _platform_admin_verdict(u.get('clerk_user_id') or '') is True
 
@@ -1842,6 +1891,7 @@ def _user_json(conn, u):
             'full_name': u.get('full_name', ''), 'unit_id': u.get('unit_id'),
             'unit_name': unit['name'] if unit else '', 'unit_slug': unit['slug'] if unit else '',
             'role': u.get('role'), 'root_id': u.get('root_id'),
+            'is_active': u.get('is_active', True),
             'timezone': app_timezone(),
             'needs_unit': u.get('unit_id') is None}
 
@@ -1874,6 +1924,8 @@ def auth_sync():
     payload = request.get_json() or {}
     user, error = sync_clerk_user(payload)
     if error:
+        if error == ACCOUNT_INACTIVE:
+            return _inactive_response()
         return jsonify({'error': error}), 409
     # This route is @clerk_auth_required alone, so nothing has declared a
     # tenant for it. log_action() takes root_id from the GUC and writes
@@ -2491,9 +2543,14 @@ def get_users():
     rows = conn.execute(
         "SELECT * FROM users WHERE clerk_user_id != '' AND unit_id IS NOT NULL").fetchall()
     owner = is_owner(g.current_user)
+    active_owners = _active_owner_count(conn)
     rows = sorted(rows, key=lambda r: (order.get(r['unit_id'], len(order)), r['role'] != 'owner',
                                        (r['full_name'] or r['username'] or '').lower()))
     return jsonify([{**_user_json(conn, dict(r)),
+                     'active_owner_count': active_owners,
+                     'can_toggle_active': owner and can_access(r['unit_id'])
+                         and r['id'] != g.current_user['id']
+                         and not (r['is_active'] and r['role'] == 'owner' and active_owners <= 1),
                      'editable': can_access(r['unit_id']) and (r['role'] != 'owner' or owner)}
                     for r in rows])
 
@@ -2506,6 +2563,13 @@ def update_user(user_id):
     target = conn.execute("SELECT * FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,)).fetchone()
     if target is None or not can_access(target['unit_id']):
         return jsonify({'error': 'Not found'}), 404
+    if 'is_active' in data:
+        if not isinstance(data['is_active'], bool):
+            return jsonify({'error': 'is_active must be true or false.'}), 400
+        if not is_owner(g.current_user):
+            return jsonify({'error': 'Only an owner can deactivate or reactivate accounts.'}), 403
+        if user_id == g.current_user['id'] and not data['is_active']:
+            return jsonify({'error': 'Cannot deactivate your own account.'}), 400
     # An owner's row may only be changed by an owner. Granting owner was
     # already owner-only, but *taking it away* was not: a root-attached leader
     # could demote every owner (or rename one past recognition) and brick the
@@ -2514,6 +2578,8 @@ def update_user(user_id):
             and not is_owner(g.current_user):
         return jsonify({'error': 'Only an owner can change an owner.'}), 403
     fields, values = [], []
+    if 'is_active' in data:
+        fields.append('is_active = %s'); values.append(data['is_active'])
     new_unit = target['unit_id']
     if 'unit_id' in data:
         if not can_access(data['unit_id']):
@@ -2541,20 +2607,21 @@ def update_user(user_id):
     # The other half of the same brick: the last owner may not demote himself
     # or walk off the root. Owner is granted only by an owner, so a root with
     # none is a root nobody can ever administer again.
-    if target['role'] == 'owner' and target['unit_id'] == _root() \
-            and (data.get('role', 'owner') != 'owner' or new_unit != _root()):
-        owners = conn.execute(
-            "SELECT count(*) AS n FROM users WHERE role = 'owner' AND unit_id = %s AND clerk_user_id != ''",
-            (_root(),)).fetchone()['n']
-        if owners <= 1:
-            return jsonify({'error': 'The organization must keep at least one owner.'}), 400
+    if target['role'] == 'owner' and target['is_active'] and target['unit_id'] == _root() \
+            and (data.get('role', 'owner') != 'owner' or new_unit != _root()
+                 or not data.get('is_active', target['is_active'])):
+        if _active_owner_count(conn) <= 1:
+            return jsonify({'error': 'The organization must keep at least one active owner.'}), 400
     values.append(user_id)
     try:
         conn.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s', values)
         if 'role' in data or 'unit_id' in data:
             log_action('ROLE_CHANGE', f'{target["username"]}: unit {new_unit}, role {data.get("role", target["role"])}', new_unit)
+        if 'is_active' in data and data['is_active'] != target['is_active']:
+            log_action('ACCOUNT_REACTIVATE' if data['is_active'] else 'ACCOUNT_DEACTIVATE',
+                       f'{target["username"]}: account {"reactivated" if data["is_active"] else "deactivated"}; billing unchanged', new_unit)
         row = conn.execute('SELECT * FROM users WHERE id = %s', (user_id,)).fetchone()
-        return jsonify(_user_json(conn, dict(row)))
+        return jsonify({**_user_json(conn, dict(row)), 'active_owner_count': _active_owner_count(conn)})
     except psycopg.errors.UniqueViolation:
         return jsonify({'error': 'Username already exists'}), 409
 
@@ -2565,6 +2632,11 @@ def delete_user(user_id):
     if user_id == g.current_user['id']:
         return jsonify({'error': 'Cannot delete your own account'}), 400
     conn = get_db()
+    target = conn.execute("SELECT * FROM users WHERE id = %s AND clerk_user_id != ''", (user_id,)).fetchone()
+    if target is None or not can_access(target['unit_id']):
+        return jsonify({'error': 'Not found'}), 404
+    if target['role'] == 'owner' and target['is_active'] and _active_owner_count(conn) <= 1:
+        return jsonify({'error': 'The organization must keep at least one active owner.'}), 400
     # Nobody keeps paying for a deleted account: cancel at Stripe first, best
     # effort. The row is this tenant's (RLS), so a cross-tenant id finds nothing.
     sub = conn.execute('SELECT stripe_subscription_id, stripe_customer_id FROM subscriptions WHERE user_id = %s',
@@ -4455,7 +4527,7 @@ def export_backup():
         # stamps, never a Stripe id or status — a restored copy must not be
         # able to claim someone else's subscription.
         users = conn.execute(
-            'SELECT u.username, u.email, u.full_name, u.clerk_user_id, u.unit_id, u.role, '
+            'SELECT u.username, u.email, u.full_name, u.clerk_user_id, u.unit_id, u.role, u.is_active, '
             's.billing_mode, s.trial_started_at, s.trial_ends_at, s.extended_at, '
             'n.accountability_enabled AS notify_accountability_enabled, '
             'n.accountability_time AS notify_accountability_time, '
@@ -4720,6 +4792,7 @@ def import_backup():
         role = u.get('role', 'leader')
         # Same rules update_user applies: a real role, and owner only at the root.
         if uid is None or not u.get('clerk_user_id') or role not in ROLES \
+                or ('is_active' in u and not isinstance(u['is_active'], bool)) \
                 or (role == 'owner' and uid != root_id):
             skipped_users.append(u.get('username'))
             continue
@@ -4730,12 +4803,13 @@ def import_backup():
         conn.execute('SAVEPOINT u')
         try:
             new_id = conn.execute(
-                'INSERT INTO users (username, password_hash, clerk_user_id, email, full_name, unit_id, role, root_id) '
-                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) '
-                'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role '
+                'INSERT INTO users (username, password_hash, clerk_user_id, email, full_name, unit_id, role, root_id, is_active) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) '
+                'ON CONFLICT (username) DO UPDATE SET unit_id = EXCLUDED.unit_id, role = EXCLUDED.role, '
+                'is_active = CASE WHEN %s THEN EXCLUDED.is_active ELSE users.is_active END '
                 'RETURNING id',
                 (u['username'], PLACEHOLDER_PASSWORD_HASH, u['clerk_user_id'], u.get('email', ''),
-                 u.get('full_name', ''), uid, role, root_id)).fetchone()['id']
+                 u.get('full_name', ''), uid, role, root_id, u.get('is_active', True), 'is_active' in u)).fetchone()['id']
             if u.get('billing_mode') in billing_rules.MODES or u.get('trial_ends_at'):
                 ceiling = extended_ceiling if u.get('extended_at') else trial_ceiling
                 # The floor matters as much as the ceiling: a missing or
@@ -4980,7 +5054,7 @@ def _notify_root(conn, root_id, totals):
     _reconcile_absences(conn, today)   # what a roster read would do first
     prefs = conn.execute(
         'SELECT n.*, u.email, u.unit_id FROM notification_prefs n JOIN users u ON u.id = n.user_id '
-        "WHERE u.unit_id IS NOT NULL AND u.email != '' AND u.clerk_user_id != '' "
+        "WHERE u.unit_id IS NOT NULL AND u.email != '' AND u.clerk_user_id != '' AND u.is_active "
         'AND (n.accountability_enabled OR n.digest_enabled) ORDER BY n.user_id').fetchall()
     for p in prefs:
         sub = conn.execute('SELECT * FROM subscriptions WHERE user_id = %s', (p['user_id'],)).fetchone()

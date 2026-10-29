@@ -178,6 +178,9 @@ DECLARE
   dest_root int;
   new_role text;
 BEGIN
+  -- Shared with owner deactivate/demote/delete and restore. Take it before
+  -- user/subscription row locks, including cross-organization moves.
+  PERFORM pg_advisory_xact_lock(418761, 0);
   SELECT * INTO usr FROM users u WHERE u.id = p_user_id FOR UPDATE;
   SELECT un.root_id INTO dest_root FROM units un WHERE un.id = p_unit_id;
   IF usr.id IS NULL OR dest_root IS NULL THEN
@@ -185,8 +188,9 @@ BEGIN
     RETURN;
   END IF;
   new_role := CASE WHEN usr.role = 'owner' AND p_unit_id = usr.root_id THEN 'owner' ELSE 'leader' END;
-  IF usr.role = 'owner' AND new_role <> 'owner'
-     AND NOT EXISTS (SELECT 1 FROM users o WHERE o.root_id = usr.root_id AND o.role = 'owner' AND o.id <> usr.id)
+  IF usr.role = 'owner' AND usr.is_active AND new_role <> 'owner'
+     AND NOT EXISTS (SELECT 1 FROM users o WHERE o.root_id = usr.root_id AND o.role = 'owner'
+                     AND o.is_active AND o.clerk_user_id <> '' AND o.id <> usr.id)
      AND (EXISTS (SELECT 1 FROM users o WHERE o.root_id = usr.root_id AND o.id <> usr.id)
           OR EXISTS (SELECT 1 FROM personnel p WHERE p.root_id = usr.root_id)) THEN
     RETURN QUERY SELECT 'last_owner'::text, usr.root_id, dest_root;
