@@ -50,7 +50,7 @@ def main():
     src = open(INDEX, encoding='utf-8').read()
     # The directory cell and the details modal must go through phoneHtml, not
     # print the raw column — that was the whole point.
-    assert "phoneHtml(r.phone) || dash" in src, 'the directory column no longer renders through phoneHtml'
+    assert "phoneHtml(r.phone, true) || dash" in src, 'the directory no longer renders call and text links through phoneHtml'
     assert "if (kind === 'phone') html = phoneHtml(shown, true);" in src, \
         'the details modal no longer renders phone rows as links'
     assert "if (PROFILE_PHONE_IDS.includes(key)) return 'phone';" in src, \

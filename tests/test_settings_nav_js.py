@@ -39,6 +39,9 @@ const HOSTILE = ''' + json.dumps(HOSTILE) + r''';
 const out = {};
 out.navUser = settingsNavHtml('data');
 out.tabsUser = settingsTabsHtml('units');
+out.tabsIndex = settingsTabsHtml('index');
+out.index = settingsIndexHtml('1st Platoon', 'Headhunter Company');
+out.indexHostile = settingsIndexHtml(HOSTILE, HOSTILE);
 out.groups = ['profile', 'billing', 'general', 'units', 'tdy', 'audit', 'people', 'timezone', 'data', 'nope']
   .map(settingsGroupOf);
 const pages = SEARCH_PAGES.map(p => ({ label: p.label, hint: p.hint, words: p.words }));
@@ -98,6 +101,9 @@ def render():
         extract(src, r'function settingsGroupOf\(key\) \{.*?\n\}', 'settingsGroupOf()'),
         extract(src, r'function settingsNavHtml\(active\) \{.*?\n\}', 'settingsNavHtml()'),
         extract(src, r'function settingsTabsHtml\(active\) \{.*?\n\}', 'settingsTabsHtml()'),
+        extract(src, r'const ICON_CHEVRON = .*?;', 'ICON_CHEVRON'),
+        extract(src, r'function settingsNavRow\(label, hint, fn\) \{.*?\n\}', 'settingsNavRow()'),
+        extract(src, r'function settingsIndexHtml\(unitName, organizationName\) \{.*?\n\}', 'settingsIndexHtml()'),
         extract(src, r'const SEARCH_PAGES = \[.*?\n\];', 'SEARCH_PAGES'),
         extract(src, r'const SEARCH_LIMIT = \{.*?\};', 'SEARCH_LIMIT'),
         extract(src, r'function globalSearchResults\(.*?\n\}', 'globalSearchResults()'),
@@ -119,7 +125,7 @@ def keys(html):
     return re.findall(r'data-settings="(\w+)"', html)
 
 
-ALL_KEYS = ['profile', 'preferences', 'billing', 'general', 'units', 'tdy', 'audit',
+ALL_KEYS = ['index', 'profile', 'preferences', 'billing', 'general', 'units', 'tdy', 'audit',
             'people', 'timezone', 'data']
 
 
@@ -138,10 +144,22 @@ def test_one_nav_grouped_by_who_a_change_affects(out):
                              'This unit', 'Organization', 'Organization', 'Organization', ''], out['groups']
 
 
-def test_the_tabs_are_the_same_nav(out):
-    assert keys(out['tabsUser']) == keys(out['navUser']), 'the phone tabs and the sidebar disagree'
-    assert 'aria-selected="true" data-settings="units"' in out['tabsUser'], out['tabsUser']
-    assert out['tabsUser'].count('aria-selected="true"') == 1
+def test_mobile_settings_has_a_visible_way_back(out):
+    assert out['tabsIndex'] == '', 'the settings index must not repeat its links in a tab strip'
+    h = out['tabsUser']
+    assert 'All settings' in h and 'onclick="openSettings()"' in h
+    assert 'data-settings="units" aria-current="page"' in h
+    assert 'tablist' not in h and 'role="tab"' not in h
+
+
+def test_settings_index_exposes_groups_and_common_tasks(out):
+    h = out['index']
+    for label in ('Your account', 'This unit', '1st Platoon', 'Organization', 'Headhunter Company',
+                  'Notifications', 'Schools &amp; locations', 'Leader accounts &amp; invites'):
+        # Labels are static application text; contexts must always be escaped.
+        assert label in h or label.replace('&amp;', '&') in h, label
+    assert 'openSettings(true,\'preferences\')' in h
+    assert '<img' not in out['indexHostile'] and '&lt;img' in out['indexHostile']
 
 
 def test_search_finds_people_units_and_pages(out):
@@ -153,7 +171,7 @@ def test_search_finds_people_units_and_pages(out):
     assert [r[3] for r in out['searchDark']] == ['Preferences'], out['searchDark']
     assert [r[3] for r in out['searchInvoice']] == ['Billing'], 'search is case-insensitive'
     assert [r[3] for r in out['searchZone']] == ['Time zone'], out['searchZone']
-    assert [r[3] for r in out['searchInvite']] == ['Accounts & invites'], out['searchInvite']
+    assert [r[3] for r in out['searchInvite']] == ['Leader accounts & invites'], out['searchInvite']
     assert out['searchMany'] == 6, 'people are capped so pages and units still show'
     assert out['searchHomeScreen'] == [], 'no roster on the home screen means no people offered'
 
@@ -207,6 +225,9 @@ def test_the_wiring(src):
         'the home-screen hamburger menu is back'
     open_settings = extract(src, r'function openSettings\(push = true, section = null\) \{.*?\n\}', 'openSettings()')
     assert 'loadBillingDetails()' in open_settings, 'the Billing section never asks for its details'
+    assert "? section : 'index'" in open_settings, 'Settings must open the grouped homepage'
+    assert "settingsSection === 'index' ? 'settings'" in open_settings, 'the index must own /settings'
+    assert "goToSettings('index')\">All settings" in menu, 'All settings must not open Logo'
     for fn in ('goToSettings', 'goToPage'):
         body = extract(src, rf'(async )?function {fn}\(\w+\) \{{.*?\n\}}', f'{fn}()')
         assert 'unitById(currentUser.unit_id)' in body, f'{fn}() cannot open a unit page from the home screen'
@@ -216,7 +237,8 @@ def main():
     out = render()
     src = open(INDEX, encoding='utf-8').read()
     test_one_nav_grouped_by_who_a_change_affects(out)
-    test_the_tabs_are_the_same_nav(out)
+    test_mobile_settings_has_a_visible_way_back(out)
+    test_settings_index_exposes_groups_and_common_tasks(out)
     test_search_finds_people_units_and_pages(out)
     test_a_hostile_name_never_becomes_markup(out)
     test_initials(out)

@@ -387,11 +387,12 @@ def _unit_scope(raw):
     return unit_id, subtree_ids(get_db(), unit_id)
 
 
-def _person_or_none(conn, person_id):
+def _person_or_none(conn, person_id, *, for_update=False):
     """The soldier's scoping row, or None if it does not exist *from here*
     (another tenant's soldier is a 404 by RLS, never a 403)."""
     return conn.execute(
-        'SELECT id, rank, last, first, status, unit_id, root_id FROM personnel WHERE id = %s', (person_id,)
+        'SELECT id, rank, last, first, status, present_date, unit_id, root_id FROM personnel WHERE id = %s'
+        + (' FOR UPDATE' if for_update else ''), (person_id,)
     ).fetchone()
 
 
@@ -3076,12 +3077,28 @@ def update_person(person_id):
     for col in ('status', 'notes', 'from_date', 'to_date', 'present_date'):
         if col in data and not isinstance(data[col], str):
             return jsonify({'error': f'{col} must be text.', 'field': col}), 400
+    if 'only_if_unaccounted' in data and not isinstance(data['only_if_unaccounted'], bool):
+        return jsonify({'error': 'only_if_unaccounted must be true or false.'}), 400
+    if data.get('only_if_unaccounted') and (
+            data.get('status') != 'present' or data.get('present_date') != app_today()):
+        return jsonify({'error': 'A guarded present mark must be for today.'}), 400
     conn = get_db()
-    person = _person_or_none(conn, person_id)
+    # All absence writers take this lock before touching scheduled_events.
+    # A bulk-present request from a stale tab must inspect committed server
+    # truth after an in-flight booking, rather than end that new absence.
+    person = _person_or_none(conn, person_id, for_update=True)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
     if not can_access(person['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
+    if data.get('only_if_unaccounted'):
+        _sync_person_status(conn, person_id, app_today())
+        person = _person_or_none(conn, person_id)
+        reason = ('away' if person['status'] != 'present' else
+                  'already_accounted' if person['present_date'] == app_today() else None)
+        if reason:
+            row = conn.execute('SELECT * FROM personnel WHERE id = %s', (person_id,)).fetchone()
+            return jsonify({**dict(row), 'skipped': True, 'skip_reason': reason})
     # This route only ever marks a soldier present. apiUpdate() resends the
     # current status on every save, so that one is a no-op; anything else is
     # an absence, and an absence is a scheduled_events row, not a string here.
@@ -3413,7 +3430,7 @@ def _absence_window(data, status, today):
 def add_scheduled_event(person_id):
     data = request.get_json() or {}
     conn = get_db()
-    person = _person_or_none(conn, person_id)
+    person = _person_or_none(conn, person_id, for_update=True)
     if person is None:
         return jsonify({'error': 'Not found'}), 404
     if not can_access(person['unit_id']):
@@ -3763,6 +3780,13 @@ def update_scheduled_event(event_id):
         return jsonify({'error': 'Not found'}), 404
     if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
+    # Person first, then event, matching present marks and reconciliation.
+    _person_or_none(conn, row['person_id'], for_update=True)
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
+    if row is None:
+        return jsonify({'error': 'That absence is no longer on record.'}), 404
+    if not can_access(row['unit_id']):
+        return jsonify({'error': 'Forbidden'}), 403
     if row['state'] == 'completed':
         return jsonify({'error': 'That absence is already over and can no longer be edited.'}), 400
 
@@ -3809,6 +3833,12 @@ def delete_scheduled_event(event_id):
     if not can_access(row['unit_id']):
         return jsonify({'error': 'Forbidden'}), 403
     person_id = row['person_id']
+    _person_or_none(conn, person_id, for_update=True)
+    row = conn.execute('SELECT * FROM scheduled_events WHERE id = %s', (event_id,)).fetchone()
+    if row is None:
+        return jsonify({'error': 'That absence is no longer on record.'}), 404
+    if not can_access(row['unit_id']):
+        return jsonify({'error': 'Forbidden'}), 403
     conn.execute('DELETE FROM scheduled_events WHERE id = %s', (event_id,))
     # Cancelling an in-progress absence returns the soldier to duty.
     _sync_person_status(conn, person_id, app_today())
@@ -3820,7 +3850,7 @@ def delete_scheduled_event(event_id):
 @attached_required
 def delete_person(person_id):
     conn = get_db()
-    row = _person_or_none(conn, person_id)
+    row = _person_or_none(conn, person_id, for_update=True)
     if row is None:
         return jsonify({'error': 'Not found'}), 404
     if not can_access(row['unit_id']):
@@ -4519,7 +4549,11 @@ def import_backup():
     g.pop('subtree', None)
     ids = list(current_subtree())
 
-    # 2. Replace the subtree's data. FK cascade takes profiles and events with personnel.
+    # 2. Replace the subtree's data. Lock people before their dependent rows,
+    # in the same ascending order reconciliation takes across the tenant.
+    conn.execute('SELECT id FROM personnel WHERE unit_id = ANY(%s) ORDER BY id FOR UPDATE',
+                 (ids,)).fetchall()
+    # FK cascade takes profiles and events with personnel.
     conn.execute('DELETE FROM duty_roster WHERE unit_id = ANY(%s)', (ids,))
     conn.execute('DELETE FROM report_history WHERE unit_id = ANY(%s)', (ids,))
     conn.execute('DELETE FROM personnel WHERE unit_id = ANY(%s)', (ids,))
@@ -5033,6 +5067,8 @@ def reset_day():
         if scope is None:
             return jsonify({'error': 'Forbidden'}), 403
         unit_id, ids = scope
+        conn.execute('SELECT id FROM personnel WHERE unit_id = ANY(%s) ORDER BY id FOR UPDATE',
+                     (list(ids),)).fetchall()
         conn.execute(
             "UPDATE personnel SET present_date = '' WHERE status = 'present' AND unit_id = ANY(%s)",
             (list(ids),)
@@ -5042,6 +5078,7 @@ def reset_day():
         # it. RLS is what bounds the unscoped UPDATE to this tenant.
         if not is_owner(g.current_user):
             return jsonify({'error': 'Forbidden'}), 403
+        conn.execute('SELECT id FROM personnel ORDER BY id FOR UPDATE').fetchall()
         conn.execute("UPDATE personnel SET present_date = '' WHERE status = 'present'")
     log_action('RESET_DAY', f'Day reset for unit: {unit_id or "all"}', unit_id)
     return jsonify({'success': True})
@@ -5125,6 +5162,10 @@ def _sync_person_status(conn, person_id, today_str):
     Returns {'activated': n, 'completed': n} counting only the date-driven
     transitions, which are the ones that get an audit row.
     """
+    # Serialize the whole person/absence lifecycle, including roster reads
+    # that activate today's scheduled rows, in one consistent lock order.
+    if _person_or_none(conn, person_id, for_update=True) is None:
+        return {'activated': 0, 'completed': 0}
     live = conn.execute(
         "SELECT * FROM scheduled_events WHERE person_id = %s AND state != 'completed' "
         'ORDER BY from_date, id', (person_id,)

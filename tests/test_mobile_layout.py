@@ -681,16 +681,17 @@ PERSONAL_SECTIONS = ('profile', 'preferences')
 
 
 def check_settings(page, width):
-    """Every settings section, with the one settings nav up (under the main
-    nav on a desktop, the tab row on a phone)."""
+    """The grouped index and every section fit, with a visible route back."""
     page.evaluate('openSettings()')
     assert page.evaluate("document.body.classList.contains('settings-mode')"), (
         f'settings @ {width}px: the settings nav did not open')
-    assert page.evaluate("!!document.getElementById('unitLogoInput')"), (
-        f'settings @ {width}px: the Unit logo row did not render')
+    assert page.evaluate("settingsSection === 'index' && document.querySelector('#settingsView h2').textContent === 'Settings'"), (
+        f'settings @ {width}px: the grouped settings homepage did not render')
+    for label in ('Your account', 'This unit', 'Organization', 'Notifications', 'Billing'):
+        assert label.lower() in page.locator('#settingsView').inner_text().lower(), f'settings @ {width}px: index has no {label}'
+    check_no_horizontal_overflow(page, width, 'settings index')
+    check_tap_targets(page, width, '#settingsView .settings-row-nav', 'settings index')
     nav = '#settingsTabs' if width < 900 else '#settingsNav'
-    assert page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"billing\"]')"), (
-        f'settings @ {width}px: Billing is missing from the settings nav')
     assert not page.evaluate(f"!!document.querySelector('{nav} [data-settings=\"admin\"]')"), (
         f'settings @ {width}px: Platform admin belongs on the account menu, not the settings nav')
     for section in SETTINGS_SECTIONS:
@@ -702,7 +703,7 @@ def check_settings(page, width):
         assert on == section, f'settings @ {width}px: {section} open but {on} lit'
         check_no_horizontal_overflow(page, width, f'settings/{section}')
         if width < 900:
-            check_tap_targets(page, width, '#settingsTabs .settings-tab', f'settings/{section} tabs')
+            check_tap_targets(page, width, '#settingsTabs .settings-back', f'settings/{section} back link')
     # Access is a real page: every account, grouped by unit, with controls
     # only on the rows the caller may change.
     page.evaluate("(async () => { openSettings(true, 'people'); await loadAccessPage(); })()")

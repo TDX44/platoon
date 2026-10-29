@@ -2220,21 +2220,22 @@
     color: var(--cp-side-text); opacity: 0.75; padding: 14px 12px 4px;
   }
   .settings-nav .dash-nav-item { padding: 8px 12px; font-size: 0.85em; }
-  /* The same nav as a row of tabs, where the sidebar is gone. */
+  .settings-index { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 1100px; align-items: start; }
+  .settings-index-group { min-width: 0; }
+  .settings-index-context { display: block; color: var(--cp-muted); font-size: 0.85em; font-weight: 400; margin-top: 6px; overflow-wrap: anywhere; }
+  .settings-index .settings-row-nav { min-height: 60px; width: 100%; }
+  .settings-index .settings-row-label { overflow-wrap: anywhere; }
+  .settings-breadcrumb { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-width: 0; }
+  .settings-back { min-height: 44px; padding: 8px 0; border: none; background: transparent; color: var(--cp-accent); cursor: pointer; font: inherit; font-weight: 600; }
+  .settings-current { font-size: 0.85em; color: var(--cp-muted); overflow-wrap: anywhere; }
+  /* A visible route back to the grouped index replaces the hidden tab strip. */
   .settings-tabs { display: none; }
   @media (max-width: 900px) {
+    .settings-index { grid-template-columns: minmax(0, 1fr); gap: 14px; }
     body.settings-mode .settings-tabs {
-      display: block; margin: 10px 0 0; overflow-x: auto; scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
+      display: block; margin: 6px 14px 0;
     }
-    .settings-tabs::-webkit-scrollbar { display: none; }
-    .settings-tabs-row { display: flex; gap: 6px; padding: 0 14px 2px; width: max-content; }
-    .settings-tab {
-      flex: none; min-height: 44px; padding: 0 14px; border-radius: 999px; cursor: pointer;
-      border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-muted);
-      font: inherit; font-size: 0.8em; font-weight: 600; white-space: nowrap;
-    }
-    .settings-tab.active { background: var(--cp-accent); color: var(--cp-accent-text); border-color: transparent; }
+    body.settings-mode .settings-tabs:empty { display: none; }
   }
 
   /* ── The Billing page (Resyrv's layout: plan beside payment, then history) ── */
@@ -2501,10 +2502,8 @@
   }
   .dir-row-menu > summary { padding: 3px 9px; font-size: 1em; line-height: 1; }
 
-  /* Phone: eight nowrap columns is 824px of table in a 390px screen, so the
-     header row comes off and every row becomes a card that labels its own
-     cells. Scoped to the directory — the audit log and TDY lists share
-     .directory-table and are still better off scrolling. */
+  /* Phone contacts show the information needed to find and contact a person.
+     Administrative details remain in the full profile and desktop table. */
   @media (max-width: 900px) {
     .directory-view .directory-table-wrap { overflow-x: visible; background: none; border: none; }
     .directory-view .directory-table { font-size: 1em; }
@@ -2530,8 +2529,8 @@
     }
     /* The name is the card's heading, so it loses its label and the ⋯ sits beside it. */
     .directory-view .directory-table td.dir-name {
-      font-size: 1.02em; padding: 0 44px 8px 0; margin-bottom: 6px;
-      border-bottom: 1px solid var(--cp-hairline);
+      font-size: 1.02em; padding: 0 44px 4px 0; margin-bottom: 0;
+      border-bottom: none;
     }
     .directory-view .directory-table td.dir-name::before { content: none; }
     .directory-view .directory-table td.dir-actions {
@@ -2539,8 +2538,29 @@
     }
     .directory-view .directory-table td.dir-actions::before { content: none; }
     .directory-view .directory-table tbody tr:last-child td { border-bottom: none; }
-    .directory-view .directory-table td.dir-name:not(:last-child) { border-bottom: 1px solid var(--cp-hairline); }
-    .directory-view .directory-search { margin-left: 0; }
+    .directory-view .directory-table td.dir-name:not(:last-child) { border-bottom: none; }
+    .directory-view .directory-table td.dir-unit,
+    .directory-view .directory-table td.dir-status {
+      display: inline-flex; font-size: 0.86em; padding: 2px 10px 2px 0;
+      color: var(--cp-muted); overflow-wrap: anywhere;
+    }
+    .directory-view .directory-table td.dir-unit::before,
+    .directory-view .directory-table td.dir-status::before,
+    .directory-view .directory-table td.dir-phone::before { content: none; }
+    .directory-view .directory-table td.dir-detail,
+    .directory-view .directory-table td.dir-phone.dir-empty { display: none; }
+    .directory-view .directory-table td.dir-phone { flex-wrap: wrap; padding: 0; gap: 6px; }
+    .directory-view .dir-phone .phone-link,
+    .directory-view .dir-phone .phone-sms {
+      display: inline-flex; align-items: center; min-height: 44px;
+      padding: 4px 8px; margin: 0;
+    }
+    .directory-view .dir-phone .phone-link { padding-left: 0; }
+    .directory-view .dir-row-menu > summary {
+      display: flex; align-items: center; justify-content: center;
+      min-width: 44px; min-height: 44px;
+    }
+    .directory-view .directory-search { margin-left: 0; width: 100%; min-height: 44px; font-size: 16px; }
   }
 
   /* Sortable column headers (directory + audit log) */
@@ -3834,7 +3854,7 @@
     .dash-bottomnav { display: grid; }
     /* body.dash-active zeroes the body padding so the roster is full-bleed,
        which also drops the safe-area inset every other screen gets from it. */
-    .dash-header { padding: 12px 14px 4px; }
+    .dash-header { padding: 8px 14px 0; gap: 6px; }
     .dash-header-title { width: 100%; }
     .dash-title { font-size: 1.05em; }
     .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
@@ -3843,10 +3863,11 @@
     .dash-main { display: contents; }
     .dash-rail { display: contents; }
     .dash-metrics { order: 1; margin: 6px 14px 0; }
-    #dashFiltersCard { order: 2; margin: 12px 14px 0; }
+    #dashFiltersCard { order: 2; margin: 8px 14px 0; }
     .dash-layout .bulk-bar { order: 3; margin: 12px 14px 0; }
-    .dash-sections { order: 4; margin: 14px 14px 0; }
-    #reportPreviewCard { order: 5; margin: 16px 14px 0; }
+    .dash-sections { order: 4; margin: 8px 14px 0; }
+    /* Reports remains a fixed destination in the bottom navigation. */
+    #reportPreviewCard { display: none; }
     /* .dash-main is display:contents here, so its padding is gone and every
        full-page view sat 14px closer to the edge than the roster it replaces.
        The roster's own children each carry this gutter; these need it too. */
@@ -3856,9 +3877,9 @@
        force their labels onto a second line. */
     .dash-metrics-primary { gap: 8px; grid-template-columns: 1.2fr 1fr 1fr; }
     .dash-metric-card { min-width: 0; }
-    .dash-ring { width: 52px; height: 52px; }
-    .dash-metric-card { padding: 10px 11px; min-height: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
-    .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 10px; }
+    .dash-ring { display: none; }
+    .dash-metric-card { padding: 6px 10px; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
+    .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 0; }
     .dash-metric-num { font-size: 1.45em; }
     .dash-metric-card:not(.has-ring) .dash-metric-sub { display: none; }
     .dash-metric-label { font-size: 0.66em; letter-spacing: 0.02em; }
@@ -3882,11 +3903,12 @@
     .dash-row-menu-label { display: none; }
     .dash-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dash-header-actions { width: 100%; justify-content: flex-end; }
-    /* Three controls is all that fits across a phone, which is why the header
-       is exactly More / Formation Mode / Reports at every width. */
+    /* Formation is the primary action. Reports has its own bottom-nav entry. */
     .dash-header-actions { flex-wrap: nowrap; gap: 6px; }
+    #dashReports { display: none; }
+    .dash-header-actions > button { flex: 1; }
     .dash-header-actions .dash-btn,
-    .dash-header-actions .dash-more > summary { font-size: 0.76em; padding: 9px 11px; }
+    .dash-header-actions .dash-more > summary { font-size: 0.76em; padding: 9px 11px; min-height: 44px; }
     /* The More button sits near the left screen edge on small screens, so a
        right-aligned menu would hang off-screen — open it to the right instead. */
     #dashMore .dash-more-menu { right: auto; left: 0; }
@@ -3906,6 +3928,26 @@
     /* Labels are nowrap, so on the narrowest phones they have to shrink or
        they bleed into the neighbouring tab. */
     .dash-bottomnav button { font-size: 0.6em; padding: 6px 1px; }
+  }
+  .roster-sync-state { font-size: 0.8em; color: var(--cp-muted); margin-top: 3px; }
+  .roster-sync-state.sync-warning { color: var(--cp-red); font-weight: 600; }
+  #profileSaveStatus { flex-basis: 100%; font-size: 0.8em; color: var(--cp-muted); }
+  .profile-savebar { display: none; }
+  @media (max-width: 900px) {
+    body.soldier-active .profile-savebar {
+      display: flex; position: fixed; bottom: calc(60px + env(safe-area-inset-bottom));
+      left: 0; right: 0; z-index: 50; gap: 12px; align-items: center;
+      justify-content: space-between; padding: 10px 14px;
+      background: var(--cp-surface); border-top: 1px solid var(--cp-border);
+    }
+    body.soldier-active .soldier-view { padding-bottom: 76px; }
+    .profile-savebar button { min-height: 44px; }
+    .profile-savebar [data-profile-state] { font-size: 0.8em; color: var(--cp-muted); }
+    .soldier-hero-actions [data-profile-save], .soldier-hero-actions #profileSaveStatus { display: none; }
+  }
+  .profile-draft-buttons { flex-wrap: wrap; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   }
 </style>
 </head>
@@ -3969,7 +4011,7 @@
             <button type="button" role="menuitem" data-personal="preferences" onclick="closeUserMenu();goToSettings('preferences')">Preferences</button>
             <button type="button" role="menuitem" data-personal="billing" onclick="closeUserMenu();openBillingPage()">Billing</button>
             <div class="user-menu-sep" role="separator"></div>
-            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('general')">All settings</button>
+            <button type="button" role="menuitem" onclick="closeUserMenu();goToSettings('index')">All settings</button>
             <!-- Shown only to the operator of this instance (currentUser.platform_admin,
                  which /api/me only returns after Clerk has confirmed the address). -->
             <button id="adminMenuItem" type="button" role="menuitem" onclick="closeUserMenu();openAdmin()" style="display:none">Platform admin</button>
@@ -4082,6 +4124,7 @@
     <div class="dash-asof">As of <span id="dashAsOf">&mdash;</span>
       <button class="dash-refresh" onclick="refreshData()" title="Refresh data" aria-label="Refresh data">&#8635;</button>
     </div>
+    <div id="rosterSyncState" class="roster-sync-state" role="status" hidden></div>
   </div>
   <div class="dash-header-actions">
     <details class="dash-more" id="dashMore">
@@ -4092,7 +4135,7 @@
         <button onclick="resetDay();closeDashMenus()">Reset Day</button>
         <button onclick="exportCSV();closeDashMenus()">Export CSV</button>
         <button onclick="openDutyRoster();closeDashMenus()">Duty Roster</button>
-        <button onclick="openHistory();closeDashMenus()">History</button>
+        <button onclick="openHistory();closeDashMenus()">Report history</button>
       </div>
     </details>
     <button class="dash-btn dash-btn-secondary" onclick="startFormation()">Formation Mode</button>
@@ -4193,13 +4236,13 @@
 
 <!-- Mobile "More" sheet: every destination reachable from the bottom nav -->
 <div class="more-sheet-scrim" id="moreSheetScrim" onclick="closeMoreSheet()"></div>
-<div class="more-sheet" id="moreSheet" role="menu" aria-label="More options">
+<div class="more-sheet" id="moreSheet" role="dialog" aria-modal="true" aria-label="More options" inert>
   <div class="more-sheet-handle"></div>
   <div class="more-sheet-scroll">
     <h2 class="more-sheet-title">Menu</h2>
     <div class="more-group">
       <button onclick="closeMoreSheet();startFormation()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3 7-7M21 12a9 9 0 11-9-9"/></svg><span class="more-label">Formation Mode</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
-      <button onclick="openAvailability();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg><span class="more-label">Who&#39;s Available</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button onclick="openAvailability();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3 10h18M9 15l2 2 4-4"/></svg><span class="more-label">Availability</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <div class="more-group-label">Rosters</div>
     <div class="more-group">
@@ -4207,7 +4250,7 @@
     </div>
     <div class="more-group-label">Data</div>
     <div class="more-group">
-      <button onclick="openHistory();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="more-label">History</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button onclick="openHistory();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="more-label">Report history</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button onclick="openImportModal();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg><span class="more-label">Import List</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button onclick="exportCSV();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg><span class="more-label">Export CSV</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button onclick="resetDay();closeMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span class="more-label">Reset Day</span><svg class="more-chev" viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
@@ -4866,7 +4909,7 @@ async function api(method, path, body) {
   try {
     res = await fetch(API + path, opts);
   } catch (e) {
-    apiError('Network error — change may not be saved.', method);
+    apiError(method === 'GET' ? 'Could not load data. Check your connection and try again.' : 'Network error — change may not be saved.', method);
     return null;
   }
   if (res.status === 401) { showLoginScreen(); return null; }
@@ -4985,6 +5028,10 @@ async function load() {
     if (document.body.classList.contains('lists-active')) renderTdyLists();
     render();
     updateAsOf();
+    rosterLoadedAt = Date.now();
+    rosterLoadedUnitId = unitId;
+    rosterRefreshFailed = false;
+    updateRosterSyncState();
     if (pendingSoldierId != null) {
       const sid = pendingSoldierId;
       pendingSoldierId = null;
@@ -5003,6 +5050,8 @@ async function load() {
 // the reason); a failed first load of a unit shows an error, never the last
 // unit's people under this unit's name.
 function loadFailed(unitId) {
+  rosterRefreshFailed = true;
+  updateRosterSyncState();
   if (personnelUnitId === unitId) return;
   personnel = [];
   bulkSelected.clear();
@@ -5236,17 +5285,18 @@ function clearDashFilters() {
 // settings nav shows under the main nav's Settings entry (body.settings-mode,
 // set by syncNavActive()) — the main nav stays — so Units, the TDY lists and
 // the Audit log, full pages of their own, read as settings pages too.
-// /<unit>/settings is General; /<unit>/settings/<section> is the rest.
+// /<unit>/settings is the grouped index; existing section URLs still work.
 const SETTINGS_SECTIONS = {
+  index:       { title: 'Settings', lead: 'Manage your account, the current unit, and your organization.' },
   profile:     { title: 'Profile', lead: 'Who you are signed in as, and how you sign in.' },
   preferences: { title: 'Preferences', lead: 'How Platoon Manager looks on this device.' },
   billing:     { title: 'Billing', lead: 'Your plan, payment method and invoices.' },
   general:     { title: 'Logo', lead: 'This unit’s logo. Sub-units without one of their own use it too.' },
-  people:      { title: 'Accounts & invites', lead: 'Every account in the organization, and the links that bring new leaders in. To put someone in a different unit, edit their account. You can change the ones in your own units.' },
+  people:      { title: 'Leader accounts & invites', lead: 'Manage leaders who can sign in, their unit access, and invitation links. To move a leader to another unit, edit their account. Personnel records are in the Directory.' },
   timezone:    { title: 'Time zone', lead: 'The organization’s duty day: when the roster rolls over and absences start and end.' },
   data:        { title: 'Backup & restore', lead: 'A full snapshot of everything you can reach, and putting one back.' },
 };
-let settingsSection = 'general';
+let settingsSection = 'index';
 // Your account, not the unit: also on the account menu, and the page says so.
 const PERSONAL_SECTIONS = ['profile', 'preferences', 'billing'];
 
@@ -5257,9 +5307,9 @@ function openSettings(push = true, section = null) {
   closeTdyLists(false);
   closeAuditLog(false);
   closeUnits(false);
-  settingsSection = SETTINGS_SECTIONS[section] ? section : 'general';
+  settingsSection = Object.prototype.hasOwnProperty.call(SETTINGS_SECTIONS, section) ? section : 'index';
   document.body.classList.add('settings-active');
-  if (push) pushAppRoute(currentUnit, settingsSection === 'general' ? 'settings' : `settings/${settingsSection}`);
+  if (push) pushAppRoute(currentUnit, settingsSection === 'index' ? 'settings' : `settings/${settingsSection}`);
   if (settingsSection === 'billing') loadBillingDetails();
   if (settingsSection === 'people') { accessUsers = null; accessQuery = ''; }
   renderSettings();
@@ -5302,12 +5352,12 @@ const SETTINGS_NAV = [
     icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>' },
   { key: 'units', label: 'Sub-units', open: 'openUnits()',
     icon: '<path d="M12 7v4M12 11h6v3M12 11H6v3"/><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="14" width="6" height="4" rx="1"/><rect x="15" y="14" width="6" height="4" rx="1"/>' },
-  { key: 'tdy', label: 'TDY lists', open: "openTdyLists('schools')",
+  { key: 'tdy', label: 'Schools & locations', open: "openTdyLists('schools')",
     icon: '<path d="M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>' },
   { key: 'audit', label: 'Audit log', open: 'openAuditLog()',
     icon: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>' },
   { group: 'Organization' },
-  { key: 'people', label: 'Accounts & invites', open: "openSettings(true,'people')",
+  { key: 'people', label: 'Leader accounts & invites', open: "openSettings(true,'people')",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M18 14a6.5 6.5 0 013.5 6"/>' },
   { key: 'timezone', label: 'Time zone', open: "openSettings(true,'timezone')",
     icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
@@ -5326,14 +5376,44 @@ function settingsGroupOf(key) {
 }
 
 function settingsNavHtml(active) {
-  return SETTINGS_NAV.map(it => it.group
+  const index = `<button type="button" class="dash-nav-item${active === 'index' ? ' active' : ''}" data-settings="index"${active === 'index' ? ' aria-current="page"' : ''} onclick="openSettings()">All settings</button>`;
+  return index + SETTINGS_NAV.map(it => it.group
     ? `<div class="settings-nav-group">${escapeHtml(it.group)}</div>`
     : `<button type="button" class="dash-nav-item${it.key === active ? ' active' : ''}" data-settings="${it.key}"${it.key === active ? ' aria-current="page"' : ''} onclick="${it.open}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true">${it.icon}</svg>${escapeHtml(it.label)}</button>`).join('');
 }
 
 function settingsTabsHtml(active) {
-  return `<div class="settings-tabs-row" role="tablist" aria-label="Settings">${SETTINGS_NAV.filter(it => !it.group).map(it =>
-    `<button type="button" role="tab" class="settings-tab${it.key === active ? ' active' : ''}" aria-selected="${it.key === active}" data-settings="${it.key}" onclick="${it.open}">${escapeHtml(it.label)}</button>`).join('')}</div>`;
+  if (active === 'index') return '';
+  const item = SETTINGS_NAV.find(it => it.key === active);
+  return `<nav class="settings-breadcrumb" aria-label="Settings navigation"><button type="button" class="settings-back" onclick="openSettings()">&larr; All settings</button><span class="settings-current active" data-settings="${escapeHtml(active)}" aria-current="page">${escapeHtml(item ? item.label : 'Settings')}</span></nav>`;
+}
+
+function settingsIndexHtml(unitName, organizationName) {
+  const hints = {
+    profile: 'Your name, email, password, and sign-in security.',
+    preferences: 'Appearance and email notification preferences.',
+    billing: 'Your plan, payment method, and invoices.',
+    general: 'Change the logo for this unit and its sub-units.',
+    units: 'Create and manage the units beneath this one.',
+    tdy: 'Maintain the school and location choices used for TDY.',
+    audit: 'See who changed personnel, statuses, and unit details.',
+    people: 'Invite leaders and manage their access. This is separate from personnel records.',
+    timezone: 'Set when the organization’s duty day begins and ends.',
+    data: 'Download a backup or restore one. Restore replaces existing data.'
+  };
+  let html = '', opened = false;
+  for (const item of SETTINGS_NAV) {
+    if (item.group) {
+      if (opened) html += '</section>';
+      const name = item.group === 'This unit' ? unitName : item.group === 'Organization' ? organizationName : '';
+      html += `<section class="soldier-card settings-index-group"><h3>${escapeHtml(item.group)}${name ? `<span class="settings-index-context">${escapeHtml(name)}</span>` : ''}</h3>`;
+      opened = true;
+    } else {
+      html += settingsNavRow(item.label, hints[item.key], item.open);
+      if (item.key === 'preferences') html += settingsNavRow('Notifications', 'Choose accountability alerts and a morning digest.', "openSettings(true,'preferences')");
+    }
+  }
+  return html + (opened ? '</section>' : '');
 }
 
 // The settings page that is open, as a SETTINGS_NAV key; null outside settings.
@@ -5356,12 +5436,7 @@ function renderSettingsNav() {
   const nav = document.getElementById('settingsNav');
   if (nav) nav.innerHTML = settingsNavHtml(key);
   const tabs = document.getElementById('settingsTabs');
-  if (tabs) {
-    tabs.innerHTML = settingsTabsHtml(key);
-    const on = tabs.querySelector('.settings-tab.active');
-    // Keep the lit tab in view: on a phone it can sit several screens along.
-    if (on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest', inline: 'center' });
-  }
+  if (tabs) tabs.innerHTML = settingsTabsHtml(key);
 }
 
 const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
@@ -5497,11 +5572,14 @@ function renderSettings() {
   if (!view) return;
   const isOwner = !!(currentUser && currentUser.role === 'owner');
   const isDark = document.body.classList.contains('dark-mode');
-  const meta = SETTINGS_SECTIONS[settingsSection] || SETTINGS_SECTIONS.general;
+  const meta = SETTINGS_SECTIONS[settingsSection] || SETTINGS_SECTIONS.index;
   const group = settingsGroupOf(settingsSection);
   const scope = group === 'This unit' ? `This unit &middot; ${escapeHtml(unitLabel(currentUnit))}` : escapeHtml(group);
   let body;
-  if (settingsSection === 'profile') {
+  if (settingsSection === 'index') {
+    const organization = currentUser && unitById(currentUser.root_id);
+    body = settingsIndexHtml(unitLabel(currentUnit), organization ? unitLabel(organization) : '');
+  } else if (settingsSection === 'profile') {
     const u = currentUser || {};
     body = `
       <section class="soldier-card">
@@ -5572,7 +5650,7 @@ function renderSettings() {
       <h2>${escapeHtml(meta.title)}</h2>
       <p class="settings-lead">${escapeHtml(meta.lead)}</p>
     </div>
-    <div class="${settingsSection === 'billing' ? 'billing-page' : 'soldier-cards settings-cards'}">${body}</div>`;
+    <div class="${settingsSection === 'billing' ? 'billing-page' : settingsSection === 'index' ? 'settings-index' : 'soldier-cards settings-cards'}">${body}</div>`;
   if (settingsSection === 'preferences' && !notifyPrefs) loadNotifyPrefs();
 }
 
@@ -5647,15 +5725,22 @@ function closeDashMenus() {
   document.querySelectorAll('#platoonScreen details.dash-more[open], #platoonScreen details.dash-row-menu[open]')
     .forEach(d => d.removeAttribute('open'));
 }
+let _moreSheetOpener = null;
 function openMoreSheet() {
+  _moreSheetOpener = document.activeElement;
+  document.getElementById('moreSheet').inert = false;
   document.getElementById('moreSheet').classList.add('open');
   document.getElementById('moreSheetScrim').classList.add('open');
 }
 function closeMoreSheet() {
   const sheet = document.getElementById('moreSheet');
   if (!sheet) return;
+  const wasOpen = sheet.classList.contains('open');
   sheet.classList.remove('open');
   document.getElementById('moreSheetScrim').classList.remove('open');
+  if (wasOpen) syncModalIsolation();
+  if (_moreSheetOpener && sheet.contains(document.activeElement)) _moreSheetOpener.focus();
+  sheet.inert = true;
 }
 function dashGoAccountability() {
   // The way back from any full-page view, so it has to close all of them.
@@ -5671,6 +5756,37 @@ function dashGoAccountability() {
 function refreshData() {
   load();
 }
+let rosterLoadedAt = 0;
+let rosterLoadedUnitId = null;
+let rosterRefreshFailed = false;
+let rosterAutoRefreshing = false;
+
+function updateRosterSyncState() {
+  const el = document.getElementById('rosterSyncState');
+  if (!el) return;
+  const age = Math.floor((Date.now() - rosterLoadedAt) / 60000);
+  let text = '';
+  if (!navigator.onLine) text = 'Offline · changes need a connection';
+  else if (rosterRefreshFailed) text = 'Refresh failed · showing previously loaded data';
+  else if (currentUnit && rosterLoadedUnitId === currentUnit.id && age >= 1) text = `Updated ${age} min ago`;
+  el.textContent = text;
+  el.hidden = !text;
+  el.classList.toggle('sync-warning', !navigator.onLine || rosterRefreshFailed);
+}
+
+async function refreshRosterOnReturn() {
+  updateRosterSyncState();
+  if (!currentUser || !currentUnit || document.visibilityState === 'hidden' || !navigator.onLine || rosterAutoRefreshing) return;
+  // Keep active forms and formation queues stable; refresh the roster only.
+  if (document.body.classList.contains('soldier-active') || document.body.classList.contains('formation-active') || topModal()) return;
+  rosterAutoRefreshing = true;
+  try { await load(); } finally { rosterAutoRefreshing = false; }
+}
+window.addEventListener('offline', updateRosterSyncState);
+window.addEventListener('online', refreshRosterOnReturn);
+window.addEventListener('focus', refreshRosterOnReturn);
+document.addEventListener('visibilitychange', refreshRosterOnReturn);
+setInterval(updateRosterSyncState, 30000);
 function updateAsOf() {
   const el = document.getElementById('dashAsOf');
   if (!el) return;
@@ -6690,15 +6806,9 @@ async function formationRestPresent() {
     'Mark present');
   if (!ok || formation.busy) return;
   formation.busy = true;
-  const today = getTodayStr();
-  const results = await Promise.all(rest.map(async p => {
-    const before = { status: p.status, notes: p.notes, from: p.from, to: p.to, present_date: p.present_date };
-    Object.assign(p, { status: 'present', notes: '', from: '', to: '', present_date: today });
-    const res = await apiUpdate(p);
-    if (!res || res.error) { Object.assign(p, before); return false; }
-    return true;
-  }));
-  const failed = results.filter(ok => !ok).length;
+  const results = await Promise.all(rest.map(p => guardedPresent(p)));
+  const failed = results.filter(r => !r).length;
+  const skipped = results.filter(r => r && r.skipped).length;
   formation.busy = false;
   if (failed) {
     showToast(`${failed} could not be marked present.`);
@@ -6707,7 +6817,7 @@ async function formationRestPresent() {
       isUnaccounted(personnel.find(p => p.id === id) || {}));
     if (next >= 0) formation.i = next;
   } else {
-    showToast(`${rest.length} marked present.`, 'success');
+    showToast(`${rest.length - skipped} marked present.${skipped ? ` ${skipped} already accounted for or newly away; left unchanged.` : ''}`, 'success');
     formation.i = formation.ids.length;
   }
   formation.asking = false;
@@ -7336,14 +7446,14 @@ function renderDirectory() {
     // heading because the table header is not on screen.
     return `<tr onclick="openSoldierPage(${r.id})" onkeydown="clickOnKey(event)" tabindex="0">
       <td class="dir-name" data-label="Name">${escapeHtml(r.rank)} ${escapeHtml(lastFirst(r))}</td>
-      ${showUnit ? `<td data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
-      <td data-label="Status">${statusText(r.status)}</td>
-      <td data-label="Return">${ret}</td>
-      <td data-label="Next Scheduled">${r.next_absence ? escapeHtml(nxt) : dash}</td>
-      <td data-label="DOD ID">${escapeHtml(r.dod_id || '') || dash}</td>
-      <td data-label="DOB">${r.dob ? formatDateWithYear(r.dob) : dash}</td>
-      <td data-label="MOS">${escapeHtml(r.mos || '') || dash}</td>
-      <td data-label="Phone">${phoneHtml(r.phone) || dash}</td>
+      ${showUnit ? `<td class="dir-unit" data-label="Unit">${escapeHtml(unitLabel(unitById(r.unit_id))) || dash}</td>` : ''}
+      <td class="dir-status" data-label="Status">${statusText(r.status)}</td>
+      <td class="dir-detail" data-label="Return">${ret}</td>
+      <td class="dir-detail" data-label="Next Scheduled">${r.next_absence ? escapeHtml(nxt) : dash}</td>
+      <td class="dir-detail" data-label="DOD ID">${escapeHtml(r.dod_id || '') || dash}</td>
+      <td class="dir-detail" data-label="DOB">${r.dob ? formatDateWithYear(r.dob) : dash}</td>
+      <td class="dir-detail" data-label="MOS">${escapeHtml(r.mos || '') || dash}</td>
+      <td class="dir-phone${String(r.phone || '').trim() ? '' : ' dir-empty'}" data-label="Phone" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">${phoneHtml(r.phone, true) || dash}</td>
       <td class="dir-actions" onclick="event.stopPropagation()">
         <details class="dash-row-menu dir-row-menu">
           <summary aria-label="Actions for ${escapeHtml(r.last)}">&#8943;</summary>
@@ -7361,7 +7471,7 @@ function renderDirectory() {
     <div class="directory-head">
       <h2>Personnel Directory</h2>
       <span class="directory-count">${rows.length} of ${directoryRows.length}</span>
-      <input type="text" class="directory-search" id="directorySearch" placeholder="Search name or MOS…"
+      <input type="search" class="directory-search" id="directorySearch" placeholder="Search name or MOS…" aria-label="Search personnel by name, rank or MOS"
         value="${escapeHtml(term)}" oninput="renderDirectory()">
     </div>
     <div class="directory-table-wrap">
@@ -7388,6 +7498,128 @@ const PROFILE_FIELD_IDS = [
 let currentSoldierId = null;
 let pendingSoldierId = null;
 let soldierTab = 'overview';
+let profileSaving = false;
+let profileBaseline = '';
+let profileLoadReq = 0;
+const profileDrafts = new Map();
+
+function setProfileLoading(loading, failed = false) {
+  document.querySelectorAll('#soldierView input, #soldierView select, #soldierView textarea, #soldierView [data-profile-save], #soldierView .wq-add, #soldierView .wq-del').forEach(el => { el.disabled = loading; });
+  if (loading) document.querySelectorAll('[data-profile-state]').forEach(el => {
+    el.textContent = failed ? 'Could not load profile. Reopen to retry.' : 'Loading profile…';
+  });
+}
+
+// Drafts stay in memory for this signed-in session, never in browser storage.
+function profileSnapshot() {
+  const values = {};
+  document.querySelectorAll('#soldierView input, #soldierView select, #soldierView textarea').forEach(el => {
+    if (el.id) values[el.id] = el.value;
+  });
+  return { values, weaponRows: weaponRows.map(r => ({ ...r })), weaponsLegacy,
+           addressLegacy, addressLegacyDiscarded };
+}
+
+function rememberProfileDraft() {
+  if (!currentSoldierId || !document.body.classList.contains('soldier-active') || !profileBaseline) return;
+  const snapshot = profileSnapshot();
+  const dirty = JSON.stringify(snapshot) !== profileBaseline;
+  if (dirty) profileDrafts.set(currentSoldierId, { snapshot, baseline: profileBaseline });
+  else profileDrafts.delete(currentSoldierId);
+  document.querySelectorAll('[data-profile-state]').forEach(status => {
+    status.textContent = profileSaving ? 'Saving…' : dirty ? 'Unsaved changes' : 'All changes saved';
+  });
+  document.querySelectorAll('[data-profile-save]').forEach(btn => {
+    btn.disabled = profileSaving;
+    btn.textContent = profileSaving ? 'Saving…' : 'Save changes';
+  });
+}
+
+function restoreProfileDraft(id) {
+  const draft = profileDrafts.get(id);
+  if (!draft) { profileBaseline = JSON.stringify(profileSnapshot()); return; }
+  const s = draft.snapshot;
+  weaponRows = s.weaponRows.map(r => ({ ...r }));
+  weaponsLegacy = s.weaponsLegacy;
+  addressLegacy = s.addressLegacy;
+  addressLegacyDiscarded = s.addressLegacyDiscarded;
+  renderWeapons();
+  Object.entries(s.values).forEach(([key, value]) => {
+    const el = document.getElementById(key);
+    if (el) el.value = value;
+  });
+  profileBaseline = draft.baseline;
+  renderAddressLegacy();
+  syncPhoneActions();
+  rememberProfileDraft();
+}
+
+let draftNavigationAllowed = false;
+let pendingDraftNavigation = null;
+
+function settleProfileNavigation(choice) {
+  const run = pendingDraftNavigation;
+  if (!run) return;
+  if (choice === 'save') {
+    saveProfile().then(saved => { if (saved) settleProfileNavigation('continue'); });
+    return;
+  }
+  if (choice === 'discard') profileDrafts.delete(currentSoldierId);
+  pendingDraftNavigation = null;
+  document.getElementById('profileDraftModal').classList.remove('active');
+  if (choice === 'stay') return;
+  // Do not recapture the discarded form as the navigation runs.
+  if (choice === 'discard') profileBaseline = '';
+  draftNavigationAllowed = true;
+  try { run(); } finally { draftNavigationAllowed = false; }
+}
+
+function askProfileNavigation(run) {
+  if (pendingDraftNavigation) return;
+  let modal = document.getElementById('profileDraftModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'profileDraftModal';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '110';
+    modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="profileDraftTitle">
+      <h2 id="profileDraftTitle">Save your changes?</h2>
+      <p>Your profile edits have not been saved.</p>
+      <div class="modal-buttons profile-draft-buttons">
+        <button class="dash-btn dash-btn-secondary" onclick="settleProfileNavigation('stay')">Keep editing</button>
+        <button class="dash-btn dash-btn-secondary" onclick="settleProfileNavigation('discard')">Discard</button>
+        <button class="dash-btn dash-btn-primary" onclick="settleProfileNavigation('save')">Save and continue</button>
+      </div></div>`;
+    document.body.appendChild(modal);
+    MODAL_CLOSERS.profileDraftModal = () => settleProfileNavigation('stay');
+  }
+  pendingDraftNavigation = run;
+  modal.classList.add('active');
+}
+
+// Capture before inline navigation handlers can replace an edited profile.
+document.addEventListener('click', e => {
+  rememberProfileDraft();
+  if (draftNavigationAllowed || !currentSoldierId || !profileDrafts.has(currentSoldierId)) return;
+  const target = e.target.closest('button, a, [onclick]');
+  if (!target || target.closest('#profileDraftModal')) return;
+  const action = target.getAttribute('onclick') || '';
+  const leavesProfile = /\b(closeSoldierPage|openSoldierPage|openDirectory|openAvailability|goHome|loadHome|dashGoAccountability|openSettings|goToSettings|openUnits|openTdyLists|openAuditLog|openBillingPage|openAdmin|doLogout|selectUnitById|runSearchResult)\s*\(/.test(action);
+  const externalLink = target.tagName === 'A' && !/^(tel:|sms:|#)/.test(target.getAttribute('href') || '');
+  if (!leavesProfile && !externalLink) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  askProfileNavigation(() => target.click());
+}, true);
+
+['input', 'change'].forEach(type => document.addEventListener(type, e => {
+  if (e.target.closest('#soldierView')) rememberProfileDraft();
+}));
+window.addEventListener('beforeunload', e => {
+  rememberProfileDraft();
+  if (profileDrafts.size) { e.preventDefault(); e.returnValue = ''; }
+});
+document.addEventListener('click', () => queueMicrotask(rememberProfileDraft));
 
 function currentSoldierPerson() {
   return personnel.find(p => p.id === currentSoldierId) || null;
@@ -7402,6 +7634,9 @@ function openProfile(i) {
 function openSoldierPage(id, push = true) {
   const p = personnel.find(x => x.id === id);
   if (!p) return;
+  rememberProfileDraft();
+  profileBaseline = '';
+  const profileReq = ++profileLoadReq;
   currentSoldierId = id;
   soldierTab = 'overview';
   document.body.classList.remove('directory-active');
@@ -7416,7 +7651,8 @@ function openSoldierPage(id, push = true) {
   window.scrollTo({ top: 0 });
   // Load saved profile fields, then fill the inputs.
   api('GET', `/personnel/${id}/profile`).then(profile => {
-    if (profile && !profile.error && currentSoldierId === id) {
+    if (profileReq !== profileLoadReq || currentSoldierId !== id) return;
+    if (profile && !profile.error) {
       PROFILE_FIELD_IDS.forEach(f => {
         const el = document.getElementById('pf_' + f);
         // weapons_qual has no single input any more; loadWeapons() owns it.
@@ -7431,12 +7667,19 @@ function openSoldierPage(id, push = true) {
       loadWeapons(profile.weapons_qual);
       loadAddress(profile);
       syncPhoneActions();
+      restoreProfileDraft(id);
+      setProfileLoading(false);
+      rememberProfileDraft();
+    } else if (currentSoldierId === id) {
+      // Never save an empty form over a profile that could not be fetched.
+      setProfileLoading(true, true);
     }
   });
 }
 
 function closeSoldierPage(push = true) {
   if (!document.body.classList.contains('soldier-active')) return;
+  rememberProfileDraft();
   document.body.classList.remove('soldier-active');
   currentSoldierId = null;
   if (push) pushAppRoute(currentUnit, 'accountability');
@@ -7624,7 +7867,8 @@ function renderSoldierPage() {
       </div>
       <div class="soldier-hero-actions">
         <button class="dash-btn soldier-hero-edit" onclick="openEditModal(soldierIndexById(${p.id}))">${ICON_PENCIL}Edit name &amp; rank</button>
-        <button class="dash-btn dash-btn-primary" onclick="saveProfile()">Save changes</button>
+        <button class="dash-btn dash-btn-primary" data-profile-save onclick="saveProfile()">Save changes</button>
+        <span id="profileSaveStatus" data-profile-state role="status">Loading profile…</span>
       </div>
     </div>
     <div class="soldier-tabs">
@@ -7688,9 +7932,14 @@ function renderSoldierPage() {
         <textarea id="pf_profile_notes" rows="6" placeholder="Medical profile, flags, misc…"></textarea>
       </div>
     </div>
+    <div class="profile-savebar">
+      <span data-profile-state role="status">Loading profile…</span>
+      <button class="dash-btn dash-btn-primary" data-profile-save onclick="saveProfile()">Save changes</button>
+    </div>
   `;
   setSoldierTab(soldierTab);
   renderProfileAbsences();
+  setProfileLoading(true);
 }
 
 // Who this page is about, as an index into `personnel` — which is what the
@@ -7714,11 +7963,17 @@ function syncSoldierPageAfterEdit() {
     const el = document.getElementById(id);
     if (el) el.value = kept[id];
   });
+  renderWeapons();
+  renderAddressLegacy();
+  setProfileLoading(!profileBaseline);
+  rememberProfileDraft();
 }
 
 // Only the fields this page still shows. Name, rank and unit are the modal's.
 async function saveProfile() {
-  if (!currentSoldierId) return;
+  if (!currentSoldierId || profileSaving) return false;
+  if (!profileBaseline) { showToast('Wait for the profile to load before saving.'); return false; }
+  const personId = currentSoldierId;
   const body = {};
   PROFILE_FIELD_IDS.forEach(f => {
     const el = document.getElementById('pf_' + f);
@@ -7747,21 +8002,36 @@ async function saveProfile() {
   if (firstBad) {
     const el = document.getElementById('pf_' + firstBad) || document.getElementById('err_pf_' + firstBad);
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus(); }
-    return;
+    return false;
   }
   const btn = document.querySelector('#soldierView .soldier-hero-actions .dash-btn-primary');
-  const res = await api('PUT', `/personnel/${currentSoldierId}/profile`, body);
-  if (res && res.error) {
+  const submitted = JSON.stringify(profileSnapshot());
+  profileSaving = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  rememberProfileDraft();
+  let res;
+  try { res = await api('PUT', `/personnel/${personId}/profile`, body); }
+  catch (e) { res = null; }
+  finally {
+    profileSaving = false;
+    if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = 'Save changes'; }
+  }
+  if (!res || res.error) {
     // The server names the field it rejected; put the message where it belongs.
-    if (res.field) setFieldError('pf_' + res.field, res.error);
-    else showToast(res.error);
-    return;
+    if (res && res.field && currentSoldierId === personId) setFieldError('pf_' + res.field, res.error);
+    else showToast((res && res.error) || 'Profile was not saved. Your changes are kept; try again.');
+    rememberProfileDraft();
+    return false;
   }
-  if (btn) {
-    const original = btn.textContent;
-    btn.textContent = 'Saved ✓';
-    setTimeout(() => { btn.textContent = original; }, 1500);
+  if (currentSoldierId === personId) {
+    profileBaseline = submitted;
+    rememberProfileDraft();
+  } else {
+    const draft = profileDrafts.get(personId);
+    if (draft && JSON.stringify(draft.snapshot) === submitted) profileDrafts.delete(personId);
   }
+  showToast('Profile saved.', 'success');
+  return true;
 }
 
 // The absences tab drives the same TDY/Leave modal the roster uses, so absence
@@ -8337,7 +8607,10 @@ function rpOpen(event, fromId, toId, which) {
   rp.pop.addEventListener('mousedown', e => { if (!e.target.closest('select')) e.preventDefault(); });
   rp.pop.addEventListener('click', rpOnClick);
   rp.pop.addEventListener('change', rpOnChange);
-  document.body.appendChild(rp.pop);
+  // Keep a dialog's picker in its focus/inert boundary.
+  const host = topModal();
+  const dialog = host && (host.querySelector('[role="dialog"]') || host);
+  (dialog || document.body).appendChild(rp.pop);
   rpRender();
   document.addEventListener('mousedown', rpOutside, true);
   document.addEventListener('scroll', rpScroll, true);
@@ -9646,9 +9919,9 @@ const SEARCH_PAGES = [
   { label: 'Billing', hint: 'Your account', words: 'plan subscription card invoice payment stripe trial', run: () => openBillingPage() },
   { label: 'Logo', hint: 'This unit', words: 'logo image picture branding', run: () => goToSettings('general') },
   { label: 'Sub-units', hint: 'This unit', words: 'units platoon squad team company add rename', run: () => goToPage('units') },
-  { label: 'TDY lists', hint: 'This unit', words: 'tdy schools courses locations places', run: () => goToPage('schools') },
+  { label: 'Schools & locations', hint: 'This unit', words: 'tdy schools courses locations places', run: () => goToPage('schools') },
   { label: 'Audit log', hint: 'This unit', words: 'changes history log', run: () => goToPage('audit') },
-  { label: 'Accounts & invites', hint: 'Organization', words: 'access people invites leaders users invite roles owner move', run: () => goToSettings('people') },
+  { label: 'Leader accounts & invites', hint: 'Organization', words: 'access people invites leaders users invite roles owner move', run: () => goToSettings('people') },
   { label: 'Time zone', hint: 'Organization', words: 'time zone timezone duty day clock', run: () => goToSettings('timezone') },
   { label: 'Backup & restore', hint: 'Organization', words: 'export import backup restore', run: () => goToSettings('data') },
   { label: 'Duty roster', hint: 'Page', words: 'cq staff duty rotation', run: () => goToPage('duty') },
@@ -9898,16 +10171,11 @@ async function applyBulkStatus() {
       ? `${away.length} selected ${away.length === 1 ? 'is' : 'are'} away on an absence and will be left as they are.`
       : '';
     if (!await confirmDialog(`Mark ${mark.length} personnel present?`, note, 'Mark present')) return;
-    const today = getTodayStr();
-    const results = await Promise.all(mark.map(p => {
-      const before = { present_date: p.present_date };
-      p.present_date = today;
-      return apiUpdate(p).then(res => {
-        if (!res || res.error) { Object.assign(p, before); return false; }
-        return true;
-      });
-    }));
-    if (results.includes(false)) showToast(`${results.filter(ok => !ok).length} could not be marked present.`);
+    const results = await Promise.all(mark.map(p => guardedPresent(p)));
+    const failed = results.filter(r => !r).length;
+    const skipped = results.filter(r => r && r.skipped).length;
+    if (failed) showToast(`${failed} could not be marked present.`);
+    else showToast(`${mark.length - skipped} marked present.${skipped ? ` ${skipped} already accounted for or newly away; left unchanged.` : ''}`, 'success');
     clearBulkSelect();
     render();
     return;
@@ -9927,6 +10195,17 @@ function bulkPresentSplit(people, selectedIds) {
     (p.status === 'present' ? mark : away).push(p);
   }
   return { mark, away };
+}
+
+// Bulk marking never turns another leader's new absence into Present.
+async function guardedPresent(p) {
+  const res = await api('PUT', `/personnel/${p.id}`, {
+    status: 'present', present_date: getTodayStr(), only_if_unaccounted: true
+  });
+  if (!res || res.error) return null;
+  Object.assign(p, { status: res.status, notes: res.notes || '', from: res.from_date || '',
+                    to: res.to_date || '', present_date: res.present_date || '' });
+  return res;
 }
 
 function openBulkStatusModal(status) {
@@ -10868,6 +11147,10 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([ty
 
 function topModal() {
   const open = [...document.querySelectorAll(MODAL_SELECTOR)].filter(m => m.classList.contains('active'));
+  const sheet = document.getElementById('moreSheet');
+  if (sheet && sheet.classList.contains('open')) open.push(sheet);
+  const formationEl = document.getElementById('formationOverlay');
+  if (formationEl && document.body.classList.contains('formation-active')) open.push(formationEl);
   // Highest z-index wins; on a tie the later one in the document paints on top.
   let top = null, topZ = -Infinity;
   for (const m of open) {
@@ -10881,17 +11164,63 @@ function topModal() {
 function closeTopModal() {
   const m = topModal();
   if (!m) return false;
+  if (m.id === 'moreSheet') { closeMoreSheet(); return true; }
+  if (m.id === 'formationOverlay') { exitFormation(); return true; }
   const close = MODAL_CLOSERS[m.id];
   if (close) close(); else m.classList.remove('active');
   return true;
 }
 
 const _modalOpener = new Map();
+let isolatedModal = null;
+const modalInertChanges = new Map();
+
+function syncModalIsolation() {
+  const sheet = document.getElementById('moreSheet');
+  if (sheet) sheet.inert = !sheet.classList.contains('open');
+  const modal = topModal();
+  if (modal === isolatedModal) return;
+  for (const [el, wasInert] of modalInertChanges) el.inert = wasInert;
+  modalInertChanges.clear();
+  isolatedModal = modal;
+  if (sheet) sheet.inert = !sheet.classList.contains('open');
+  if (!modal) return;
+  // Inert the siblings along the path to body, including nested page shells.
+  for (let branch = modal; branch && branch !== document.body; branch = branch.parentElement) {
+    for (const sibling of branch.parentElement.children) {
+      if (sibling === branch || sibling.id === 'apiToast' || (modal === sheet && sibling.id === 'moreSheetScrim') || /^(SCRIPT|STYLE)$/.test(sibling.tagName)) continue;
+      modalInertChanges.set(sibling, sibling.inert);
+      sibling.inert = true;
+    }
+  }
+  const box = modal.querySelector('[role="dialog"]') || modal;
+  const heading = box.querySelector('h2, h3');
+  if (heading && !box.hasAttribute('aria-label') && !box.hasAttribute('aria-labelledby')) {
+    if (!heading.id) heading.id = modal.id + 'Heading';
+    box.setAttribute('aria-labelledby', heading.id);
+  }
+  if (!modal.contains(document.activeElement)) {
+    box.setAttribute('tabindex', '-1');
+    box.focus({ preventScroll: true });
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const modal = topModal();
+  if (!modal) return;
+  const items = [...modal.querySelectorAll(FOCUSABLE)].filter(el => el.getClientRects().length && !el.closest('[inert]'));
+  const at = items.indexOf(document.activeElement);
+  if (!items.length) { e.preventDefault(); return; }
+  if (e.shiftKey && at <= 0) { e.preventDefault(); items[items.length - 1].focus(); }
+  else if (!e.shiftKey && (at < 0 || at === items.length - 1)) { e.preventDefault(); items[0].focus(); }
+}, true);
 // The observer runs after the open function, which may already have focused a
 // field inside the modal — so the opener is the element focused before that.
 let _lastFocus = null, _prevFocus = null;
 document.addEventListener('focusin', e => { _prevFocus = _lastFocus; _lastFocus = e.target; });
 new MutationObserver(records => {
+  syncModalIsolation();
   for (const r of records) {
     const m = r.target;
     if (!m.matches(MODAL_SELECTOR)) continue;
@@ -10904,7 +11233,7 @@ new MutationObserver(records => {
       // the confirm OK button) keeps it; otherwise the dialog box itself takes
       // focus. Not its first control: in the status modal that was TDY, and a
       // focus ring on it on a phone read as "TDY is already picked".
-      if (!m.contains(document.activeElement)) {
+      if (m === topModal() && !m.contains(document.activeElement)) {
         const box = m.querySelector('[role="dialog"]') || m;
         if (!box.hasAttribute('tabindex')) box.setAttribute('tabindex', '-1');
         box.focus({ preventScroll: true });
@@ -11373,6 +11702,7 @@ async function setBillingMode(userId, mode) {
 
 // ─── Auth ───
 function showAppScreen(screen) {
+  rememberProfileDraft();
   document.body.classList.add('app-authenticated');
   document.body.classList.toggle('dash-active', screen === 'platoon');
   if (screen !== 'platoon') {
@@ -11431,6 +11761,14 @@ async function createRootUnit() {
 // session and re-render against a long-dead sign-up. setAuthView() owns the
 // mid-flow changes from here on.
 function showLoginScreen(view) {
+  profileDrafts.clear();
+  profileBaseline = '';
+  profileLoadReq++;
+  pendingDraftNavigation = null;
+  closeMoreSheet();
+  document.querySelectorAll(MODAL_SELECTOR).forEach(m => m.classList.remove('active'));
+  document.body.classList.remove('formation-active');
+  syncModalIsolation();
   currentUser = null;
   authView = view || 'signin';
   document.body.classList.remove('app-authenticated');
@@ -12336,6 +12674,9 @@ function selectUnit(unit, push = true, pendingSoldier = null) {
     personnel = [];
     personnelUnitId = null;
     rosterNotice = 'loading';
+    rosterRefreshFailed = false;
+    document.getElementById('dashAsOf').textContent = 'Loading…';
+    updateRosterSyncState();
   }
   bulkSelected.clear();
   if (!pendingSoldier) document.body.classList.remove('soldier-active');
@@ -12704,6 +13045,7 @@ async function deleteUser(userId, username) {
 
 // ─── Init ───
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && rp) { rpClose(); return; }
   if (e.key === 'Escape' && closeTopModal()) return;
   if (e.key === 'Escape') exitFormation();
   userMenuKey(e);
@@ -12740,6 +13082,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('popstate', () => {
+  // Retain a draft if browser Back/Forward leaves this profile.
+  rememberProfileDraft();
   // Formation is an overlay, not a route: Back must not leave it sitting over
   // whatever page the popped URL opens underneath.
   exitFormation();
