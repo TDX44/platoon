@@ -3572,14 +3572,15 @@
     border-color: var(--cp-green);
   }
   .dash-row .dash-btn-primary:hover { background: var(--cp-green-bg); }
-  /* Solid, thumb-sized and the only filled control in the row: this is the
-     button the roster is tapped with every morning, so it should read as
-     pressable at a glance rather than as an outlined glyph. 44px is the
-     minimum comfortable touch target. */
+  /* Solid and the only filled control in the row: this is the button the
+     roster is tapped with every morning, so it should read as pressable at a
+     glance rather than as an outlined glyph. A mouse needs no thumb-sized
+     target, so on desktop it is no taller than the row's text; the phone
+     layout below brings it back up to the 44px touch minimum. */
   .dash-row .dash-btn-check {
-    min-width: 52px; height: 44px; padding: 0 14px;
+    min-width: 44px; height: 34px; padding: 0 12px;
     background: var(--cp-green); color: #fff; border: 1px solid var(--cp-green);
-    border-radius: 10px; font-size: 1.25em; line-height: 1; font-weight: 700;
+    border-radius: 8px; font-size: 1.1em; line-height: 1; font-weight: 700;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
     display: inline-flex; align-items: center; justify-content: center;
   }
@@ -3591,7 +3592,7 @@
   body.dark-mode .dash-row .dash-btn-check:hover { background: #6cc98a; border-color: #6cc98a; }
   /* Presses visibly — on a phone there is no hover to confirm the tap landed. */
   .dash-row .dash-btn-check:active { transform: scale(0.94); box-shadow: none; }
-  .dash-row .dash-btn-setstatus { height: 44px; border-radius: 10px; }
+  .dash-row .dash-btn-setstatus { height: 34px; border-radius: 8px; }
 
   .dash-more { position: relative; }
   .dash-more > summary {
@@ -3690,8 +3691,8 @@
     display: grid;
     grid-template-columns: 26px 52px minmax(0, 1.4fr) minmax(0, 1fr) auto;
     gap: 10px; align-items: center;
-    padding: 11px 16px; border-top: 1px solid var(--dash-border);
-    min-height: 54px;
+    padding: 7px 16px; border-top: 1px solid var(--dash-border);
+    min-height: 46px;
   }
   .dash-row:hover { background: var(--dash-hover); }
   .dash-row .row-checkbox { width: 15px; height: 15px; accent-color: var(--dash-accent); }
@@ -3889,9 +3890,16 @@
     .dash-header { padding: 8px 14px 0; gap: 6px; }
     .dash-header-title { width: 100%; }
     .dash-title { font-size: 1.05em; }
-    .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
-    .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
-    .dash-row-needs .dash-row-mobiledetail { grid-column: 3 / -1; }
+    /* Needs Action keeps its two buttons on the name's line rather than a
+       line of their own, so the row is no taller than any other. They stay
+       44px: these are the two a leader taps for every soldier at 0630. */
+    .dash-row-needs .dash-row-actions { gap: 6px; }
+    .dash-row .dash-btn-check { height: 44px; min-width: 44px; padding: 0 10px; border-radius: 10px; font-size: 1.2em; }
+    .dash-row .dash-btn-setstatus { height: 44px; padding: 0 10px; border-radius: 10px; }
+    /* "Status" alone is enough beside the tick, and the word is the name
+       column's width on a phone. */
+    .dash-setstatus-verb { display: none; }
+    .dash-row-mobiletext { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dash-main { display: contents; }
     .dash-rail { display: contents; }
     .dash-metrics { order: 1; margin: 6px 14px 0; }
@@ -3916,7 +3924,7 @@
     .dash-metric-card:not(.has-ring) .dash-metric-sub { display: none; }
     .dash-metric-label { font-size: 0.66em; letter-spacing: 0.02em; }
     .metric-label-long { display: none; }
-    .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
+    .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 7px 12px; }
     .dash-row-meta { display: none; }
     /* Two fixed lines per row: the status pill under the name, then the
        location and dates spanning the full width beneath. Heights are fixed
@@ -8442,10 +8450,10 @@ function dashNeedsRow(p) {
   return `<div class="dash-row dash-row-needs">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}${dashMobileTop('Not yet accounted for')}</div>
+    <div>${dashName(p, i)}${dashMobileTop('<span class="dash-row-mobiletext">Not yet accounted for</span>')}</div>
     <div class="dash-row-meta"><span>Not yet accounted for today${p.no_formation ? ' · not at formation' : ''}</span></div>
     <div class="dash-row-actions">
-      <button class="dash-btn dash-btn-secondary dash-btn-sm dash-btn-setstatus" onclick="openTdyLeave(${i})">Set Status</button>
+      <button class="dash-btn dash-btn-secondary dash-btn-sm dash-btn-setstatus" onclick="openTdyLeave(${i})" aria-label="Set status"><span class="dash-setstatus-verb">Set</span>Status</button>
       <button class="dash-btn dash-btn-primary dash-btn-sm dash-btn-check"
               onclick="markPresentToday(${i})" title="Mark present" aria-label="Mark present">&#10003;</button>
     </div>
