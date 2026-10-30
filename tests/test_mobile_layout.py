@@ -514,7 +514,7 @@ def check_rows_are_one_height(page, width):
 
     Sections differ from each other on purpose and are checked separately:
     Present for Duty carries no location or dates so it has no detail line,
-    and Needs Action gets a full-width second line for its two buttons."""
+    and Needs Action carries its two buttons instead of a status line."""
     groups = page.evaluate("""
     () => {
       const g = {};
