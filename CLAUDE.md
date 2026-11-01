@@ -69,6 +69,7 @@ python tests/test_import_js.py        # the CSV/TSV parser and column mapping, u
 python tests/test_recurring_absences.py # repeating absences: expansion limits, series cancel, backup
 python tests/test_duty_rotation.py    # duty_rotation.propose() fairness + the rotation/bulk routes
 python tests/test_notifications.py    # email alerts: prefs, the cron gate, per-tenant timer, at-most-once
+python tests/test_quick_add.py        # quick add: the org gate, roster scoping, writes nothing, 429/503
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -462,6 +463,27 @@ has an error (the client leaves those rows out), caps at `IMPORT_MAX_ROWS`
 `IMPORT_PERSONNEL` audit row. The default `unit_id` goes through
 `_unit_gate()`: another tenant's unit is 404, one outside the subtree 403.
 Tests: `tests/test_import.py`, `tests/test_import_js.py`.
+
+### Quick add
+
+"Quick add absence…" (roster More menu and the phone's More sheet) takes a
+sentence — "Boundy is going to Fort Bliss for 2 weeks starting Jan 1 for live
+aircraft" — and **`POST /api/absences/quick`** sends it, the unit subtree's
+roster (id, rank, name) and the unit's TDY lists to the Claude Messages API
+(`_ask_claude()`, urllib, which tests replace). **`quick_add.py`** is the rule,
+pure: the request body (a forced `propose_absences` tool call, model
+`claude-haiku-5-5`) and `read_proposals()`, which treats the reply as
+untrusted — a person id not on the roster sent becomes `null`, a bad status
+drops the entry, a bad date is blanked and explained in `question`. The route
+**writes nothing**: each proposal opens pre-filled in the ordinary absence
+modal (`fillQuickProposal()`, a queue advanced by `closeTdyLeaveModal()`) and
+only the leader's Save books it, through `POST .../schedule`. Off unless
+`ANTHROPIC_API_KEY` is set **and** the caller's root is in `QUICK_ADD_ROOTS`,
+because the operator pays for every call; `/api/me` and `/api/auth/sync` carry
+`quick_add` and the menu entries hide on `body:not(.quick-add-on)`. 404 when
+off, 3 s per-account cooldown per worker (429), 503 when Claude is
+unreachable. Tests: `tests/test_quick_add.py` and the quick-add case in
+`tests/test_profile_reliability.py`.
 
 ### Duty rotation
 

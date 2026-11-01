@@ -20,6 +20,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from flask import Flask, Response, abort, request, jsonify, redirect, send_from_directory, session, g, has_request_context
 import validation
+import quick_add
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
@@ -1938,6 +1939,7 @@ def auth_sync():
     log_action('LOGIN', f'Clerk user signed in: {_display_name_for_user(user)}')
     return jsonify({**_user_json(get_db(), user), 'invited_by': _invited_by(get_db(), user),
                     'platform_admin': _platform_admin_flag(user),
+                    'quick_add': _quick_add_on(user),
                     'billing': _billing_payload()})
 
 
@@ -2329,6 +2331,7 @@ def me():
     return jsonify({**_user_json(get_db(), g.current_user),
                     'invited_by': _invited_by(get_db(), g.current_user),
                     'platform_admin': _platform_admin_flag(g.current_user),
+                    'quick_add': _quick_add_on(g.current_user),
                     'billing': _billing_payload()})
 
 
@@ -3840,6 +3843,79 @@ def get_absences(person_id):
         (person_id,)
     ).fetchall()
     return jsonify({'absences': [dict(r) for r in rows]})
+
+
+# ── Quick add ──
+# A sentence ("Boundy is going to Fort Bliss for 2 weeks starting Jan 1 for
+# live aircraft") read by Claude into proposed absences. Writes nothing: the
+# client opens each proposal in the ordinary absence modal and the leader
+# saves it through POST .../schedule. Off unless ANTHROPIC_API_KEY is set, and
+# only for the organizations in QUICK_ADD_ROOTS, because the operator pays
+# for every call. The rule itself is quick_add.py.
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
+ANTHROPIC_TIMEOUT = 20      # under gunicorn's 30 s worker timeout
+QUICK_ADD_ROOTS = frozenset(int(x) for x in os.environ.get('QUICK_ADD_ROOTS', '').replace(' ', '').split(',')
+                            if x.isdigit())
+# ponytail: per-worker dict, like _BILLING_REFRESH_LAST; enough to stop a
+# double tap or a stuck key from billing twice.
+QUICK_ADD_COOLDOWN = 3
+_QUICK_ADD_LAST = {}
+
+
+def _quick_add_on(user):
+    return bool(ANTHROPIC_API_KEY) and user.get('root_id') in QUICK_ADD_ROOTS
+
+
+def _ask_claude(body):
+    """One Messages API call; the parsed JSON reply. Raises on failure. Tests replace this."""
+    req = Request(ANTHROPIC_URL, method='POST', data=json.dumps(body).encode(),
+                  headers={'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01',
+                           'content-type': 'application/json',
+                           'User-Agent': 'platoon-accountability/1.0 (+https://platoonmanager.com)'})
+    with urlopen(req, timeout=ANTHROPIC_TIMEOUT) as resp:
+        return json.loads(resp.read())
+
+
+@app.route('/api/absences/quick', methods=['POST'])
+@attached_required
+def quick_add_absences():
+    user = g.current_user
+    if not _quick_add_on(user):
+        return jsonify({'error': 'Not found'}), 404
+    data = request.get_json(silent=True) or {}
+    text = data.get('text')
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({'error': 'Type what is happening first.'}), 400
+    if len(text) > quick_add.MAX_TEXT:
+        return jsonify({'error': f'Keep it under {quick_add.MAX_TEXT} characters.'}), 400
+    conn = get_db()
+    unit_id, err = _unit_gate(conn, data.get('unit_id'))
+    if err:
+        return err
+    now = time.monotonic()
+    wait = QUICK_ADD_COOLDOWN - (now - _QUICK_ADD_LAST.get(user['id'], -QUICK_ADD_COOLDOWN))
+    if wait > 0:
+        return jsonify({'error': 'One moment, still reading the last one.'}), 429, {'Retry-After': str(int(wait) + 1)}
+    _QUICK_ADD_LAST[user['id']] = now
+    ids = list(subtree_ids(conn, unit_id))
+    roster = [dict(r) for r in conn.execute(
+        'SELECT id, rank, last, first FROM personnel WHERE unit_id = ANY(%s) ORDER BY last, first', (ids,))]
+    if not roster:
+        return jsonify({'error': 'Nobody on this roster yet.'}), 400
+    today = app_today()
+    body = quick_add.build_request(text.strip(), today, roster,
+                                   _get_tdy_list(conn, 'schools', unit_id), _get_tdy_list(conn, 'locations', unit_id))
+    try:
+        reply = _ask_claude(body)
+    except (URLError, OSError, ValueError) as exc:
+        app.logger.warning('quick add: Claude call failed for user %s: %s', user['id'], exc)
+        return jsonify({'error': 'Could not reach Claude. Try again, or use Set Status.'}), 503
+    proposals = quick_add.read_proposals(reply, {p['id'] for p in roster}, today)
+    usage = reply.get('usage') or {}
+    app.logger.info('quick add: user %s unit %s -> %d proposals (%s in / %s out tokens)', user['id'], unit_id,
+                    len(proposals), usage.get('input_tokens'), usage.get('output_tokens'))
+    return jsonify({'proposals': proposals})
 
 
 @app.route('/api/schedules/<int:event_id>', methods=['PUT'])

@@ -324,6 +324,43 @@ def test_add_absence_opens_blank_for_soldier_already_away(page):
     assert result['update']['status'] == 'tdy' and result['update']['to'] == '2026-11-09', result['update']
 
 
+def test_quick_add_fills_the_absence_modal_and_queues_the_rest(page):
+    """Quick add writes nothing itself: each proposal opens in the absence
+    modal pre-filled, and closing it moves on to the next one."""
+    result = page.evaluate("""async () => {
+      const a = personnel[0], b = personnel[1];
+      const calls = [];
+      window.api = async (method, path, body) => {
+        calls.push(method + ' ' + path);
+        return {proposals: [
+          {person_id: a.id, name: a.last, status: 'tdy', from_date: '2027-01-01', to_date: '2027-01-14',
+           school: 'Live Aircraft', location: 'Fort Bliss', reason: '', question: ''},
+          {person_id: b.id, name: b.last, status: 'leave', from_date: '2027-02-01', to_date: '2027-02-05',
+           school: '', location: '', reason: '', question: ''}]};
+      };
+      const form = () => ({open: document.getElementById('tdyLeaveModal').classList.contains('active'),
+        who: personnel[tdyLeaveIndex] && personnel[tdyLeaveIndex].id, status: awayStatus,
+        from: document.getElementById('awayFromInput').value, to: document.getElementById('awayToInput').value,
+        location: pickValue('awayLocation')});
+      openQuickAdd();
+      document.getElementById('quickAddText').value = 'two absences';
+      await runQuickAdd();
+      const first = form();
+      closeTdyLeaveModal();
+      await new Promise(r => setTimeout(r, 10));
+      const second = form();
+      closeTdyLeaveModal();
+      await new Promise(r => setTimeout(r, 10));
+      return {calls, first, second, after: form().open, ids: [a.id, b.id]};
+    }""")
+    a, b = result['ids']
+    assert result['calls'] == ['POST /absences/quick'], result['calls']
+    assert result['first'] == {'open': True, 'who': a, 'status': 'tdy', 'from': '2027-01-01', 'to': '2027-01-14',
+                               'location': 'Fort Bliss'}, result['first']
+    assert result['second']['who'] == b and result['second']['status'] == 'leave', result['second']
+    assert result['after'] is False
+
+
 def test_nested_date_picker_keeps_dialog_boundary(page):
     page.evaluate('openTdyLeave(personnel.findIndex(p => p.id === 2))')
     parent = page.locator('#tdyLeaveModal')
