@@ -3579,7 +3579,7 @@
   .dash-row .dash-btn-check {
     min-width: 52px; height: 44px; padding: 0 14px;
     background: var(--cp-green); color: #fff; border: 1px solid var(--cp-green);
-    border-radius: 10px; font-size: 1.25em; line-height: 1; font-weight: 700;
+    border-radius: 10px; font-size: 1.75em; line-height: 1; font-weight: 700;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
     display: inline-flex; align-items: center; justify-content: center;
   }
@@ -3889,9 +3889,9 @@
     .dash-header { padding: 8px 14px 0; gap: 6px; }
     .dash-header-title { width: 100%; }
     .dash-title { font-size: 1.05em; }
-    .dash-row-needs { grid-template-columns: 22px 42px minmax(0, 1fr); }
-    .dash-row-needs .dash-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
-    .dash-row-needs .dash-row-mobiledetail { grid-column: 3 / -1; }
+    /* Needs Action is one line on a phone: the section title already says
+       "not accounted for", so the row is just name, Set Status and the tick. */
+    .dash-row-needs { align-items: center; }
     .dash-main { display: contents; }
     .dash-rail { display: contents; }
     .dash-metrics { order: 1; margin: 6px 14px 0; }
@@ -8442,7 +8442,7 @@ function dashNeedsRow(p) {
   return `<div class="dash-row dash-row-needs">
     ${dashCheckbox(p)}
     <span class="dash-row-rank">${escapeHtml(p.rank)}</span>
-    <div>${dashName(p, i)}${dashMobileTop('Not yet accounted for')}</div>
+    <div>${dashName(p, i)}</div>
     <div class="dash-row-meta"><span>Not yet accounted for today${p.no_formation ? ' · not at formation' : ''}</span></div>
     <div class="dash-row-actions">
       <button class="dash-btn dash-btn-secondary dash-btn-sm dash-btn-setstatus" onclick="openTdyLeave(${i})">Set Status</button>

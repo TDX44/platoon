@@ -502,9 +502,9 @@ def check_no_duplicate_meta(page, width):
     """)
     assert results, f'no .dash-row elements found @ {width}px — fixture or render() is broken'
     for i, r in enumerate(results):
-        assert r['meta'] != r['mobile'], (
-            f'.dash-row[{i}] @ {width}px: .dash-row-meta visible={r["meta"]} and '
-            f'.dash-row-mobiletop visible={r["mobile"]} — exactly one must be visible'
+        assert not (r['meta'] and r['mobile']), (
+            f'.dash-row[{i}] @ {width}px: .dash-row-meta and .dash-row-mobiletop '
+            f'are both visible — the status shows twice'
         )
 
 
@@ -514,7 +514,7 @@ def check_rows_are_one_height(page, width):
 
     Sections differ from each other on purpose and are checked separately:
     Present for Duty carries no location or dates so it has no detail line,
-    and Needs Action gets a full-width second line for its two buttons."""
+    and Needs Action is a single line: name, Set Status and the tick."""
     groups = page.evaluate("""
     () => {
       const g = {};
@@ -533,6 +533,19 @@ def check_rows_are_one_height(page, width):
         assert len(distinct) == 1, (
             f'"{title}" rows @ {width}px are not a single height: {distinct}'
         )
+
+
+def check_needs_rows_one_line(page, width):
+    """A Needs Action row is one line: its buttons sit beside the name, not
+    on a second line under it."""
+    bad = page.evaluate("""
+    () => Array.from(document.querySelectorAll('.dash-row-needs')).flatMap(row => {
+      const name = row.querySelector('.dash-row-name').getBoundingClientRect();
+      const act = row.querySelector('.dash-row-actions').getBoundingClientRect();
+      return act.top >= name.bottom ? [row.innerText.trim().split('\\n')[0]] : [];
+    })
+    """)
+    assert not bad, f'Needs Action rows @ {width}px wrap onto a second line: {bad}'
 
 
 def check_modal_controls_fit(page, width):
@@ -904,6 +917,7 @@ def run_checks(page, base_url):
         check_no_duplicate_meta(page, width)
         if width < 900:
             check_rows_are_one_height(page, width)
+            check_needs_rows_one_line(page, width)
         check_modal_controls_fit(page, width)
         if width < 900:
             check_tap_targets(page, width, ROSTER_BUTTONS, 'accountability')
