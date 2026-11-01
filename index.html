@@ -8091,7 +8091,7 @@ function openAbsenceModal(eventId = null) {
   if (!p) return;
   const i = personnel.indexOf(p);
   if (i < 0) return;
-  openTdyLeave(i);                       // resets editingAbsenceId
+  openTdyLeave(i, eventId === null);     // resets editingAbsenceId
   if (eventId === null) return;
 
   const ev = profileAbsences.find(a => a.id === eventId);
@@ -8983,7 +8983,9 @@ function updateNotesPreview() {
 }
 
 // ─── TDY / Leave Modal ───
-function openTdyLeave(i) {
+// fresh: a blank form for booking another absence (the soldier page's
+// "+ Add Absence"), instead of one pre-filled from the current absence.
+function openTdyLeave(i, fresh = false) {
   bulkTdyIds = [];
   tdyLeaveIndex = i;
   editingAbsenceId = null;
@@ -8995,10 +8997,11 @@ function openTdyLeave(i) {
 
   // A present soldier opens with nothing picked: the leader has to choose,
   // rather than saving a TDY nobody meant because it was preselected.
-  const status = (p.status === 'present') ? '' : p.status;
+  const status = (fresh || p.status === 'present') ? '' : p.status;
+  if (fresh) document.getElementById('tdyLeaveTitle').textContent = `Add Absence — ${p.rank} ${lastFirst(p)}`;
 
-  awayFrom = p.from || '';
-  awayTo = p.to || '';
+  awayFrom = fresh ? '' : (p.from || '');
+  awayTo = fresh ? '' : (p.to || '');
   document.getElementById('awayFromInput').value = awayFrom;
   const toInput = document.getElementById('awayToInput');
   toInput.value = awayTo;
@@ -9009,7 +9012,9 @@ function openTdyLeave(i) {
   pickSet('awayLocation', '');
   document.getElementById('reasonInput').value = '';
   setAwayStatus(status);
-  if (status === 'tdy' && p.notes) {
+  if (fresh) {
+    // nothing to restore
+  } else if (status === 'tdy' && p.notes) {
     const idx = p.notes.indexOf(' - ');
     if (idx !== -1) {
       pickSet('awaySchool', p.notes.slice(0, idx));

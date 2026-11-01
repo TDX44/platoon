@@ -308,6 +308,22 @@ def test_phone_save_footer_stays_reachable(page):
     assert 'All changes saved' in footer.inner_text()
 
 
+def test_add_absence_opens_blank_for_soldier_already_away(page):
+    """"+ Add Absence" books another absence (a future TDY), so it must not
+    open pre-filled with the soldier's current one; "Update status" still does."""
+    result = page.evaluate("""() => {
+      const i = personnel.findIndex(p => p.id === 2);
+      Object.assign(personnel[i], {status: 'tdy', from: '2026-10-31', to: '2026-11-09', notes: 'Progression'});
+      const form = () => ({status: awayStatus, from: document.getElementById('awayFromInput').value,
+        to: document.getElementById('awayToInput').value, editing: editingAbsenceId});
+      openTdyLeave(i, true); const fresh = form(); closeTdyLeaveModal();
+      openTdyLeave(i); const update = form(); closeTdyLeaveModal();
+      return {fresh, update};
+    }""")
+    assert result['fresh'] == {'status': '', 'from': '', 'to': '', 'editing': None}, result['fresh']
+    assert result['update']['status'] == 'tdy' and result['update']['to'] == '2026-11-09', result['update']
+
+
 def test_nested_date_picker_keeps_dialog_boundary(page):
     page.evaluate('openTdyLeave(personnel.findIndex(p => p.id === 2))')
     parent = page.locator('#tdyLeaveModal')
