@@ -27,14 +27,14 @@ services:
       MIGRATION_DATABASE_URL: postgresql://platoon_owner:${DB_OWNER_PASSWORD}@db:5432/platoon
     volumes:
       - ./data:/data
-    # Resolve directly against the LAN resolvers instead of inheriting the
+    # Resolve directly against public resolvers instead of inheriting the
     # host's systemd-resolved, which renegotiates with the Tailscale resolver
-    # every day or so and returns EAI_AGAIN while it does. The app survives that
-    # now (it caches Clerk's JWKS) but there is no reason to ride it out.
+    # every day or so and returns EAI_AGAIN while it does. Not the VLAN 50 LAN
+    # resolvers: prodsrv02 moved to VLAN 60 and can't reach them, which broke
+    # every Clerk JWKS fetch (sign-in 503) on 2026-11-08.
     dns:
-      - 10.10.50.3
-      - 10.10.50.4
       - 1.1.1.1
+      - 9.9.9.9
     depends_on:
       db:
         condition: service_healthy
