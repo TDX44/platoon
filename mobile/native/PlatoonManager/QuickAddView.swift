@@ -21,6 +21,15 @@ struct QuickAddView: View {
                     TextField("e.g. Boundy is going to Fort Bliss for 2 weeks starting Jan 1 for live aircraft",
                               text: $text, axis: .vertical)
                         .lineLimit(3...8)
+                        .submitLabel(.send)
+                        // A multi-line field puts Return in the text rather than
+                        // submitting; take it back out and send instead.
+                        .onChange(of: text) { _, new in
+                            guard new.contains("\n") else { return }
+                            text = new.replacingOccurrences(of: "\n", with: " ")
+                                .trimmingCharacters(in: .whitespaces)
+                            send()
+                        }
                 } footer: {
                     Text("Name the soldier, what, and when. Each absence opens for you to check before it is saved.")
                 }
@@ -37,13 +46,18 @@ struct QuickAddView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() } else {
-                        Button("Read it") { Task { await ask() } }
+                        Button("Read it") { send() }
                             .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
             .sheet(item: $current) { StatusSheet(target: $0) }
         }
+    }
+
+    private func send() {
+        guard !busy, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        Task { await ask() }
     }
 
     private func ask() async {
