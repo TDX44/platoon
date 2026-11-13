@@ -1,1 +1,3 @@
 node_modules/
+# xcodebuild archive/export output (App.xcarchive, ExportOptions.plist, the .ipa)
+build/
