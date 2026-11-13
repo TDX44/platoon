@@ -33,15 +33,19 @@ which `scripts/make-icons.py` generates.
 
 ## Clerk setup it needs
 
-In the Clerk dashboard (production instance):
+Done on 2026-11-13. In the Clerk dashboard (the **Platoon Manager** workspace,
+production instance, Developers → Native applications):
 
 - **Native applications**: enable the Native API, and add the iOS app with
   team ID `687CJND9M7` and bundle ID `com.platoonmanager.app`. Without the
   Native API, Clerk answers every request with `native_api_disabled` and the
   app never gets past loading.
 - Google sign-in returns to `com.platoonmanager.app://callback` (the SDK's
-  default; the scheme is registered in `Info.plist`). Add it to the allowed
-  redirect URLs if Clerk asks for it.
+  default; the scheme is registered in `Info.plist`). Clerk put it on the
+  mobile SSO redirect allowlist by itself when the iOS app was added.
+
+The server needed no change: the native session token passed
+`_verify_clerk_session_token()`'s `azp` check as it is.
 
 ## Build and upload to TestFlight
 
