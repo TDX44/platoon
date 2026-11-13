@@ -66,7 +66,9 @@ struct ReportView: View {
     private var report: some View {
         let text = self.text
         return VStack(spacing: 0) {
-            Form {
+            // Sized by its content, never a fixed height: a fixed-height Form
+            // clipped the toggle behind the report at larger text sizes.
+            VStack(spacing: 12) {
                 Picker("Format", selection: $formatRaw) {
                     Text("Detailed").tag("detailed")
                     Text("Strength").tag("strength")
@@ -74,8 +76,10 @@ struct ReportView: View {
                 .pickerStyle(.segmented)
                 Toggle("Leave and Pass separate", isOn: $splitLeavePass)
             }
-            .frame(height: 130)
-            .scrollDisabled(true)
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+            .fixedSize(horizontal: false, vertical: true)
+            Divider()
             ScrollView {
                 Text(text)
                     .font(.system(.footnote, design: .monospaced))
