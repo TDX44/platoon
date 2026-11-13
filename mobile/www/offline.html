@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Platoon Manager</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f7fa; --text: #1b2430; --muted: #5b6878; --accent: #146bc5; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1720; --text: #e6edf5; --muted: #93a1b2; --accent: #5aa2ec; } }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  }
+  main { max-width: 340px; text-align: center; }
+  h1 { font-size: 1.25em; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 24px; }
+  button {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 10px; min-height: 44px; padding: 0 24px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Can't reach Platoon Manager</h1>
+  <p>Check your connection, then try again.</p>
+  <!-- The app lives at server.url; going back there is the retry. -->
+  <button type="button" onclick="location.replace('https://app.platoonmanager.com/')">Try again</button>
+</main>
+</body>
+</html>

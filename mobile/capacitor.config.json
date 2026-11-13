@@ -1,0 +1,15 @@
+{
+  "appId": "com.platoonmanager.app",
+  "appName": "Platoon Manager",
+  "webDir": "www",
+  "appendUserAgent": "PlatoonManagerApp/1",
+  "backgroundColor": "#0b6cd5",
+  "server": {
+    "url": "https://app.platoonmanager.com",
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "never",
+    "allowsLinkPreview": false
+  }
+}

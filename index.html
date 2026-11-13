@@ -373,6 +373,15 @@
   /* The banner is in normal flow at the top of <body>: nothing fixed, nothing
      to offset. body.dash-active zeroes the body padding, so it is full-bleed
      on the roster and inset like everything else elsewhere. */
+  /* The iOS app (mobile/, html.native-app) sells nothing: Apple requires its
+     own in-app purchase for a subscription bought inside an app, so every way
+     into Stripe is hidden there and an account is managed on the web. The
+     settings index row has no key of its own, hence the onclick match. */
+  html.native-app #billingBanner,
+  html.native-app [data-settings="billing"],
+  html.native-app [data-personal="billing"],
+  html.native-app .settings-row-nav[onclick="openSettings(true,'billing')"],
+  html.native-app #inactiveBilling { display: none !important; }
   .billing-banner {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 14px;
     padding: 8px 16px; margin-bottom: 12px; font-size: 0.92em; text-align: center;
@@ -4651,6 +4660,10 @@ let tdyLeaveIndex = -1;
 let bulkTdyIds = [];   // when non-empty, the status modal applies to all of these ids
 let currentUser = null;
 let clerk = null;
+// The iOS app is this same page in a WKWebView; capacitor.config.json appends
+// this token to its user agent. Read once, before anything renders.
+const NATIVE_APP = /\bPlatoonManagerApp\//.test(navigator.userAgent);
+if (NATIVE_APP) document.documentElement.classList.add('native-app');
 let authConfig = null;
 let clerkReadyPromise = null;
 
@@ -10109,7 +10122,8 @@ function onGlobalSearch() {
   closeUserMenu();
   // The roster is only loaded inside a unit; on the home screen people are not
   // offered, rather than offering the last unit's roster.
-  searchResults = globalSearchResults(q, currentUnit ? personnel : [], units, SEARCH_PAGES);
+  const pages = NATIVE_APP ? SEARCH_PAGES.filter(p => p.label !== 'Billing') : SEARCH_PAGES;
+  searchResults = globalSearchResults(q, currentUnit ? personnel : [], units, pages);
   searchActive = 0;
   box.innerHTML = globalSearchHtml(searchResults, searchActive);
   box.hidden = false;
@@ -11467,6 +11481,17 @@ function pricingScreenHtml(b) {
     </div></div>`;
 }
 
+// A locked account in the iOS app: no plans and no way to Stripe (see the
+// html.native-app CSS), just what happened and the way out.
+function nativeLockedHtml() {
+  return `<div class="login-card"><div class="login-brand pricing-panel">
+      <img src="/images/app-logo.png" alt="" class="pricing-logo">
+      <h1 class="login-title">This account's subscription isn't active.</h1>
+      <p class="login-subtitle">Your roster and everything in it is kept; nothing is deleted.</p>
+      <div class="pricing-links"><button type="button" class="billing-banner-link" onclick="doLogout()">Sign out</button></div>
+    </div></div>`;
+}
+
 // ─── The Billing page ───
 // Laid out like Resyrv's /billing: a current-plan card beside a payment-method
 // card (card on file, the Stripe portal's entry points, usage), the plan
@@ -11692,11 +11717,12 @@ function renderBillingBanner() {
 // manages billing on the Billing page, a settings section like any other.
 function showBillingScreen() {
   showAppScreen('billing');
-  document.getElementById('billingScreen').innerHTML = pricingScreenHtml(currentUser && currentUser.billing);
+  document.getElementById('billingScreen').innerHTML = NATIVE_APP
+    ? nativeLockedHtml() : pricingScreenHtml(currentUser && currentUser.billing);
   window.scrollTo({ top: 0 });
 }
 
-function openBillingPage() { goToSettings('billing'); }
+function openBillingPage() { if (!NATIVE_APP) goToSettings('billing'); }
 
 function billingPageOpen() {
   return document.body.classList.contains('settings-active') && settingsSection === 'billing';
@@ -11821,7 +11847,7 @@ async function awaitBillingActive() {
 
 async function maybeShowBillingModal() {
   const b = currentUser && currentUser.billing;
-  if (!b || !currentUser.id) return;
+  if (!b || !currentUser.id || NATIVE_APP) return;
   const today = getTodayStr();
   let seen = billingModalSeen;
   try { seen = localStorage.getItem(BILLING_MODAL_KEY + currentUser.id) || billingModalSeen; } catch (e) {}
@@ -12155,6 +12181,7 @@ async function authSecondFactor(code) {
 // fail; pendingOAuthTransfer()/completeOAuthTransfer() below cover the cross
 // cases (a stranger who used the sign-in form, a member who used the sign-up one).
 async function authOAuth(strategy, mode) {
+  if (NATIVE_APP) { await nativeSignInWithBrowser(); return; }
   const redirectBase = window.location.origin + '/';
   const flow = mode === 'signup' ? clerk.client.signUp : clerk.client.signIn;
   setOAuthPending(mode);
@@ -12163,6 +12190,97 @@ async function authOAuth(strategy, mode) {
     redirectUrl: redirectBase,
     redirectUrlComplete: redirectBase,
   });
+}
+
+// ─── iOS app sign-in ───
+// Google refuses to sign anyone in inside an embedded web view, so in the iOS
+// app "Continue with Google" opens this site in an in-app Safari sheet with a
+// one-time nonce. Signed in there (Google, or email — the sheet is just this
+// page), the page asks the server for a 60-second Clerk sign-in token and
+// hands it back through the app's URL scheme. The app redeems it only if the
+// nonce is the one it sent, so a link from anywhere else can never sign the
+// app into somebody else's account. Email sign-in inside the app needs none
+// of this. See mobile/README.md.
+const NATIVE_SCHEME = 'platoonmanager:';
+const NATIVE_SIGNIN_KEY = 'platoon_native_signin';   // in the Safari sheet
+let nativeSigninNonce = '';                           // in the app
+
+function newNonce() {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+}
+
+// In the app. Capacitor's bridge has no Plugins.* proxies on a remote page
+// (those come from @capacitor/core, which this page does not bundle), so the
+// plugins are called by name.
+async function nativeSignInWithBrowser() {
+  nativeSigninNonce = newNonce();
+  await window.Capacitor.nativePromise('Browser', 'open', {
+    url: `${window.location.origin}/?native-signin=${nativeSigninNonce}`,
+    presentationStyle: 'popover',
+  });
+}
+
+async function nativeSigninReturned(link) {
+  let u;
+  try { u = new URL(link); } catch (e) { return; }
+  if (u.protocol !== NATIVE_SCHEME || u.hostname !== 'signin') return;
+  const ticket = u.searchParams.get('ticket') || '';
+  if (!ticket || !nativeSigninNonce || u.searchParams.get('nonce') !== nativeSigninNonce) return;
+  nativeSigninNonce = '';
+  window.Capacitor.nativePromise('Browser', 'close').catch(() => {});
+  try {
+    await ensureClerk();
+    const si = await clerk.client.signIn.create({ strategy: 'ticket', ticket });
+    if (si.status !== 'complete') throw new Error(`Sign-in could not be completed (${si.status}).`);
+    await finalizeAuth(si.createdSessionId);
+  } catch (err) {
+    showLoginScreen();
+    setAuthError(clerkErrorMessage(err, 'Sign-in could not be completed. Please try again.'));
+  }
+}
+
+if (NATIVE_APP && window.Capacitor && typeof window.Capacitor.addListener === 'function') {
+  window.Capacitor.addListener('App', 'appUrlOpen', e => nativeSigninReturned(e && e.url));
+}
+
+// In the Safari sheet: remember the nonce across the Google redirect, like the
+// invite token, and take it out of the address bar.
+function captureNativeSignin() {
+  const params = new URLSearchParams(window.location.search);
+  const nonce = params.get('native-signin');
+  if (nonce === null) return;
+  if (/^[0-9a-f]{32}$/.test(nonce)) {
+    try { sessionStorage.setItem(NATIVE_SIGNIN_KEY, nonce); } catch (e) {}
+  }
+  history.replaceState({}, '', '/');
+}
+
+function nativeSigninPending() {
+  if (NATIVE_APP) return '';
+  try { return sessionStorage.getItem(NATIVE_SIGNIN_KEY) || ''; } catch (e) { return ''; }
+}
+
+// In the Safari sheet, signed in: mint the ticket and send it to the app.
+async function completeNativeSignin(nonce) {
+  document.getElementById('loginScreen').style.display = 'flex';
+  const subtitle = document.getElementById('loginSubtitle');
+  if (subtitle) subtitle.textContent = 'Signing in to the app';
+  const mount = document.getElementById('clerkAuthMount');
+  mount.innerHTML = '<div class="auth-form"><p class="auth-hint">Returning you to Platoon Mgr…</p></div>';
+  const r = await api('POST', '/auth/native-ticket');
+  if (!r || !r.ticket) {
+    mount.innerHTML = `<div class="auth-form"><p class="auth-hint">The app could not be signed in.</p>
+      <button type="button" class="btn-login" onclick="completeNativeSignin(nativeSigninPending())">Try again</button></div>`;
+    return;
+  }
+  try { sessionStorage.removeItem(NATIVE_SIGNIN_KEY); } catch (e) {}
+  const link = `platoonmanager://signin?ticket=${encodeURIComponent(r.ticket)}&nonce=${nonce}`;
+  mount.innerHTML = `<div class="auth-form"><p class="auth-hint">Signed in. If the app does not open by itself, tap below.</p>
+    <a class="btn-login" id="nativeReturn">Open Platoon Mgr</a></div>`;
+  document.getElementById('nativeReturn').href = link;
+  window.location.href = link;
 }
 
 // Brackets the OAuth round-trip the way captureInviteToken()/clearInviteToken()
@@ -12660,6 +12778,9 @@ function parseAppRoute() {
 }
 
 function routeAfterLogin() {
+  // Before anything else: this is the iOS app's sign-in sheet, not a visit.
+  const nativeNonce = nativeSigninPending();
+  if (nativeNonce) { completeNativeSignin(nativeNonce); return; }
   if (accountInactive || (currentUser && currentUser.is_active === false)) { showInactiveAccountScreen(); return; }
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
@@ -12700,6 +12821,7 @@ function routeAfterLogin() {
 async function initApp() {
   try {
     captureInviteToken();
+    captureNativeSignin();
     await ensureClerk();
     if (!clerk.user) {
       const params = new URLSearchParams(window.location.search);

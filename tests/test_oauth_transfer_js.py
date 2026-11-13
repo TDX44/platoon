@@ -42,6 +42,9 @@ const sessionStorage = {
   removeItem: k => { delete store[k]; },
 };
 const window = { location: { origin: 'https://platoondev.example' } };
+// The web, not the iOS app: authOAuth() hands off to the Safari sheet there
+// (tests/test_native_signin.py covers that path).
+const NATIVE_APP = false;
 let updateResult = null;
 const clerk = { client: {
   signIn: { authenticateWithRedirect: a => calls.push(['signIn', a]) },
