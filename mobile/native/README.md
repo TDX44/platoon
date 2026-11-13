@@ -1,9 +1,14 @@
 # Platoon Manager, native iOS (SwiftUI)
 
 The SwiftUI app that will replace the Capacitor shell in `../ios/`. The plan,
-phases and API are in [`../NATIVE_PLAN.md`](../NATIVE_PLAN.md). This is Phase 0:
-Clerk sign-in (email and Google), `POST /api/auth/sync`, `GET /api/me`, and the
-roster of the user's unit as a plain list.
+phases and API are in [`../NATIVE_PLAN.md`](../NATIVE_PLAN.md). Phases 0–3 are
+in: Clerk sign-in (email and Google), the accountability roster (swipe or tick
+to mark present, undo, the status sheet with TDY lists and repeats), the soldier
+page (absences, history, profile), formation mode, reports with history, the
+unit tree with today's counts, the directory (call / text), availability, the
+duty roster with rotation, email alerts and quick add. The rarer settings
+(TDY lists, sub-units, audit log, logo, import, accounts, time zone, backup)
+open the website in an in-app Safari sheet. Billing is never shown in the app.
 
 Same bundle ID (`com.platoonmanager.app`) and team (`687CJND9M7`) as the
 Capacitor app, so its builds replace that one on TestFlight. Build numbers keep
@@ -24,9 +29,14 @@ through Swift Package Manager.
 | --- | --- |
 | `Config.swift` | The server URL and Clerk's publishable key (both public). |
 | `APIClient.swift` | Calls `/api/...` with `Authorization: Bearer <Clerk session token>`; maps 401/402/403 inactive/503 to errors. On a 401 it logs the token's `azp` claim. |
-| `AppModel.swift` | Sign-in → sync → `/api/me` → roster. |
+| `AppModel.swift` | Sign-in → sync → `/api/me` → units; the duty day in the organization's zone. |
 | `RootView.swift` | Signed out (Clerk's `AuthView`), loading, locked, inactive, needs-unit screens. |
-| `RosterView.swift` | The roster list. |
+| `MainTabs.swift` | Today, Units, People, Plan, More; one `RosterStore` per selected unit. |
+| `RosterStore.swift` | The roster and every write to it (present, absences, people, TDY lists, report history). |
+| `Rules/` | The web app's pure rules ported from `index.html`: accountability, ranks, formation queue, unit tree, report text, field validation. |
+| `PlatoonManagerTests/` | XCTests for `Rules/`, with expected values produced by running the JS from `index.html` under node. If the JS changes, regenerate them from it. |
+
+Run the tests with `xcodebuild -scheme PlatoonManager -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
 
 The app icon is a copy of `../ios/App/App/Assets.xcassets/AppIcon.appiconset`,
 which `scripts/make-icons.py` generates.

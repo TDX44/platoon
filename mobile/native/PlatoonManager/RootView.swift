@@ -17,8 +17,8 @@ struct RootView: View {
                 switch model.phase {
                 case .signedOut, .loading:
                     ProgressView("Signing in…")
-                case .ready(let me):
-                    RosterView(me: me)
+                case .ready:
+                    MainTabs()
                 case .needsUnit:
                     MessageView(title: "No unit yet",
                                 message: "This account isn't attached to a unit. Create one or accept an invite on app.platoonmanager.com.")
