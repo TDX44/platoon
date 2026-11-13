@@ -99,12 +99,61 @@ struct UnitNode: Decodable, Identifiable, Sendable, Hashable {
     /// Today's present / unaccounted directly in this unit.
     var present: Int?
     var unaccounted: Int?
+    /// The logo this unit shows: its own, or the nearest ancestor's.
+    var logo: LogoRef?
 
     init(id: Int, parentId: Int? = nil, kind: String = "platoon", name: String = "", slug: String = "",
          count: Int? = nil, present: Int? = nil, unaccounted: Int? = nil) {
         self.id = id; self.parentId = parentId; self.kind = kind; self.name = name; self.slug = slug
         self.count = count; self.present = present; self.unaccounted = unaccounted
     }
+}
+
+/// Which unit's logo a unit resolves to (`_resolved_logos()`).
+struct LogoRef: Decodable, Sendable, Hashable {
+    var unitId: Int?
+    var v: String?
+    var name: String?
+}
+
+/// An account (`GET /api/users`, `GET /api/me`).
+struct Account: Decodable, Identifiable, Sendable, Hashable {
+    let id: Int
+    var username: String
+    var email: String?
+    var fullName: String?
+    var unitId: Int?
+    var unitName: String?
+    var role: String?
+    var isActive: Bool?
+    var editable: Bool?
+    var canToggleActive: Bool?
+
+    var displayName: String { (fullName?.isEmpty == false ? fullName : nil) ?? username }
+    var isOwner: Bool { role == "owner" }
+}
+
+/// A row of `GET /api/invites`.
+struct Invite: Decodable, Identifiable, Sendable, Hashable {
+    let token: String
+    var label: String?
+    var unitId: Int?
+    var unitName: String?
+    var role: String?
+    var createdBy: String?
+    var expiresAt: String?
+    var status: String?
+    var id: String { token }
+}
+
+/// A row of `GET /api/audit`.
+struct AuditRow: Decodable, Identifiable, Sendable, Hashable {
+    let id: Int
+    var timestamp: String?
+    var username: String?
+    var action: String?
+    var details: String?
+    var unitId: Int?
 }
 
 /// The server's error body: `{"error": "...", "field"?: "...", "code"?: "..."}`.

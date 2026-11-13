@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Report history, email alerts, the things that stay on the website, and the account.
+/// Report history, the unit and organization settings, email alerts, and the account.
 struct MoreView: View {
     @Environment(AppModel.self) private var app
     @Environment(RosterStore.self) private var store
-    @State private var web: URL?
     @State private var confirmSignOut = false
 
     var body: some View {
@@ -29,13 +28,11 @@ struct MoreView: View {
                     } label: {
                         Label("Report history", systemImage: "clock.arrow.circlepath")
                     }
-                    if let slug = app.selectedUnit?.slug {
-                        webRow("TDY lists (schools, locations)", "list.bullet", "\(slug)/schools")
-                        webRow("Sub-units", "point.3.connected.trianglepath.dotted", "\(slug)/units")
-                        webRow("Audit log", "doc.text.magnifyingglass", "\(slug)/audit")
-                        webRow("Logo", "photo", "\(slug)/settings")
-                        webRow("Import alpha roster", "square.and.arrow.down", "\(slug)/accountability")
-                    }
+                    nav("TDY lists (schools, locations)", "list.bullet") { TDYListsView() }
+                    nav("Sub-units", "point.3.connected.trianglepath.dotted") { SubUnitsView() }
+                    nav("Audit log", "doc.text.magnifyingglass") { AuditLogView() }
+                    nav("Logo", "photo") { LogoView() }
+                    nav("Import alpha roster", "square.and.arrow.down") { ImportRosterView() }
                 }
 
                 Section {
@@ -65,27 +62,22 @@ struct MoreView: View {
                     } label: {
                         Label("Email alerts", systemImage: "bell")
                     }
-                    if let slug = app.selectedUnit?.slug {
-                        webRow("Profile", "person.crop.circle", "\(slug)/settings/profile")
-                    }
+                    nav("Profile", "person.crop.circle") { AccountProfileView() }
                 }
 
-                if let slug = app.selectedUnit?.slug {
-                    Section("Organization") {
-                        webRow("Accounts & invites", "person.2.badge.key", "\(slug)/settings/people")
-                        webRow("Time zone", "globe", "\(slug)/settings/timezone")
-                        webRow("Backup & restore", "externaldrive", "\(slug)/settings/data")
-                    }
+                Section("Organization") {
+                    nav("Accounts & invites", "person.2.badge.key") { AccountsView() }
+                    nav("Time zone", "globe") { TimeZoneView() }
+                    nav("Backup & restore", "externaldrive") { BackupView() }
                 }
 
                 Section {
                     Button("Sign out", role: .destructive) { confirmSignOut = true }
                 } footer: {
-                    Text("Platoon Manager \(Bundle.main.appVersion). Settings marked ↗ open on the website.")
+                    Text("Platoon Manager \(Bundle.main.appVersion)")
                 }
             }
             .navigationTitle("More")
-            .sheet(item: $web) { SafariView(url: $0).ignoresSafeArea() }
             .confirmationDialog("Sign out?", isPresented: $confirmSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) { Task { await app.signOut() } }
             }
@@ -99,15 +91,11 @@ struct MoreView: View {
         })
     }
 
-    private func webRow(_ title: String, _ icon: String, _ path: String) -> some View {
-        Button {
-            web = WebPage.url(path)
+    private func nav<D: View>(_ title: String, _ icon: String, @ViewBuilder _ dest: @escaping () -> D) -> some View {
+        NavigationLink {
+            dest()
         } label: {
-            HStack {
-                Label(title, systemImage: icon).foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
-            }
+            Label(title, systemImage: icon)
         }
     }
 }

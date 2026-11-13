@@ -97,6 +97,17 @@ struct APIClient {
         _ = try await send("DELETE", path, query: [:], body: nil)
     }
 
+    /// The answer's raw bytes (a logo PNG, a backup file).
+    func data(_ path: String, query: [String: String] = [:]) async throws -> Data {
+        try await send("GET", path, query: query, body: nil)
+    }
+
+    /// A POST whose answer is read as loose JSON (the restore summary).
+    func postObject(_ path: String, _ json: [String: Any]) async throws -> [String: Any] {
+        let data = try await send("POST", path, query: [:], body: json)
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
     private func decode<T: Decodable>(_ data: Data) throws -> T {
         do {
             return try Self.decoder.decode(T.self, from: data)

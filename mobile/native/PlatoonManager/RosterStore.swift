@@ -198,6 +198,14 @@ final class RosterStore {
         soldiers.removeAll { $0.id == id }
     }
 
+    /// Replace a whole TDY list (the TDY lists screen). Order is kept exactly:
+    /// it is the order the absence form's pickers show.
+    func saveList(kind: String, _ list: [String]) async throws {
+        let s: UnitSettings = try await api.put("settings", ["tdy_\(kind)": list], query: ["unit": String(unitId)])
+        schools = s.tdySchools ?? schools
+        locations = s.tdyLocations ?? locations
+    }
+
     /// Add a custom school or location to the unit's TDY list ("Save to list").
     func addToList(kind: String, value: String) async {
         let v = value.trimmingCharacters(in: .whitespaces)
@@ -205,7 +213,6 @@ final class RosterStore {
         var list = kind == "schools" ? schools : locations
         guard !list.contains(where: { $0.caseInsensitiveCompare(v) == .orderedSame }) else { return }
         list.append(v)
-        list.sort { $0.localizedCompare($1) == .orderedAscending }
         do {
             let s: UnitSettings = try await api.put("settings", ["tdy_\(kind)": list], query: ["unit": String(unitId)])
             schools = s.tdySchools ?? schools

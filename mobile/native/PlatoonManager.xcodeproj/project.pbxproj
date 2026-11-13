@@ -19,6 +19,7 @@
 		2235A73A71170192C0E4FF4E /* Accountability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42D91F501830462F7B1D943 /* Accountability.swift */; };
 		3B336E8646BA9F3197957ABE /* PlatoonManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C487EDF9529659F55E471053 /* PlatoonManagerApp.swift */; };
 		41D239495FF3CF051173BD06 /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 47B8B64CF73C6F04053E019A /* ClerkKitUI */; };
+		43FDD8668986CF02E8D1E299 /* SettingsScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3759D91D29FE7594375B9974 /* SettingsScreens.swift */; };
 		471FD0617D52943985952C7C /* UnitTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7AF9099C5206EF5F8EAC86 /* UnitTreeTests.swift */; };
 		4A2FD3C28E36183D62083AED /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1529DFC2847631F8AD44BD /* Config.swift */; };
 		51BDC998714CBC9372ACCC4A /* FormationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C90744584AD98A5B345F80 /* FormationView.swift */; };
@@ -43,6 +44,7 @@
 		E55C8C78219F91DDA20783F3 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F23EA25B3F3EC0DD16BBE8 /* Models.swift */; };
 		E94CB2B031A06837A94D5838 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0587B3DB2DD59FF03F51D469 /* Assets.xcassets */; };
 		EE8E744A1788B0D1FA399458 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B43CCD3FA2B1347EDAE591 /* RootView.swift */; };
+		FA37DD8EDF015B9971EA7DE5 /* ImportParseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ADF9688C107D57B7F4E68F3 /* ImportParseTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +64,7 @@
 		0A0451704864D2FFDFE1616B /* ReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportTests.swift; sourceTree = "<group>"; };
 		26FE6C424235E0DF25F84376 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		2D7AF9099C5206EF5F8EAC86 /* UnitTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnitTreeTests.swift; sourceTree = "<group>"; };
+		3759D91D29FE7594375B9974 /* SettingsScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreens.swift; sourceTree = "<group>"; };
 		3DCAF8FDDC89DB217A21655A /* AccountabilityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabilityView.swift; sourceTree = "<group>"; };
 		4ADF8C82B66DFE428286D18B /* RosterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterStore.swift; sourceTree = "<group>"; };
 		4B001A2244A9B6D38CC264F1 /* Validation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Validation.swift; sourceTree = "<group>"; };
@@ -69,6 +72,7 @@
 		4E311183A100F9B28ECD6B7E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		53082C38BC0D2E9C91E890F5 /* PlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanView.swift; sourceTree = "<group>"; };
 		5F459DE0450B5F5961797D03 /* StatusSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusSheet.swift; sourceTree = "<group>"; };
+		6ADF9688C107D57B7F4E68F3 /* ImportParseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportParseTests.swift; sourceTree = "<group>"; };
 		6F0B18806C34AA36CC6B6693 /* SoldierView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoldierView.swift; sourceTree = "<group>"; };
 		767331E36A65BA7B6016F16D /* Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared.swift; sourceTree = "<group>"; };
 		777B254F8150E37D1CB0FA3A /* DirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryView.swift; sourceTree = "<group>"; };
@@ -130,6 +134,7 @@
 				9C233222D8576531CE162121 /* ReportView.swift */,
 				B3B43CCD3FA2B1347EDAE591 /* RootView.swift */,
 				4ADF8C82B66DFE428286D18B /* RosterStore.swift */,
+				3759D91D29FE7594375B9974 /* SettingsScreens.swift */,
 				767331E36A65BA7B6016F16D /* Shared.swift */,
 				6F0B18806C34AA36CC6B6693 /* SoldierView.swift */,
 				5F459DE0450B5F5961797D03 /* StatusSheet.swift */,
@@ -175,6 +180,7 @@
 			children = (
 				E348CE9F1F861A9083843486 /* AccountabilityTests.swift */,
 				8824F3EC88099AAE8E5FD3B8 /* FormationTests.swift */,
+				6ADF9688C107D57B7F4E68F3 /* ImportParseTests.swift */,
 				9450AE9DD6EBF3B690F59F21 /* RanksTests.swift */,
 				0A0451704864D2FFDFE1616B /* ReportTests.swift */,
 				2D7AF9099C5206EF5F8EAC86 /* UnitTreeTests.swift */,
@@ -285,6 +291,7 @@
 			files = (
 				C735B2F373DB476B36F5EF69 /* AccountabilityTests.swift in Sources */,
 				9603AFCFEF82228BB283DF74 /* FormationTests.swift in Sources */,
+				FA37DD8EDF015B9971EA7DE5 /* ImportParseTests.swift in Sources */,
 				92541445A3BB7BD16188EFBD /* RanksTests.swift in Sources */,
 				178760B42E2496DE913984DB /* ReportTests.swift in Sources */,
 				471FD0617D52943985952C7C /* UnitTreeTests.swift in Sources */,
@@ -317,6 +324,7 @@
 				817493BF70771B37789A4627 /* ReportView.swift in Sources */,
 				EE8E744A1788B0D1FA399458 /* RootView.swift in Sources */,
 				C5D2791C8F084EF964C8377A /* RosterStore.swift in Sources */,
+				43FDD8668986CF02E8D1E299 /* SettingsScreens.swift in Sources */,
 				8343CE0E1224709C83F8CEEC /* Shared.swift in Sources */,
 				5849D4B9332229843CC83A33 /* SoldierView.swift in Sources */,
 				14DCB3865B98F152D8FCF18B /* StatusSheet.swift in Sources */,

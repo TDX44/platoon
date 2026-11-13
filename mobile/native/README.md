@@ -6,9 +6,10 @@ in: Clerk sign-in (email and Google), the accountability roster (swipe or tick
 to mark present, undo, the status sheet with TDY lists and repeats), the soldier
 page (absences, history, profile), formation mode, reports with history, the
 unit tree with today's counts, the directory (call / text), availability, the
-duty roster with rotation, email alerts and quick add. The rarer settings
-(TDY lists, sub-units, audit log, logo, import, accounts, time zone, backup)
-open the website in an in-app Safari sheet. Billing is never shown in the app.
+duty roster with rotation, email alerts and quick add, and every setting under
+More: TDY lists, sub-units, audit log, logo, alpha-roster import, profile
+(Clerk's own account screen), accounts and invites, time zone, backup and
+restore. Billing is never shown in the app.
 
 Same bundle ID (`com.platoonmanager.app`) and team (`687CJND9M7`) as the
 Capacitor app, so its builds replace that one on TestFlight. Build numbers keep
@@ -33,8 +34,9 @@ through Swift Package Manager.
 | `RootView.swift` | Signed out (Clerk's `AuthView`), loading, locked, inactive, needs-unit screens. |
 | `MainTabs.swift` | Today, Units, People, Plan, More; one `RosterStore` per selected unit. |
 | `RosterStore.swift` | The roster and every write to it (present, absences, people, TDY lists, report history). |
+| `SettingsScreens.swift` | The settings under More, on the same routes the website's Settings use. `ImportParse` is the web's CSV/TSV parser and column guesser, ported. |
 | `Rules/` | The web app's pure rules ported from `index.html`: accountability, ranks, formation queue, unit tree, report text, field validation. |
-| `PlatoonManagerTests/` | XCTests for `Rules/`, with expected values produced by running the JS from `index.html` under node. If the JS changes, regenerate them from it. |
+| `PlatoonManagerTests/` | XCTests for `Rules/` and `ImportParse`, with expected values produced by running the JS from `index.html` under node. If the JS changes, regenerate them from it. |
 
 Run the tests with `xcodebuild -scheme PlatoonManager -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test`.
 
