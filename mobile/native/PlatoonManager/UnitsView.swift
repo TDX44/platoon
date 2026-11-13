@@ -11,8 +11,12 @@ struct UnitsView: View {
             List {
                 if let err = app.unitsError { Text(err).foregroundStyle(.red) }
                 let tree = app.tree
-                ForEach(roots(tree), id: \.self) { id in
-                    UnitBranch(id: id, depth: 0, tree: tree, onPick: pick)
+                Section {
+                    ForEach(roots(tree), id: \.self) { id in
+                        UnitBranch(id: id, depth: 0, tree: tree, onPick: pick)
+                    }
+                } footer: {
+                    Text("★ is your primary unit: the app opens on it. Swipe or touch and hold a unit to change it.")
                 }
             }
             .navigationTitle("Units")
@@ -60,7 +64,13 @@ private struct UnitBranch: View {
         } label: {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(u.name).font(depth == 0 ? .headline : .body).foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        Text(u.name).font(depth == 0 ? .headline : .body).foregroundStyle(.primary)
+                        if app.primaryUnitId == u.id {
+                            Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow)
+                                .accessibilityLabel("Primary unit")
+                        }
+                    }
                     Text(u.kind.capitalized).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

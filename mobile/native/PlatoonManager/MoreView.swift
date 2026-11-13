@@ -38,6 +38,21 @@ struct MoreView: View {
                     }
                 }
 
+                Section {
+                    Picker(selection: primaryBinding) {
+                        Text(app.me?.unitName.map { "\($0) (default)" } ?? "Default").tag(Int?.none)
+                        ForEach(app.tree.subtree(of: app.me?.unitId ?? 0), id: \.self) { id in
+                            if id != app.me?.unitId, let u = app.tree.unit(id) {
+                                Text(u.name).tag(Int?.some(id))
+                            }
+                        }
+                    } label: {
+                        Label("Primary unit", systemImage: "star")
+                    }
+                } footer: {
+                    Text("The unit the app opens on, on this phone. You can still switch to any unit you lead.")
+                }
+
                 Section("Your account") {
                     NavigationLink {
                         NotificationPrefsView()
@@ -69,6 +84,13 @@ struct MoreView: View {
                 Button("Sign out", role: .destructive) { Task { await app.signOut() } }
             }
         }
+    }
+
+    private var primaryBinding: Binding<Int?> {
+        Binding(get: { app.primaryUnitId }, set: { new in
+            app.primaryUnitId = new
+            app.selectedUnitId = app.homeUnitId
+        })
     }
 
     private func webRow(_ title: String, _ icon: String, _ path: String) -> some View {

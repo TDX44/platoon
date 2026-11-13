@@ -37,6 +37,32 @@ final class AppModel {
 
     var tree: UnitTree { UnitTree(units: units) }
     var selectedUnit: UnitNode? { units.first { $0.id == selectedUnitId } }
+
+    /// The unit the app opens on — "my platoon" for someone who leads the
+    /// company but works in one platoon. Kept on this device, per account; it
+    /// narrows what is on screen, never what the account may see or change.
+    var primaryUnitId: Int? {
+        get {
+            _ = primaryUnitStamp   // observed, so a change redraws
+            guard let key = primaryKey else { return nil }
+            let v = UserDefaults.standard.integer(forKey: key)
+            return v == 0 ? nil : v
+        }
+        set {
+            guard let key = primaryKey else { return }
+            if let newValue { UserDefaults.standard.set(newValue, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+            primaryUnitStamp += 1
+        }
+    }
+    private var primaryUnitStamp = 0
+    private var primaryKey: String? { me.map { "primaryUnit.\($0.id)" } }
+
+    /// The primary unit when it is still in the tree, else the account's own.
+    var homeUnitId: Int? {
+        if let p = primaryUnitId, units.contains(where: { $0.id == p }) { return p }
+        return me?.unitId
+    }
     var timeZone: TimeZone { TimeZone(identifier: timeZoneId) ?? TimeZone(identifier: "America/Chicago")! }
 
     /// The duty day, "YYYY-MM-DD", on the organization's clock (`getTodayStr()`).
@@ -79,7 +105,7 @@ final class AppModel {
                 return
             }
             try await loadUnits()
-            if selectedUnitId == nil || selectedUnit == nil { selectedUnitId = me.unitId }
+            if selectedUnitId == nil || selectedUnit == nil { selectedUnitId = homeUnitId }
             phase = .ready
         } catch let error as APIError {
             sessionFailed(error)
