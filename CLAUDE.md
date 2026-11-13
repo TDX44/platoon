@@ -69,6 +69,7 @@ python tests/test_import_js.py        # the CSV/TSV parser and column mapping, u
 python tests/test_recurring_absences.py # repeating absences: expansion limits, series cancel, backup
 python tests/test_duty_rotation.py    # duty_rotation.propose() fairness + the rotation/bulk routes
 python tests/test_notifications.py    # email alerts: prefs, the cron gate, per-tenant timer, at-most-once
+python tests/test_native_signin.py    # iOS app: the native-ticket route, the nonce rule, scheme/UA/bundle-id wiring
 python tests/test_quick_add.py        # quick add: the org gate, roster scoping, writes nothing, 429/503
 ```
 
@@ -290,6 +291,25 @@ up the subtree; with no counts the card falls back to "N personnel". Below 700px
 media query folds the very same markup back into an indented tree, so there is
 no second rendering path to keep in step. Tests: `tests/test_org_chart_js.py`,
 which runs it under node.
+
+### iOS app
+
+`mobile/` is a Capacitor 8 shell (Swift Package Manager, no CocoaPods) whose web
+view loads `https://app.platoonmanager.com` (`server.url`), so a deploy of the
+site is a deploy of the app; build and TestFlight steps are in
+`mobile/README.md`. It appends `PlatoonManagerApp/1` to its user agent, and
+`index.html` sets `NATIVE_APP` and `html.native-app` from that. Two things
+differ in the app. **Google sign-in** cannot run in an embedded web view, so
+`authOAuth()` opens `/?native-signin=<nonce>` in an in-app Safari sheet; once
+signed in there, `routeAfterLogin()` hands off first thing
+(`completeNativeSignin()`), `POST /api/auth/native-ticket` mints a 60-second
+Clerk sign-in token for the caller's own Clerk id, and the page sends it back
+on `platoonmanager://signin`; the app redeems it (`ticket` strategy) only if
+the nonce is its own. **Billing** is hidden (Apple wants in-app purchase for a
+subscription sold in an app): CSS under `html.native-app`, plus
+`showBillingScreen()`, `maybeShowBillingModal()`, `openBillingPage()` and the
+search list. The pure billing renderers are untouched. The app icon and splash
+come out of `scripts/make-icons.py`. `mobile/` is in `.dockerignore`.
 
 ### Data layer
 

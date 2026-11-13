@@ -17,9 +17,10 @@ changes. Given a path it re-crops that file to the artwork's alpha bounding
 box (exports from an image tool carry a wide transparent margin that is part
 of the file, not of the icon) and rewrites the master as well.
 
-Nothing ships above 512px and the app's own upload validator caps a unit's
-logo at 512 too, so a 512 master loses nothing. Re-run from the original
-artwork if a larger asset is ever needed.
+Nothing on the web ships above 512px and the app's own upload validator caps
+a unit's logo at 512 too, so a 512 master loses nothing there. The iOS app
+icon is the exception: the App Store wants 1024px, so that one is an upscale
+of the master. Re-run from the original artwork for a sharper one.
 
 Three shapes come out of the one master, because three consumers want
 different things:
@@ -31,6 +32,12 @@ different things:
     (no black corners on iOS, no white ring under an Android mask) and the
     artwork is scaled down until it clears the crop.
   * 32px favicon — a plain downscale of the whole mark.
+
+The iOS shell in mobile/ gets two more, written into its asset catalog: the
+1024px app icon (full-bleed like apple-touch, and opaque, because App Store
+Connect rejects an icon with an alpha channel) and the launch splash, the mark
+centred on the field colour so the launch screen and the app's own login
+screen read as one.
 """
 import os
 import sys
@@ -39,6 +46,12 @@ from PIL import Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGES = os.path.join(REPO, 'images')
+IOS_ASSETS = os.path.join(REPO, 'mobile', 'ios', 'App', 'App', 'Assets.xcassets')
+IOS_ICON_PX = 1024
+# LaunchScreen.storyboard aspect-fills this square, so only its middle shows on
+# a phone; the mark is small enough to survive that crop at every size.
+IOS_SPLASH_PX = 2732
+IOS_SPLASH_MARK_PX = 400
 MASTER = os.path.join(IMAGES, 'app-logo.png')
 MASTER_PX = 512
 
@@ -111,6 +124,21 @@ def save(im, name):
     print(f'  {name:<26} {im.width}x{im.height}  {os.path.getsize(path):>7,} B')
 
 
+def save_opaque(im, path):
+    """RGB, no palette: the App Store refuses an icon with an alpha channel,
+    and a palette PNG can carry a transparency chunk."""
+    im.convert('RGB').save(path, 'PNG', optimize=True)
+    print(f'  {os.path.relpath(path, REPO):<26} {im.width}x{im.height}  {os.path.getsize(path):>7,} B')
+
+
+def splash(master, size, mark):
+    """The rounded square drawn on its own field colour, so only the artwork
+    shows: the launch screen's one image."""
+    out = Image.new('RGBA', (size, size), field_colour(master))
+    out.alpha_composite(transparent(master, mark), ((size - mark) // 2, (size - mark) // 2))
+    return out
+
+
 def transparent(master, size):
     """The rounded square as drawn, corners still transparent."""
     return master.resize((size, size), Image.LANCZOS)
@@ -157,6 +185,11 @@ def main():
     save(transparent(master, 192), 'icon-192.png')
     save(full_bleed(master, box, 180, APPLE_INK_SPAN), 'icon-180.png')
     save(full_bleed(master, box, 512, maskable_span(box)), 'icon-maskable-512.png')
+    if os.path.isdir(IOS_ASSETS):
+        save_opaque(full_bleed(master, box, IOS_ICON_PX, APPLE_INK_SPAN),
+                    os.path.join(IOS_ASSETS, 'AppIcon.appiconset', 'AppIcon-1024.png'))
+        save_opaque(splash(master, IOS_SPLASH_PX, IOS_SPLASH_MARK_PX),
+                    os.path.join(IOS_ASSETS, 'Splash.imageset', 'splash.png'))
 
 
 if __name__ == '__main__':

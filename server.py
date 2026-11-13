@@ -1943,6 +1943,64 @@ def auth_sync():
                     'billing': _billing_payload()})
 
 
+# ── iOS app sign-in handoff ──
+# The iOS app (mobile/) is a WKWebView on this same site, and Google refuses
+# to sign anybody in inside an embedded web view. So the app opens
+# /?native-signin=<nonce> in an in-app Safari sheet, the user signs in there
+# however they like, and the page asks this route for a Clerk sign-in token
+# for the account it is now signed in as. The page hands the token to the app
+# through its URL scheme and the app redeems it with Clerk's `ticket`
+# strategy. The token is single-use and lives NATIVE_TICKET_TTL_SECONDS; it is
+# never stored here, never logged, and only ever minted for the caller's own
+# Clerk id, taken from the verified session token, not from the request.
+CLERK_API_SIGN_IN_TOKENS = 'https://api.clerk.com/v1/sign_in_tokens'
+NATIVE_TICKET_TTL_SECONDS = 60
+# One Clerk call per account per window per worker, like billing refresh.
+NATIVE_TICKET_COOLDOWN = 5
+_NATIVE_TICKET_LAST = {}   # clerk_user_id -> monotonic time of the last mint
+
+
+def _clerk_sign_in_token(clerk_user_id):
+    """A fresh Clerk sign-in token for this Clerk account. Raises on anything
+    but a clean answer. A seam: tests replace it."""
+    if not CLERK_SECRET_KEY:
+        raise RuntimeError('CLERK_SECRET_KEY is not set')
+    body = json.dumps({'user_id': clerk_user_id,
+                       'expires_in_seconds': NATIVE_TICKET_TTL_SECONDS}).encode()
+    req = Request(CLERK_API_SIGN_IN_TOKENS, data=body, method='POST',
+                  headers={'Authorization': f'Bearer {CLERK_SECRET_KEY}',
+                           'Content-Type': 'application/json',
+                           'Accept': 'application/json',
+                           'User-Agent': 'platoon-accountability/1.0'})
+    with urlopen(req, timeout=CLERK_API_TIMEOUT) as resp:
+        token = (json.load(resp) or {}).get('token')
+    if not token:
+        raise RuntimeError('Clerk returned no sign-in token')
+    return token
+
+
+@app.route('/api/auth/native-ticket', methods=['POST'])
+@login_required
+def native_ticket():
+    clerk_user_id = g.current_user.get('clerk_user_id')
+    if not clerk_user_id:
+        return jsonify({'error': 'This account is not linked to a sign-in.'}), 409
+    now = time.monotonic()
+    wait = NATIVE_TICKET_COOLDOWN - (now - _NATIVE_TICKET_LAST.get(clerk_user_id, -NATIVE_TICKET_COOLDOWN))
+    if wait > 0:
+        resp = jsonify({'error': 'Signing in to the app a moment ago. Try again in a few seconds.'})
+        resp.headers['Retry-After'] = str(int(wait) + 1)
+        return resp, 429
+    _NATIVE_TICKET_LAST[clerk_user_id] = now
+    try:
+        ticket = _clerk_sign_in_token(clerk_user_id)
+    except Exception as exc:
+        app.logger.warning('native ticket: Clerk unreachable for %s: %s', clerk_user_id, exc)
+        return jsonify({'error': 'Sign-in is unavailable right now. Try again in a moment.'}), 503
+    log_action('NATIVE_SIGNIN', 'Signed in to the iOS app')
+    return jsonify({'ticket': ticket})
+
+
 @app.route('/api/logout', methods=['POST'])
 def logout():
     return jsonify({'success': True})
