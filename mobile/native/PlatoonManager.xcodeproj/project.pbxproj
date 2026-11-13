@@ -15,6 +15,7 @@
 		1579D766515AEC616BE195DF /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD950DA314AF3103CA7FF81A /* ProfileView.swift */; };
 		178760B42E2496DE913984DB /* ReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0451704864D2FFDFE1616B /* ReportTests.swift */; };
 		1F8EF4220FC988470BE51061 /* Report.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7EC5A7D0CE703E5A11EEA8 /* Report.swift */; };
+		20A6406086C114B55EEF5117 /* AppLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89C34A439FB0C89995E15815 /* AppLock.swift */; };
 		2235A73A71170192C0E4FF4E /* Accountability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42D91F501830462F7B1D943 /* Accountability.swift */; };
 		3B336E8646BA9F3197957ABE /* PlatoonManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C487EDF9529659F55E471053 /* PlatoonManagerApp.swift */; };
 		41D239495FF3CF051173BD06 /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 47B8B64CF73C6F04053E019A /* ClerkKitUI */; };
@@ -76,6 +77,7 @@
 		7B49A25909B53A2B18533F93 /* QuickAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAddView.swift; sourceTree = "<group>"; };
 		82F23EA25B3F3EC0DD16BBE8 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		8824F3EC88099AAE8E5FD3B8 /* FormationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormationTests.swift; sourceTree = "<group>"; };
+		89C34A439FB0C89995E15815 /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLock.swift; sourceTree = "<group>"; };
 		9450AE9DD6EBF3B690F59F21 /* RanksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RanksTests.swift; sourceTree = "<group>"; };
 		9C233222D8576531CE162121 /* ReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportView.swift; sourceTree = "<group>"; };
 		9D925D840EE0A6F23B3E983F /* Ranks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ranks.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 			children = (
 				3DCAF8FDDC89DB217A21655A /* AccountabilityView.swift */,
 				7822DBF94539F5011120BFF3 /* APIClient.swift */,
+				89C34A439FB0C89995E15815 /* AppLock.swift */,
 				26FE6C424235E0DF25F84376 /* AppModel.swift */,
 				0587B3DB2DD59FF03F51D469 /* Assets.xcassets */,
 				4C1529DFC2847631F8AD44BD /* Config.swift */,
@@ -296,6 +299,7 @@
 				DAAE222E573A99939917CC23 /* APIClient.swift in Sources */,
 				2235A73A71170192C0E4FF4E /* Accountability.swift in Sources */,
 				B0F97DF96529492EABCAB03F /* AccountabilityView.swift in Sources */,
+				20A6406086C114B55EEF5117 /* AppLock.swift in Sources */,
 				08941194F4A4565CE3D3D191 /* AppModel.swift in Sources */,
 				4A2FD3C28E36183D62083AED /* Config.swift in Sources */,
 				C3B3BBCF8C1BFD99AEC5E12F /* DirectoryView.swift in Sources */,
@@ -448,7 +452,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 687CJND9M7;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -516,7 +520,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 687CJND9M7;
 				ENABLE_NS_ASSERTIONS = NO;

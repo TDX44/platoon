@@ -49,11 +49,17 @@ struct MoreView: View {
                     } label: {
                         Label("Primary unit", systemImage: "star")
                     }
+                    .pickerStyle(.navigationLink)
                 } footer: {
                     Text("The unit the app opens on, on this phone. You can still switch to any unit you lead.")
                 }
 
                 Section("Your account") {
+                    NavigationLink {
+                        AppLockSettingsView()
+                    } label: {
+                        Label("App lock (PIN\(AppLock.biometryName.map { ", \($0)" } ?? ""))", systemImage: "lock")
+                    }
                     NavigationLink {
                         NotificationPrefsView()
                     } label: {

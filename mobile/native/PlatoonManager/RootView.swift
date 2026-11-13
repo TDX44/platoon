@@ -5,7 +5,10 @@ import SwiftUI
 struct RootView: View {
     @Environment(Clerk.self) private var clerk
     @Environment(AppModel.self) private var model
+    @Environment(AppLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showAuth = false
+    @State private var offerPin = false
 
     var body: some View {
         Group {
@@ -19,6 +22,10 @@ struct RootView: View {
                     ProgressView("Signing in…")
                 case .ready:
                     MainTabs()
+                        .overlay {
+                            if lock.isLocked { LockScreen().transition(.opacity) }
+                        }
+                        .animation(.easeOut(duration: 0.2), value: lock.isLocked)
                 case .needsUnit:
                     MessageView(title: "No unit yet",
                                 message: "This account isn't attached to a unit. Create one or accept an invite on app.platoonmanager.com.")
@@ -37,7 +44,17 @@ struct RootView: View {
             await model.clerkUserChanged(clerk.user)
         }
         .onChange(of: clerk.user?.id) { _, id in
-            if id != nil { showAuth = false }
+            if id != nil { showAuth = false } else { lock.detach() }
+        }
+        .onChange(of: model.me?.id) { _, id in
+            guard let id else { lock.detach(); return }
+            lock.attach(account: id)
+            // Offer a PIN once per account, after the first sign-in on this phone.
+            if !lock.hasPin && !lock.declined { offerPin = true }
+        }
+        .onChange(of: scenePhase) { _, phase in lock.scenePhaseChanged(phase) }
+        .sheet(isPresented: $offerPin) {
+            PinOfferView()
         }
         .onOpenURL { url in
             Task { try? await clerk.handle(url) }
