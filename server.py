@@ -1710,50 +1710,40 @@ def _close_db(exc):
 
 # ── Auth routes ──
 
-# platoonmanager.com serves the marketing site at '/'; every other host --
-# app.platoonmanager.com, the LAN address, localhost -- serves the app there, as
-# it always has. The list names the MARKETING side on purpose: unset it or get it
-# wrong and a visitor misses the brochure, which is recoverable, rather than a
-# leader losing the product at 0630, which is not.
-MARKETING_HOSTS = tuple(h.strip().lower() for h in os.environ.get(
-    'MARKETING_HOSTS', 'platoonmanager.com,www.platoonmanager.com').split(',') if h.strip())
+# The marketing site -- the front page, the guides, the privacy policy and the
+# terms -- is its own repo now (platoon-site), a Cloudflare Worker on
+# platoonmanager.com. That Worker hands every path it has no file for to this
+# server, which is why an invite link or an old app bookmark on the apex still
+# works. This server no longer serves any marketing page; it 301s the URLs it
+# used to answer to the same page there, because Google's OAuth consent screen,
+# old shared links and search results still point at them on this host.
+MARKETING_URL = os.environ.get('MARKETING_URL', 'https://platoonmanager.com').rstrip('/')
 
-# Where the marketing site's 'Sign in' sends people when the app is on its own
-# subdomain.
+# Where the marketing site's 'Sign in' sends people.
 APP_URL = os.environ.get('APP_URL', 'https://app.platoonmanager.com')
 
-# The file each public path serves. Only the literal routes declared below reach
-# this map, so a filename is never built out of the request.
-PUBLIC_PAGES = {
-    '/': 'home.html',
-    '/welcome': 'home.html',
-    '/home': 'home.html',
-    '/privacy': 'privacy.html',
-    '/legal/privacy': 'privacy.html',
-    '/terms': 'terms.html',
-    '/legal/terms': 'terms.html',
-    '/blog': 'blog.html',
+# Each old public path and the canonical URL of its page on the marketing site.
+# Literal routes only: a path is never built into a redirect from anything the
+# request chose, except a guide's slug under /blog/, which the site itself 404s.
+MARKETING_PAGES = {
+    '/home': '/',
+    '/welcome': '/',
+    '/blog': '/blog',
+    '/privacy': '/privacy',
+    '/legal/privacy': '/privacy',
+    '/terms': '/terms',
+    '/legal/terms': '/terms',
+    '/robots.txt': '/robots.txt',
+    '/sitemap.xml': '/sitemap.xml',
 }
-
-# The guides. A separate map so the route below can answer /blog/<slug> from a
-# literal lookup: the slug never becomes part of a filename, so a crafted slug
-# cannot walk out of public/blog/.
-BLOG_POSTS = {
-    'accountability-formation': 'Accountability formation: what to do when the roster is already wrong',
-    'tracking-leave-pass-tdy': 'Leave, pass and TDY: keeping the roster right when people are gone',
-    'duty-roster-conflicts': 'Duty rosters, fairness and the conflict nobody caught',
-    'first-30-days-with-the-roster': 'Your first 30 days holding the roster',
-    'soldier-data-in-a-civilian-app': 'Can you put soldier names in a civilian app?',
-    'accountability-spreadsheet': 'The accountability spreadsheet works until it does not',
-    'perstat-personnel-status-report': 'PERSTAT: getting the personnel status report right the first time',
-    'who-is-available': 'Who is actually available on the 14th?',
-    'accountability-from-your-phone': 'Taking accountability from your phone',
-    'what-accountability-software-should-cost': 'What should a company accountability tool cost?',
-}
+_GUIDE_SLUG = re.compile(r'^[a-z0-9-]{1,100}$')
 
 
-def _is_marketing_host():
-    return (request.host or '').split(':')[0].lower() in MARKETING_HOSTS
+def _marketing_redirect(path):
+    target = MARKETING_URL + path
+    if request.query_string:
+        target += '?' + request.query_string.decode('latin-1')
+    return redirect(target, code=301)
 
 
 # The hostname the app answered on before the product had its own domain. It is
@@ -1761,15 +1751,13 @@ def _is_marketing_host():
 LEGACY_HOSTS = tuple(h.strip().lower() for h in os.environ.get(
     'LEGACY_HOSTS', 'platoon.carr7.com').split(',') if h.strip())
 
-MARKETING_URL = 'https://' + MARKETING_HOSTS[0] if MARKETING_HOSTS else '/'
-
 
 @app.before_request
 def redirect_legacy_host():
     """301 the old hostname onto the new domain.
 
     Every URL on the old host is an *app* URL -- a leader's bookmark is
-    `/<unit>/accountability`, not a front page -- so only '/' goes to the new
+    `/<unit>/accountability`, not a front page -- so only '/' goes to the
     marketing site and every other path keeps itself, and its query, on the app
     subdomain. Sending them all to the front page would turn every bookmark in
     the company into a brochure.
@@ -1794,64 +1782,42 @@ def redirect_legacy_host():
 
 @app.route('/')
 def index():
-    if _is_marketing_host():
-        return send_from_directory('public', PUBLIC_PAGES['/'])
     return send_from_directory('.', 'index.html')
 
 
 @app.route('/app')
 def app_entry():
-    """Where every 'Sign in' and 'Start free trial' on the marketing site points.
-    On the marketing host that is the app's own subdomain; anywhere else the app
-    is already at '/', so go there rather than bouncing a developer -- or the LAN
-    address -- out to production."""
-    return redirect(APP_URL if _is_marketing_host() else '/', code=302)
+    """The marketing site's 'Sign in' is /app, and the Worker sends it to
+    APP_URL. Should one reach this server anyway, the app is already at '/'."""
+    return redirect('/', code=302)
+
+
+@app.route('/home')
+@app.route('/welcome')
+@app.route('/blog')
+@app.route('/privacy')
+@app.route('/legal/privacy')
+@app.route('/terms')
+@app.route('/legal/terms')
+@app.route('/robots.txt')
+@app.route('/sitemap.xml')
+def marketing_page():
+    return _marketing_redirect(MARKETING_PAGES[request.path])
 
 
 @app.route('/blog/<slug>')
 def blog_post(slug):
-    """One guide. The slug is looked up in BLOG_POSTS and never concatenated into
-    a path, so an unknown or hostile slug is a 404 here rather than a file read.
-
-    Served on every host, not just the marketing one: the pages are public, and a
-    404 on a link somebody shared is worse than a guide showing up on the app
-    subdomain."""
-    if slug not in BLOG_POSTS:
+    """A guide. Only a well-formed slug is sent on; the marketing site decides
+    whether that guide exists."""
+    if not _GUIDE_SLUG.match(slug):
         abort(404)
-    return send_from_directory('public/blog', f'{slug}.html')
-
-
-@app.route('/robots.txt')
-@app.route('/sitemap.xml')
-def seo_file():
-    """Crawlers ask for these at the root, so they cannot live under /public."""
-    return send_from_directory('public', request.path.lstrip('/'))
-
-
-@app.route('/welcome')
-@app.route('/home')
-@app.route('/blog')
-@app.route('/privacy')
-@app.route('/terms')
-@app.route('/legal/privacy')
-@app.route('/legal/terms')
-def public_page():
-    """The signed-out pages: the marketing site plus the two legal pages Google's
-    OAuth consent screen links to. They live outside index.html because they have
-    to render with no Clerk, no session and no JS.
-
-    /legal/* answers the same pages because that is the shape the sibling apps
-    use and it is the URL people reach for; without it the path falls through to
-    spa_fallback and quietly serves the app shell instead. /welcome is kept
-    because it was the marketing URL before the site moved to the root.
-    """
-    return send_from_directory('public', PUBLIC_PAGES[request.path])
+    return _marketing_redirect(f'/blog/{slug}')
 
 
 # Everything the browser may fetch from the repo root. The fallback below used to
 # serve any file that existed, which handed server.py to anyone who asked for it;
 # only these are assets.
-STATIC_DIRS = ('images/', 'public/')
+STATIC_DIRS = ('images/',)
 STATIC_FILES = ('manifest.json', 'sw.js')
 
 
@@ -1859,16 +1825,15 @@ STATIC_FILES = ('manifest.json', 'sw.js')
 def spa_fallback(path):
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-    # '/blog/' or '/privacy/' is not a route of its own, so it used to land
-    # here and serve the app shell with a 200: a second, wrong copy of every
-    # public page. Send it to the one URL. Only the public pages -- an SPA
-    # route with a slash still gets the shell.
+    # '/blog/' or '/privacy/' is not a route of its own; send it to the page on
+    # the marketing site rather than serving the app shell under its name. An
+    # SPA route with a slash still gets the shell.
     bare = '/' + path.rstrip('/')
-    if path.endswith('/') and (bare in PUBLIC_PAGES or (
-            bare.startswith('/blog/') and bare[len('/blog/'):] in BLOG_POSTS)):
-        if request.query_string:
-            bare += '?' + request.query_string.decode('latin-1')
-        return redirect(bare, code=301)
+    if path.endswith('/'):
+        if bare in MARKETING_PAGES:
+            return _marketing_redirect(MARKETING_PAGES[bare])
+        if bare.startswith('/blog/') and _GUIDE_SLUG.match(bare[len('/blog/'):]):
+            return _marketing_redirect(bare)
     root = app.static_folder or '.'
     is_asset = path in STATIC_FILES or path.startswith(STATIC_DIRS)
     if is_asset and os.path.isfile(os.path.join(root, path)):
