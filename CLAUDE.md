@@ -278,8 +278,15 @@ every unit's own `present` and `unaccounted` (after the same
 `_reconcile_absences()` pass the roster gets) and `unitTodayCounts()` rolls them
 up the subtree; with no counts the card falls back to "N personnel". Below 700px a
 media query folds the very same markup back into an indented tree, so there is
-no second rendering path to keep in step. Tests: `tests/test_org_chart_js.py`,
-which runs it under node.
+no second rendering path to keep in step. On a phone each card is one row
+(kind and name, "accounted / total", the unaccounted badge, a thin progress
+bar) and the top unit's card is hidden, because the **status card** above the
+chart already is the top unit: `homeStatusHtml(top, n, today, dayLabel)`, also
+pure, draws today's "N of M accounted", a progress bar, the unaccounted badge
+and three ways in — Take accountability (Open roster once everyone is
+accounted for), Formation mode and Quick add — through `homeGo(id, what)`,
+which opens the unit and, once its roster has loaded, starts the task. Tests:
+`tests/test_org_chart_js.py`, which runs both under node.
 
 ### iOS app
 
@@ -1066,7 +1073,7 @@ click and keystroke behaviour a DOM-string test cannot see.
 ### Design system
 
 All styling flows from a single `--cp-*` token set defined at `:root`
-(light) with a `body.dark-mode` override block, following `design.md`
+(light) with a `body.dark-mode` override block, following `DESIGN.md`
 conventions: brand blue `#146bc5`, neutral surfaces, 4–8px radii, borders over
 shadows, tabular numerals. Legacy `--theme_*`/`--dash-*` variable names are
 aliases onto `--cp-*` — the aliases live on `body` (NOT `:root`) so dark-mode
@@ -1075,6 +1082,11 @@ overrides resolve correctly; keep new aliases there.
 **Size type in `em`, never `rem`.** The desktop scale comes from
 `body { font-size: 21px }` above 900px, so `rem` values stay pinned to the 16px
 root and render visibly smaller than the rest of the UI.
+
+## UI work
+Read DESIGN.md before creating or changing any UI, and take every colour, size, spacing and radius from its tokens.
+For a new screen or component, consult the UX Engine skills first (ux-intent-discovery, then the ones it names). To fix an existing screen, ux-auditor.
+The UX Engine plugin is enabled per checkout in `.claude/settings.local.json` (not committed).
 
 ## Deployment
 

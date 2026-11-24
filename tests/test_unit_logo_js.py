@@ -569,8 +569,8 @@ def test_the_box_does_not_move_when_the_logo_does(src):
 
     home_img = extract(src, r'<img[^>]*id="homeLogo"[^>]*>', '#homeLogo')
     assert 'object-fit:contain' in home_img.replace(' ', ''), home_img
-    assert re.search(r'width:\s*140px', home_img) and re.search(r'height:\s*140px', home_img), \
-        'the home logo box must stay 140x140 whatever shape the upload is'
+    assert re.search(r'width:\s*56px', home_img) and re.search(r'height:\s*56px', home_img), \
+        'the home logo box must stay 56x56 whatever shape the upload is'
 
 
 def test_both_writes_go_through_the_same_reload(src):
