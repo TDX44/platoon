@@ -143,44 +143,33 @@ anything that existed on disk, which handed out `server.py` to anyone who asked
 for it. **A new asset directory has to be added to `STATIC_DIRS` or it 404s into
 the SPA.**
 
-`public/` is the one part of the frontend that is not `index.html`: the
-signed-out **marketing site** (`public/home.html`) plus the legal pages
-`privacy.html` and `terms.html`, `public/site.css`, `public/fonts/` and the
-screenshots in `images/site/`. They are plain HTML with no JS at all and no
-Clerk, because Google's OAuth consent screen links straight at `/privacy` and
-`/terms` and they have to render for a stranger with no session. **Nothing in
-`public/` may grow an executable `<script>` tag** — `tests/test_smoke.py` fails
-the build if one appears. The one exception is `<script
-type="application/ld+json">` structured data (each guide's `Article`, the front
-page's `Organization` + `SoftwareApplication`), which the browser never runs.
-Every public page carries a canonical on `https://platoonmanager.com`, the
-sitemap lists `/privacy` and `/terms` rather than the `/legal/*` aliases, and a
-trailing slash on a public URL (`/blog/`, `/privacy/`, `/blog/<slug>/`) is a
-301 to the bare one rather than the app shell. HSTS is added by an
-`after_request` hook only when the request is https (ProxyFix supplies the
-scheme behind the tunnel). The mobile menu and the FAQ are `<details>` elements for
-exactly that reason, and the display face is self-hosted in `public/fonts/`
-rather than linked from a CDN. `site.css` carries two token sets: the `--cp-*`
-block is a copy of the one in `index.html` and must stay in step with it, and
-the `--pm-*` block is the marketing site's own light-blue palette, which the
-app never sees. Google will not leave Testing without a reachable
-privacy-policy URL, so if those routes break, Google sign-in eventually breaks
-with them.
+**The marketing site is not in this repo.** The front page, the guides
+(`/blog`), the privacy policy and the terms live in the private repo
+**`TDX44/platoon-site`** (`~/github/platoon-site`): plain HTML with no JS,
+served at `platoonmanager.com` and `www` by the Cloudflare Worker `platoon-site`
+(PlatoonManager account) from Workers static assets, deployed by that repo's
+GitHub Actions on every push to `main`. The zone routes `platoonmanager.com/*`
+and `www.platoonmanager.com/*` send those hosts to the Worker; their DNS still
+points at the tunnel, because **the Worker passes every path it has no file for
+(and every non-GET) through to this server** — which is how an invite link or
+an old app bookmark on the apex keeps working. `app.platoonmanager.com` has no
+route and never touches the Worker. Deleting the two routes in Cloudflare puts
+the apex straight back on this server (which then shows the app at `/`).
 
-**Which site answers `/` is decided by the Host header.** `MARKETING_HOSTS`
-(default `platoonmanager.com,www.platoonmanager.com`) serves `home.html` at
-`/`; **every other host — the app subdomain, the LAN address, localhost —
-serves the app shell there, exactly as before.** The env var deliberately names
-the *marketing* side rather than the app side: unset or misspell it and a
-visitor misses the brochure, which is recoverable, instead of a leader losing
-the product at 0630, which is not. `/home` serves the marketing page on any
-host, which is how you preview it in dev. Every "Sign in" and "Start free
-trial" points at **`/app`**, which redirects to `APP_URL`
-(`https://app.platoonmanager.com`) on a marketing host and to `/` anywhere
-else, so clicking it in dev does not bounce you into production. `/welcome` is
-kept as an alias of the marketing page because that was its URL before the
-site moved to the root. Both branches are pinned by
-`check_marketing_host_split` in `tests/test_smoke.py`.
+What is left here is redirects: the URLs this server used to answer for the
+site — `/home`, `/welcome`, `/blog`, `/blog/<slug>`, `/privacy`, `/terms`,
+`/legal/*`, `/robots.txt`, `/sitemap.xml`, and any of them with a trailing slash
+— are **301s to the canonical page on `MARKETING_URL`**
+(`https://platoonmanager.com`), query kept (`MARKETING_PAGES`), because
+Google's OAuth consent screen, shared links and search results still point at
+some of them on this host. Google will not leave Testing without a reachable
+privacy-policy URL, so those redirects matter. `/` is the app on every host, and
+`/app` (the site's "Sign in", which the Worker sends to `APP_URL`) is a 302 to
+`/` should it reach this server. Pinned by `check_marketing_pages_redirect` in
+`tests/test_smoke.py`. The `--cp-*` token block in the site's `site.css` is a
+copy of the one in `index.html`; change one and copy it to the other. HSTS is
+added by an `after_request` hook only when the request is https (ProxyFix
+supplies the scheme behind the tunnel).
 
 **`LEGACY_HOSTS`** (default `platoon.carr7.com`) is the hostname the app
 answered on before the product had its own domain. `redirect_legacy_host()`, the
@@ -1121,7 +1110,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platoon-notify.timer
 
 - The frontend is intentionally one file — add views as `render*()` functions and
   wire them into `render()` / the History-API router, not as separate modules.
-  The exception is `public/`: pages that must render signed-out, with no JS.
+  The marketing site is a separate repo (`TDX44/platoon-site`).
 - New API routes go under `/api/`, return JSON, and use the existing auth
   decorators and `log_action()` for the audit trail.
 - `.env` holds all secrets (`SECRET_KEY`, Clerk keys, `TUNNEL_TOKEN`, Stripe keys,

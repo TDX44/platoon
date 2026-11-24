@@ -28,10 +28,10 @@ EXPECTED_TABLES = [
 ]
 
 # '/' and the catch-all are checked directly below, not via the generic sweep.
-# '/app' joins them because it is the one public route whose right answer is a
-# redirect, which the sweep treats as a bad deploy; check_marketing_host_split
-# pins both of its branches instead.
-SKIP_RULES = {'/', '/app', '/<path:path>'}
+# '/app' and the old marketing URLs join them because their right answer is a
+# redirect, which the sweep treats as a bad deploy; check_marketing_pages_redirect
+# pins every one of them instead.
+SKIP_RULES = {'/', '/app', '/<path:path>'} | set(server.MARKETING_PAGES)
 
 
 
@@ -61,7 +61,7 @@ ALLOWED_PLATOON_TOKENS = (
     'platoon_owner', 'platoon_app',          # the two database roles
     'platoon-accountability/',               # the User-Agent sent to api.clerk.com
     'platoon_leader_',                       # the Stripe price lookup keys (PRICE_LOOKUP_KEYS)
-    'platoonmanager.com',                    # the product's own domain (MARKETING_HOSTS, APP_URL)
+    'platoonmanager.com',                    # the product's own domain (MARKETING_URL, APP_URL)
     'platoon.carr7.com',                     # the retired hostname (LEGACY_HOSTS)
 )
 
@@ -105,115 +105,44 @@ def check_spa_fallback(client):
     assert r.is_json, 'unknown /api/ path must return JSON, not HTML'
 
 
-def assert_no_executable_script(path, body):
-    """application/ld+json is structured data for search engines, which the
-    browser never executes; every other <script> is banned from public/."""
-    for tag in re.findall(r'<script[^>]*>', body, re.I):
-        assert 'application/ld+json' in tag.lower(), f'{path} has executable JS: {tag}'
+def check_marketing_pages_redirect(client):
+    """The marketing site moved to its own repo (platoon-site) and a Cloudflare
+    Worker. Every URL this server used to answer for it is a 301 to the same
+    page there, never the app shell: Google's OAuth consent screen links at
+    /privacy and /terms, and a shared guide link must not land on a sign-in
+    screen. Aliases go straight to the canonical page, query kept."""
+    m = server.MARKETING_URL
+    for path, page in (('/home', '/'), ('/welcome', '/'), ('/blog', '/blog'),
+                       ('/privacy', '/privacy'), ('/legal/privacy', '/privacy'),
+                       ('/terms', '/terms'), ('/legal/terms', '/terms'),
+                       ('/robots.txt', '/robots.txt'), ('/sitemap.xml', '/sitemap.xml'),
+                       ('/blog/who-is-available', '/blog/who-is-available'),
+                       ('/privacy/', '/privacy'), ('/legal/terms/', '/terms'),
+                       ('/blog/', '/blog'), ('/blog/who-is-available/', '/blog/who-is-available')):
+        r = client.get(path + '?utm=x')
+        assert r.status_code == 301, (path, r.status_code)
+        assert r.headers['Location'] == f'{m}{page}?utm=x', (path, r.headers['Location'])
 
-
-def check_public_pages(client):
-    """The signed-out pages must render standalone, not as the SPA shell: Google's
-    OAuth consent screen links straight at /privacy and /terms."""
-    for path, marker in (('/home', 'Start free trial'),
-                         ('/welcome', 'Platoon Manager'),
-                         ('/privacy', 'Privacy Policy'),
-                         ('/terms', 'Terms of Service')):
-        r = client.get(path)
-        assert r.status_code == 200, f'{path} should render, got {r.status_code}'
-        body = r.get_data(as_text=True)
-        assert marker in body, f'{path} did not render its own page'
-        assert_no_executable_script(path, body)
-
-    # The guides are public pages too, and they carry one <script> on purpose:
-    # application/ld+json is structured data for search engines, which the
-    # browser never executes. Everything else is still banned, so the check is
-    # "no executable script" rather than "no script tag".
-    for slug in server.BLOG_POSTS:
-        r = client.get(f'/blog/{slug}')
-        assert r.status_code == 200, f'/blog/{slug} should render, got {r.status_code}'
-        body = r.get_data(as_text=True)
-        assert server.BLOG_POSTS[slug][:30] in body, f'/blog/{slug} did not render its own page'
-        assert 'application/ld+json' in body, f'/blog/{slug} lost its structured data'
-        for tag in re.findall(r'<script[^>]*>', body, re.I):
-            assert 'application/ld+json' in tag.lower(), f'/blog/{slug} has executable JS: {tag}'
-    # Every public page points at the guides. A page nobody links to is a page
-    # crawlers reach late and readers never reach at all, and the links are easy
-    # to lose the next time the footer is edited.
-    for path in ('/home', '/privacy', '/terms'):
-        body = client.get(path).get_data(as_text=True)
-        assert 'href="/blog"' in body, f'{path} does not link to the guides'
-
-    index = client.get('/blog')
-    assert index.status_code == 200 and 'Guides' in index.get_data(as_text=True)
-    assert '<script' not in index.get_data(as_text=True).lower(), '/blog must render with no JS'
-    # An unknown slug is a 404, not the app shell and not a file read. The
-    # traversal attempts normalise to /server.py before they ever reach the
-    # route, so what matters is the answer never contains the source -- the
-    # same property spa_fallback's allowlist exists to hold.
-    assert client.get('/blog/not-a-real-guide').status_code == 404
+    # A slug that could not be a guide is not sent anywhere, and nothing about
+    # it is read off disk.
+    assert client.get('/blog/Not_A_Slug!').status_code == 404
     for probe in ('/blog/../server.py', '/blog/%2e%2e/server.py', '/blog/..%2fserver.py'):
         body = client.get(probe).get_data(as_text=True)
         assert 'MIGRATION_DATABASE_URL' not in body and 'def spa_fallback' not in body, \
             f'{probe} served the source'
 
-    # Crawlers ask for these at the root.
-    robots = client.get('/robots.txt')
-    assert robots.status_code == 200 and 'Sitemap:' in robots.get_data(as_text=True)
-    sitemap = client.get('/sitemap.xml')
-    assert sitemap.status_code == 200 and '<urlset' in sitemap.get_data(as_text=True)
-    for slug in server.BLOG_POSTS:
-        assert slug in sitemap.get_data(as_text=True), f'{slug} is missing from the sitemap'
-
-    # /legal/* is the URL shape people actually reach for. Before these aliases
-    # existed it fell through to spa_fallback and served the app shell with a
-    # 200, which looks like the page is simply missing.
-    index = client.get('/').get_data()
-    for path in ('/legal/privacy', '/legal/terms'):
-        body = client.get(path).get_data()
-        assert body != index, f'{path} served the SPA shell instead of the legal page'
-        assert b'Platoon Manager' in body, f'{path} did not render a legal page'
-
-    r = client.get('/public/site.css')
-    assert r.status_code == 200 and 'cp-accent' in r.get_data(as_text=True), \
-        'the public stylesheet must be served'
-
-
-def check_marketing_host_split(client):
-    """'/' serves the marketing site on the marketing domain and the app shell on
-    every other host. This split is the only thing between a leader opening the
-    app at 0630 and being handed a brochure, so pin both sides of it -- including
-    that an unrecognised host (localhost, the LAN address, app.*) gets the app.
-    """
+    # '/' is the app on every host now; the Worker answers the marketing domain's
+    # '/' before a request ever reaches this server.
     app_shell = client.get('/').get_data()
-    assert b'<html' in app_shell.lower(), '/ did not serve the app shell on an ordinary host'
-
-    host = server.MARKETING_HOSTS[0]
-    body = client.get('/', headers={'Host': host}).get_data()
-    assert body != app_shell, f'{host}/ served the app shell instead of the marketing site'
-    assert b'Start free trial' in body, f'{host}/ did not serve the marketing site'
-    assert_no_executable_script(f'{host}/', body.decode())
-
-    # 'Sign in' leaves for the app's own subdomain from the marketing host, and
-    # stays local anywhere else -- clicking it in dev must not land in production.
-    r = client.get('/app', headers={'Host': host})
-    assert r.status_code == 302 and r.headers['Location'] == server.APP_URL, \
-        ('marketing host /app', r.status_code, r.headers.get('Location'))
+    for host in ('platoonmanager.com', 'app.platoonmanager.com', 'localhost'):
+        assert client.get('/', headers={'Host': host}).get_data() == app_shell, host
     r = client.get('/app')
-    assert r.status_code == 302 and r.headers['Location'] == '/', \
-        ('ordinary host /app', r.status_code, r.headers.get('Location'))
+    assert r.status_code == 302 and r.headers['Location'] == '/', (r.status_code, r.headers.get('Location'))
 
-
-def check_marketing_assets_exist(client):
-    """Every image and font the public pages name is really on disk and really
-    served. images/site/ is a new directory under an existing STATIC_DIRS prefix;
-    a path typo here is a broken hero on the front page and nothing else fails.
-    """
-    for page in ('home.html', 'privacy.html', 'terms.html'):
-        html = open(os.path.join(ROOT, 'public', page)).read()
-        for path in sorted(set(re.findall(r'"(/(?:images|public)/[^"]+)"', html))):
-            r = client.get(path)
-            assert r.status_code == 200, f'{page} references {path}, which serves {r.status_code}'
+    # An SPA route with a slash still gets the shell, not a redirect.
+    for path in ('/alpha/accountability', '/alpha/accountability/'):
+        r = client.get(path)
+        assert r.status_code == 200 and b'<html' in r.get_data().lower(), (path, r.status_code)
 
 
 def check_legacy_host_redirect(client):
@@ -263,7 +192,7 @@ def check_source_is_not_served(client):
         body = client.get(path).get_data()
         assert body == index, f'{path} is being served from disk; it must fall back to index.html'
 
-    for path in ('/images/icon-32.png', '/manifest.json', '/public/site.css'):
+    for path in ('/images/icon-32.png', '/manifest.json'):
         assert client.get(path).get_data() != index, f'{path} should be served as an asset'
 
 
@@ -334,54 +263,15 @@ def check_units_is_open_to_the_unattached(client):
     assert r.get_json() == [], r.get_json()
 
 
-def check_public_urls_and_headers(client):
-    """A trailing slash on a public page used to fall through to spa_fallback
-    and serve the app shell with a 200 -- a duplicate, wrong page for every
-    crawler. It is a 301 to the one URL now. SPA routes keep working."""
-    for path in ('/blog/', '/welcome/', '/home/', '/privacy/', '/terms/',
-                 '/legal/privacy/', '/legal/terms/', '/blog/who-is-available/'):
-        r = client.get(path + '?utm=x')
-        assert r.status_code == 301, (path, r.status_code)
-        assert r.headers['Location'].endswith(path.rstrip('/') + '?utm=x'), (path, r.headers['Location'])
-    for path in ('/alpha/accountability', '/alpha/accountability/', '/blog/not-a-real-guide/'):
-        r = client.get(path)
-        assert r.status_code == 200 and b'<html' in r.get_data().lower(), (path, r.status_code)
-
-    r = client.get('/images/site/dashboard.webp')
-    assert r.status_code == 200 and r.mimetype == 'image/webp', r.mimetype
-
-    assert 'Strict-Transport-Security' not in client.get('/privacy').headers, \
+def check_hsts(client):
+    """HSTS only over https: on plain http (a LAN install, dev) it means nothing."""
+    assert 'Strict-Transport-Security' not in client.get('/').headers, \
         'HSTS on plain http is meaningless and breaks a LAN install'
-    r = client.get('/privacy', base_url='https://localhost')
+    r = client.get('/', base_url='https://localhost')
     assert r.headers.get('Strict-Transport-Security') == 'max-age=31536000; includeSubDomains', r.headers
     # Behind the tunnel the scheme arrives in X-Forwarded-Proto, via ProxyFix.
-    r = client.get('/privacy', headers={'X-Forwarded-Proto': 'https'})
+    r = client.get('/', headers={'X-Forwarded-Proto': 'https'})
     assert 'Strict-Transport-Security' in r.headers, 'ProxyFix https did not get HSTS'
-
-    # Every public page names its one canonical URL on the marketing domain,
-    # and the sitemap lists those URLs, not the /legal/* aliases.
-    for page, url in (('privacy.html', '/privacy'), ('terms.html', '/terms')):
-        html = open(os.path.join(ROOT, 'public', page)).read()
-        assert f'<link rel="canonical" href="https://platoonmanager.com{url}">' in html, page
-    sitemap = client.get('/sitemap.xml').get_data(as_text=True)
-    assert '/legal/' not in sitemap, 'the sitemap lists the /legal/* aliases'
-    for url in ('/privacy', '/terms'):
-        assert f'<loc>https://platoonmanager.com{url}</loc>' in sitemap, url
-
-    # Structured data: each guide's Article carries its own OG image, and the
-    # front page says what the product is.
-    for slug in server.BLOG_POSTS:
-        html = open(os.path.join(ROOT, 'public', 'blog', f'{slug}.html')).read()
-        og = re.search(r'<meta property="og:image" content="([^"]+)">', html).group(1)
-        ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
-        assert ld.get('image') == og, (slug, ld.get('image'), og)
-    home = open(os.path.join(ROOT, 'public', 'home.html')).read()
-    types = {json.loads(block)['@type'] for block in
-             re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.S)}
-    assert {'Organization', 'SoftwareApplication'} <= types, types
-    blog = open(os.path.join(ROOT, 'public', 'blog.html')).read()
-    for prop in ('property="og:image"', 'name="twitter:image"'):
-        assert prop in blog, f'blog.html has no {prop}'
 
 
 def check_audit_limit_is_clamped(client):
@@ -400,16 +290,14 @@ def main():
     client = server.app.test_client()
     check_index(client)
     check_spa_fallback(client)
-    check_public_pages(client)
-    check_marketing_host_split(client)
-    check_marketing_assets_exist(client)
+    check_marketing_pages_redirect(client)
     check_legacy_host_redirect(client)
     check_no_unit_identifier(client)
     check_source_is_not_served(client)
     check_auth_config(client)
     check_unauthenticated_routes(client)
     check_every_api_route_is_guarded()
-    check_public_urls_and_headers(client)
+    check_hsts(client)
     check_audit_limit_is_clamped(client)
     check_units_is_open_to_the_unattached(client)
     print('ok')
