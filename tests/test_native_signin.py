@@ -192,6 +192,13 @@ def check_frontend(src):
     assert out['replayed'] == 1, 'the same link redeemed twice'
 
 
+def check_app_never_offers_install(src):
+    """The iOS app's web view passes the iOS-Safari sniff, so "Add to Home
+    Screen" used to sit at the bottom of the app's own home screen."""
+    fn = extract(src, r'function syncInstallButton\(\) \{.*?\n\}', 'syncInstallButton()')
+    assert re.search(r'const offer = !NATIVE_APP &&', fn), fn
+
+
 def check_wiring(src):
     route = extract(src, r'function routeAfterLogin\(\) \{.*?\n\}', 'routeAfterLogin()')
     first = route.index('nativeSigninPending()')
@@ -230,6 +237,7 @@ def main():
         check_server(client)
         src = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
         check_frontend(src)
+        check_app_never_offers_install(src)
         check_wiring(src)
         print('ok')
     finally:

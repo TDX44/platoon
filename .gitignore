@@ -20,3 +20,6 @@ docker-compose.override.yml
 # A secret in a sibling file is still a secret, and `.env` alone does not cover them.
 .env.*
 !.env.example
+
+# Per-checkout Claude Code settings (enables the local UX Engine plugin)
+.claude/settings.local.json

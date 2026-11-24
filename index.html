@@ -382,6 +382,9 @@
   html.native-app [data-personal="billing"],
   html.native-app .settings-row-nav[onclick="openSettings(true,'billing')"],
   html.native-app #inactiveBilling { display: none !important; }
+  /* In the app a tap should feel native: no grey flash over what was tapped,
+     and text stays the size the app set however the phone is turned. */
+  html.native-app { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .billing-banner {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 14px;
     padding: 8px 16px; margin-bottom: 12px; font-size: 0.92em; text-align: center;
@@ -3659,6 +3662,8 @@
     font-size: 1.9em; font-weight: 700; line-height: 1.1; color: var(--cp-text-strong);
     font-variant-numeric: tabular-nums;
   }
+  .dash-metric-num-phone { display: none; }
+  .dash-metric-of { font-size: 0.6em; font-weight: 600; color: var(--dash-muted); }
   .dash-metric-label { font-size: 0.78em; font-weight: 700; color: var(--dash-muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .dash-metric-sub { font-size: 0.8em; color: var(--dash-faint); margin-top: 2px; }
   .dash-ring { flex: none; }
@@ -3924,6 +3929,10 @@
     .dash-metric-card.has-ring { flex-direction: row; align-items: center; gap: 0; }
     .dash-metric-num { font-size: 1.45em; }
     .dash-metric-card:not(.has-ring) .dash-metric-sub { display: none; }
+    /* The ring is gone on a phone, so the accounted card leads with its count
+       like the other two instead of a small grey "7 of 8". */
+    .dash-metric-num-phone { display: block; }
+    .dash-metric-card.has-ring .dash-metric-num-phone + .dash-metric-label + .dash-metric-sub { display: none; }
     .dash-metric-label { font-size: 0.66em; letter-spacing: 0.02em; }
     .metric-label-long { display: none; }
     .dash-row { grid-template-columns: 22px 42px minmax(0, 1fr) auto; padding: 11px 12px; }
@@ -3988,6 +3997,102 @@
     .soldier-hero-actions [data-profile-save], .soldier-hero-actions #profileSaveStatus { display: none; }
   }
   .profile-draft-buttons { flex-wrap: wrap; }
+
+  /* ─── Home: who you are, today's status card, then the units ───
+     Top-aligned: the old centred logo-and-title pushed the units below the
+     fold on a phone. Tokens only (DESIGN.md). */
+  #homeScreen, body.light-mode #homeScreen { justify-content: flex-start; gap: 0; }
+  #homeScreen::after { content: none; }
+  .home-topbar-slot { margin-bottom: 16px; }
+  .home-body {
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    width: min(1200px, 100%); min-width: 0; box-sizing: border-box;
+  }
+  .home-head, .home-status, .home-section-label { width: min(640px, 100%); box-sizing: border-box; }
+  .home-head { display: flex; align-items: center; gap: 14px; }
+  .home-head img { flex: none; border-radius: var(--cp-radius-lg); }
+  .home-id { min-width: 0; }
+  .home-org {
+    margin: 0; font-size: 1.4em; line-height: 1.2; font-weight: 700;
+    color: var(--cp-text-strong); overflow-wrap: anywhere;
+  }
+  .home-head .home-lead { margin: 2px 0 0; text-align: left; font-size: 0.82em; line-height: 1.4; color: var(--cp-muted); }
+  .home-status {
+    padding: 16px; background: var(--cp-surface); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: var(--cp-radius-lg); box-shadow: var(--cp-shadow);
+  }
+  .home-status[hidden], .home-section-label[hidden] { display: none; }
+  .home-status-day, .home-section-label {
+    margin: 0; font-size: 0.72em; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--cp-muted);
+  }
+  .home-status-count { margin: 6px 0 0; font-size: 1.05em; color: var(--cp-text); font-variant-numeric: tabular-nums; }
+  .home-status-count strong { font-size: 2em; font-weight: 700; color: var(--cp-text-strong); margin-right: 2px; }
+  .home-status-note { margin: 4px 0 0; font-size: 0.88em; color: var(--cp-muted); }
+  .home-bar { height: 8px; margin-top: 10px; border-radius: 99px; background: var(--cp-red-bg); overflow: hidden; }
+  .home-bar > div { height: 100%; border-radius: inherit; background: var(--cp-accent); transition: width 200ms ease-out; }
+  .home-bar-done > div { background: var(--cp-green); }
+  .home-status-flags { margin-top: 10px; }
+  .home-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+    border-radius: 99px; font-size: 0.82em; font-weight: 700;
+  }
+  .home-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .home-badge-danger { background: var(--cp-red-bg); color: var(--cp-st-ftr-bg); }
+  .home-badge-ok { background: var(--cp-st-present-bg); color: var(--cp-st-present); }
+  body.dark-mode .home-badge-danger { color: var(--cp-red); }
+  .home-cta { display: grid; gap: 8px; margin-top: 16px; }
+  .home-cta .dash-btn { width: 100%; min-height: 48px; font-size: 0.95em; }
+  /* The --dash-* aliases belong to the dashboard; the home screen takes the
+     tokens directly. */
+  .home-cta .dash-btn-primary { background: var(--cp-accent); color: var(--cp-accent-text); border-color: var(--cp-accent); }
+  .home-cta .dash-btn-primary:hover { background: var(--cp-accent-hover); }
+  .home-cta .dash-btn-primary:active { background: var(--cp-accent-active); }
+  .home-cta .dash-btn-secondary { background: var(--cp-surface); color: var(--cp-text-strong); border-color: var(--cp-border-strong); box-shadow: none; }
+  .home-cta .dash-btn-secondary:hover { background: var(--cp-hover); }
+  .home-cta .dash-btn:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; }
+  .home-cta-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  body:not(.quick-add-on) .home-cta-pair { grid-template-columns: 1fr; }
+  .home-section-label { margin-bottom: -8px; }
+  .unit-card-bar { display: none; }
+
+  @media (max-width: 700px) {
+    .home-topbar-slot { margin-bottom: 12px; }
+    .home-body { gap: 14px; }
+    /* The status card is the top unit, so the list starts at its children and
+       loses one level of indent. A unit with no children keeps its one card. */
+    #homeScreen.home-has-units #unitCards .unit-card-top { display: none; }
+    .home-has-units .org-branches { margin-left: 0; }
+    .home-has-units .org-branches > .org-col { padding-left: 0; }
+    .home-has-units .org-branches > .org-col::before,
+    .home-has-units .org-branches > .org-col::after { content: none; }
+    /* Each unit is one row: kind and name on the left, the count and the
+       unaccounted badge on the right, a thin bar underneath, a chevron. */
+    #unitCards .unit-card {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto 10px;
+      column-gap: 12px; row-gap: 2px; align-items: center;
+      min-height: 60px; padding: 12px 14px; box-shadow: none;
+    }
+    #unitCards .platoon-card-label { grid-column: 1; grid-row: 1; margin: 0; }
+    #unitCards .platoon-card-name { grid-column: 1; grid-row: 2; font-size: 1em; font-weight: 650; overflow-wrap: anywhere; }
+    #unitCards .platoon-card-count { grid-column: 2; grid-row: 1; justify-self: end; margin: 0; font-size: 0.78em; color: var(--cp-text-weak); }
+    #unitCards .platoon-card-unacc { grid-column: 2; grid-row: 2; justify-self: end; margin: 0; }
+    #unitCards .unit-card::after {
+      content: ''; grid-column: 3; grid-row: 1 / span 2; width: 7px; height: 7px;
+      border-right: 2px solid var(--cp-faint); border-bottom: 2px solid var(--cp-faint);
+      transform: rotate(-45deg);
+    }
+    .unit-card-bar {
+      display: block; grid-column: 1 / -1; grid-row: 3; height: 4px; margin-top: 8px;
+      border-radius: 99px; background: var(--cp-red-bg); overflow: hidden;
+    }
+    .unit-card-bar > div { height: 100%; border-radius: inherit; background: var(--cp-accent); }
+    .unit-card-bar-done > div { background: var(--cp-green); }
+    .org-stack > .org-node:last-child::before { height: 37px; }
+    .org-stack > .org-node::after { top: 37px; }
+    .org-col:last-child::before { height: 37px; }
+    .org-col::after { top: 37px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   }
@@ -4064,13 +4169,23 @@
       </div>
     </header>
   </div>
-  <!-- The unit's own logo once the tree is loaded (applyUnitLogo); the box is
-       fixed at 140x140 so any aspect ratio up to 512px drops in without shift. -->
-  <img id="homeLogo" src="/images/app-logo.png" alt="Unit Logo" style="width:140px;height:140px;object-fit:contain;margin:0 auto 8px;display:block;">
-  <div class="home-title">Platoon Manager</div>
-  <p class="home-subtitle">Select a unit to begin</p>
-  <p class="home-lead" id="homeLead"></p>
-  <div class="platoon-cards" id="unitCards"></div>
+  <div class="home-body">
+    <!-- Who you are and what you lead. The unit's own logo lands in #homeLogo
+         once the tree is loaded (applyUnitLogo); the box is fixed at 56x56 so
+         any aspect ratio up to 512px drops in without shift. -->
+    <header class="home-head">
+      <img id="homeLogo" src="/images/app-logo.png" alt="Unit Logo" style="width:56px;height:56px;object-fit:contain;">
+      <div class="home-id">
+        <h1 class="home-org" id="homeOrg">Platoon Manager</h1>
+        <p class="home-lead" id="homeLead"></p>
+      </div>
+    </header>
+    <!-- Today's accountability for the whole organization and the three ways
+         into it (homeStatusHtml). -->
+    <section class="home-status" id="homeStatus" aria-label="Today's accountability"></section>
+    <h2 class="home-section-label" id="homeUnitsLabel">Units</h2>
+    <div class="platoon-cards" id="unitCards"></div>
+  </div>
 
   <!-- Only rendered when the browser says it can install, or on iOS where it
        never can and has to be talked through it. Hidden once installed. -->
@@ -4182,6 +4297,8 @@
       </div>
     </details>
     <button class="dash-btn dash-btn-secondary" onclick="startFormation()">Formation Mode</button>
+    <button class="dash-btn dash-btn-secondary quick-add-entry dash-quick-add" onclick="openQuickAdd()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/></svg>Quick add</button>
     <details class="dash-more dash-more-primary" id="dashReports">
       <summary>Reports</summary>
       <div class="dash-more-menu">
@@ -5282,7 +5399,8 @@ function renderMetrics(counts, total, todayStr) {
   const needsSub = unaccounted.length ? escapeHtml(summarizePeople(unaccounted)) : 'All personnel accounted for';
   const primary = `<div class="dash-metrics-primary">
     <div class="dash-metric-card has-ring">${ring}
-      <div><div class="dash-metric-label">Accounted</div>
+      <div>${total ? `<div class="dash-metric-num dash-metric-num-phone">${accounted}<span class="dash-metric-of">/${total}</span></div>` : ''}
+      <div class="dash-metric-label">Accounted</div>
       <div class="dash-metric-sub">${total ? `${accounted} of ${total}` : 'No assigned personnel'}</div></div>
     </div>
     <button type="button" class="dash-metric-card${unaccounted.length ? ' alert' : ''}" onclick="setQuickFilter('unaccounted')" title="${escapeHtml(summarizePeople(unaccounted) || 'All clear')}">
@@ -12933,8 +13051,12 @@ function orgChartHtml(top, childrenOf, headcountOf, todayOf = () => null) {
     // Accounted, not present: the same headline number the roster opens on
     // ("8 of 35"), so the card and the page it opens never seem to disagree.
     const unacc = Number(t.unaccounted);
-    return `<div class="platoon-card-count">${Math.max(0, n - unacc)} / ${n} accounted</div>`
-      + (unacc ? `<div class="platoon-card-unacc">${unacc} unaccounted</div>` : '');
+    const acc = Math.max(0, n - unacc);
+    // The bar is drawn only on a phone, where the tree is a list of rows.
+    const pct = n ? Math.round(acc * 100 / n) : 0;
+    return `<div class="platoon-card-count">${acc} / ${n} accounted</div>`
+      + (unacc ? `<div class="platoon-card-unacc">${unacc} unaccounted</div>` : '')
+      + (n ? `<div class="unit-card-bar${unacc ? '' : ' unit-card-bar-done'}" aria-hidden="true"><div style="width:${pct}%"></div></div>` : '');
   };
   const card = (u, extra) => `<button class="platoon-card unit-card${extra}" onclick="selectUnitById(${Number(u.id)})">
         <div class="platoon-card-label">${escapeHtml(kindLabel(u.kind))}</div>
@@ -12959,28 +13081,94 @@ function orgChartHtml(top, childrenOf, headcountOf, todayOf = () => null) {
     + `</ul></div>`;
 }
 
+// The status card at the top of the home screen: today's accountability for
+// the unit you lead, whole subtree, and the three ways into it. Pure, like
+// orgChartHtml(), so tests/test_org_chart_js.py runs it under node.
+// n is the subtree headcount, today is unitTodayCounts() (null when the
+// listing carried no counts), dayLabel the duty day in words.
+function homeStatusHtml(top, n, today, dayLabel) {
+  if (!top) return '';
+  const id = Number(top.id);
+  n = Math.max(0, Number(n) || 0);
+  const day = `<p class="home-status-day">${escapeHtml(dayLabel)}</p>`;
+  const actions = (primary) => `<div class="home-cta">`
+    + `<button type="button" class="dash-btn dash-btn-primary home-primary" onclick="homeGo(${id},'roster')">${primary}</button>`
+    + `<div class="home-cta-pair">`
+    + `<button type="button" class="dash-btn dash-btn-secondary" onclick="homeGo(${id},'formation')">Formation mode</button>`
+    + `<button type="button" class="dash-btn dash-btn-secondary quick-add-entry" onclick="homeGo(${id},'quickadd')">Quick add</button>`
+    + `</div></div>`;
+  if (!n) {
+    return `${day}<p class="home-status-count">No one on the roster yet</p>`
+      + `<p class="home-status-note">Add your people to start taking accountability.</p>`
+      + `<div class="home-cta"><button type="button" class="dash-btn dash-btn-primary home-primary" onclick="homeGo(${id},'roster')">Open roster</button></div>`;
+  }
+  if (!today) {
+    return `${day}<p class="home-status-count"><strong>${n}</strong> personnel</p>` + actions('Open roster');
+  }
+  const unacc = Math.min(n, Math.max(0, Number(today.unaccounted) || 0));
+  const acc = n - unacc;
+  const pct = Math.round(acc * 100 / n);
+  const flag = unacc
+    ? `<span class="home-badge home-badge-danger">${unacc} unaccounted</span>`
+    : `<span class="home-badge home-badge-ok">Everyone accounted for</span>`;
+  return `${day}<p class="home-status-count"><strong>${acc}</strong> of ${n} accounted</p>`
+    + `<div class="home-bar${unacc ? '' : ' home-bar-done'}" role="progressbar" aria-label="Accounted for" `
+    + `aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${acc}"><div style="width:${pct}%"></div></div>`
+    + `<div class="home-status-flags">${flag}</div>`
+    + actions(unacc ? 'Take accountability' : 'Open roster');
+}
+
+// The duty day in words, on the organization's clock.
+function homeDayLabel() {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: APP_TZ })
+      .format(new Date());
+  } catch (_) { return ''; }
+}
+
 function renderHome() {
   const wrap = document.getElementById('unitCards');
   const top = unitById(currentUser.unit_id);
   renderHomeLead(top);
+  document.getElementById('homeOrg').textContent = top ? unitLabel(top) : 'Platoon Manager';
+  const status = document.getElementById('homeStatus');
+  status.innerHTML = top ? homeStatusHtml(top, unitHeadcount(top.id), unitTodayCounts(top.id), homeDayLabel()) : '';
+  status.hidden = !top;
+  // With no sub-units the status card already is the way in.
+  const kids = top ? unitChildren(top.id).length : 0;
+  document.getElementById('homeUnitsLabel').hidden = !kids;
+  document.getElementById('homeScreen').classList.toggle('home-has-units', !!kids);
   if (!top) { wrap.innerHTML = '<p class="modal-empty">No unit yet.</p>'; return; }
   wrap.innerHTML = orgChartHtml(top, unitChildren, unitHeadcount, unitTodayCounts);
 }
 
-// Plain text off currentUser and the loaded tree — what you lead, and who
-// put you there, which is otherwise nowhere on screen.
+// One line under the organization's name: its kind, your role, how much of it
+// you lead, and who put you there, which is otherwise nowhere on screen.
 function renderHomeLead(top) {
   const el = document.getElementById('homeLead');
   if (!el) return;
   if (!top) { el.textContent = ''; return; }
   const r = accessReach(top.id);
-  const verb = currentUser.role === 'owner' ? 'You own' : 'You lead';
+  const role = currentUser.role === 'owner' ? 'Owner' : 'Leader';
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const invited = currentUser.invited_by ? ` Invited by ${currentUser.invited_by}.` : '';
-  el.textContent = `${verb} ${unitLabel(top)} \u2014 ${plural(r.soldiers, 'soldier')} across ${plural(r.units, 'unit')}.${invited}`;
+  const invited = currentUser.invited_by ? ` · Invited by ${currentUser.invited_by}` : '';
+  const kind = kindLabel(top.kind);
+  el.textContent = `${kind ? kind + ' · ' : ''}${role} · ${plural(r.soldiers, 'soldier')}`
+    + (r.units > 1 ? ` in ${plural(r.units, 'unit')}` : '') + invited;
 }
 
-function selectUnitById(id) { const u = unitById(id); if (u) selectUnit(u); }
+function selectUnitById(id) { const u = unitById(id); if (u) return selectUnit(u); }
+
+// The status card's buttons: open the unit, then, once its roster is loaded,
+// start the task on it. Formation mode and quick add both read that roster.
+async function homeGo(id, what) {
+  const loading = selectUnitById(id);
+  if (!loading || what === 'roster') return;
+  await loading;
+  if (!currentUnit || Number(currentUnit.id) !== Number(id)) return;
+  if (what === 'formation') startFormation();
+  else if (what === 'quickadd') openQuickAdd();
+}
 
 function selectUnit(unit, push = true, pendingSoldier = null) {
   if (!unit) { loadHome(); return; }
@@ -13039,8 +13227,8 @@ function syncInstallButton() {
   const btn = document.getElementById('installAppBtn');
   const hint = document.getElementById('installHint');
   if (!btn) return;
-  // Already running from the home screen: there is nothing left to offer.
-  const offer = !isStandalone() && (deferredInstall !== null || isIosSafari());
+  // Already running from the home screen, or inside the iOS app: nothing to offer.
+  const offer = !NATIVE_APP && !isStandalone() && (deferredInstall !== null || isIosSafari());
   btn.hidden = !offer;
   if (!offer && hint) hint.hidden = true;
 }

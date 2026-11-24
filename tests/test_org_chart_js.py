@@ -78,6 +78,12 @@ console.log(JSON.stringify({
   noChild: chart(NO_CHILD),
   deep: chart(DEEP),
   noTop: orgChartHtml(null, unitChildren, unitHeadcount),
+  statusBehind: homeStatusHtml({ id: 1, name: 'HHC' }, 56, { present: 12, unaccounted: 37 }, 'Tuesday 24 Nov'),
+  statusDone: homeStatusHtml({ id: 1, name: 'HHC' }, 28, { present: 20, unaccounted: 0 }, 'Tuesday 24 Nov'),
+  statusNoCounts: homeStatusHtml({ id: 1, name: 'HHC' }, 28, null, 'Tuesday 24 Nov'),
+  statusEmpty: homeStatusHtml({ id: 1, name: 'HHC' }, 0, null, 'Tuesday 24 Nov'),
+  statusHostile: homeStatusHtml({ id: NASTY, name: 'x' }, '<b>9</b>', { unaccounted: '1);alert(4);//' }, '<img src=x>'),
+  statusNoTop: homeStatusHtml(null, 3, null, ''),
   today: (units = TODAY_TREE, orgChartHtml(unitById(1), unitChildren, unitHeadcount, unitTodayCounts)),
   todayHostile: orgChartHtml({ id: 1, kind: 'company', name: 'Top' }, () => [], () => 3,
     () => ({ present: '1);alert(3);//', unaccounted: '<b>2</b>' })),
@@ -119,6 +125,7 @@ def render(src, node):
         extract(src, r'function kindLabel\(kind\) \{.*?\n\}', 'kindLabel()'),
         extract(src, r'function unitTodayCounts\(id\) \{.*?\n\}', 'unitTodayCounts()'),
         extract(src, r'function orgChartHtml\(.*?\n\}', 'orgChartHtml()'),
+        extract(src, r'function homeStatusHtml\(.*?\n\}', 'homeStatusHtml()'),
         DRIVER,
     ])
     path = os.path.join(tempfile.mkdtemp(), 'orgchart.js')
@@ -291,6 +298,36 @@ def test_the_inline_script_still_parses(src, node):
     assert proc.returncode == 0, proc.stderr
 
 
+
+def test_the_home_status_card(out):
+    """The card at the top of the home screen: how far accountability has got
+    for the whole organization, and the three ways into it."""
+    behind = out['statusBehind']
+    assert '<strong>19</strong> of 56 accounted' in behind, behind
+    assert '37 unaccounted' in behind and 'home-badge-danger' in behind, behind
+    assert 'aria-valuenow="19"' in behind and 'width:34%' in behind, behind
+    assert '>Take accountability</button>' in behind, 'behind, the primary action is to go and take it'
+    for what in ('roster', 'formation', 'quickadd'):
+        assert f"homeGo(1,'{what}')" in behind, what
+    # Quick add carries the class that hides it for an organization without it.
+    assert re.search(r'class="[^"]*quick-add-entry[^"]*"[^>]*homeGo\(1,\'quickadd\'\)', behind), behind
+
+    done = out['statusDone']
+    assert 'Everyone accounted for' in done and 'unaccounted' not in done, done
+    assert '>Open roster</button>' in done and 'home-bar-done' in done, done
+
+    # No counts from the server: the headcount, never a made-up "0 accounted".
+    nocounts = out['statusNoCounts']
+    assert '<strong>28</strong> personnel' in nocounts and 'accounted' not in nocounts, nocounts
+
+    empty = out['statusEmpty']
+    assert 'No one on the roster yet' in empty and 'formation' not in empty, empty
+
+    hostile = out['statusHostile']
+    assert 'alert(' not in hostile and '<b>' not in hostile and '<img' not in hostile, hostile
+    assert out['statusNoTop'] == ''
+
+
 def main():
     src = open(INDEX, encoding='utf-8').read()
     node = shutil.which('node')
@@ -302,6 +339,7 @@ def main():
     test_onclick_carries_a_number_and_nothing_else(out)
     test_one_child_and_no_child_draw_no_bar(out)
     test_cards_show_todays_accountability(out)
+    test_the_home_status_card(out)
     test_five_deep_stays_five_deep(out)
     test_the_home_screen_uses_the_pure_function(src)
     test_the_inline_script_still_parses(src, node)
