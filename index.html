@@ -12895,6 +12895,38 @@ function parseAppRoute() {
   return { unit: null, section: 'home' };
 }
 
+// Where the user was, so a cold start lands back there. The iOS app always
+// launches at '/', and a tab reopened on the bare address does too; a reload
+// of a unit's page keeps its own URL and never gets here. Saved whenever the
+// page is hidden or unloaded (backgrounding the app, closing or reloading the
+// tab), per account so a shared phone never routes one user into another's
+// unit. Going Home saves '/', so Home is remembered like anywhere else.
+const LAST_ROUTE_KEY = 'lastRoute';
+let lastRouteRestored = false;
+function saveLastRoute() {
+  if (!currentUser || !currentUser.id || !document.body.classList.contains('app-authenticated')) return;
+  try {
+    localStorage.setItem(LAST_ROUTE_KEY, JSON.stringify({ u: currentUser.id, p: window.location.pathname }));
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveLastRoute(); });
+window.addEventListener('pagehide', saveLastRoute);
+
+// Once per page load, and only from the bare '/': any other address (an invite,
+// a shared link, Stripe's return, /admin) is where the user asked to go.
+function restoreLastRoute() {
+  if (lastRouteRestored) return;
+  lastRouteRestored = true;
+  if (window.location.pathname !== '/' || window.location.search || !currentUser) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LAST_ROUTE_KEY) || 'null'); } catch (e) {}
+  if (!saved || saved.u !== currentUser.id || typeof saved.p !== 'string') return;
+  const slug = saved.p.replace(/^\/+/, '').split('/')[0];
+  // A unit since deleted, renamed or out of reach: stay home.
+  if (!slug || !unitBySlug(slug)) return;
+  history.replaceState({}, '', saved.p);
+}
+
 function routeAfterLogin() {
   // Before anything else: this is the iOS app's sign-in sheet, not a visit.
   const nativeNonce = nativeSigninPending();
@@ -12903,6 +12935,9 @@ function routeAfterLogin() {
   resetSessionTimer();
   document.body.classList.add('app-authenticated');
   document.getElementById('loginScreen').style.display = 'none';
+  // Before the Stripe marker below is stripped, so a query still counts as an
+  // address the user asked for. Never for a locked or unattached account.
+  if (currentUser && !currentUser.needs_unit && !(currentUser.billing && currentUser.billing.state === 'LOCKED')) restoreLastRoute();
   // Back from Stripe Checkout: strip the marker and wait for the webhook.
   const params = new URLSearchParams(window.location.search);
   if (params.get('billing') === 'success') {
