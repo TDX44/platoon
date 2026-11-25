@@ -71,6 +71,7 @@ python tests/test_duty_rotation.py    # duty_rotation.propose() fairness + the r
 python tests/test_notifications.py    # email alerts: prefs, the cron gate, per-tenant timer, at-most-once
 python tests/test_native_signin.py    # iOS app: the native-ticket route, the nonce rule, scheme/UA/bundle-id wiring
 python tests/test_quick_add.py        # quick add: the org gate, roster scoping, writes nothing, 429/503
+python tests/test_last_route_js.py    # a cold start at / returns to the page the user left
 ```
 
 CI runs every `tests/test_*.py` (`for f in tests/test_*.py; do python "$f"; done`).
@@ -190,7 +191,12 @@ Full-page views live at `/<platoon>/<section>` (`accountability`, `directory`,
 `settings[/<section>]`). Each is a hidden container in
 `.dash-main` revealed by a `body.<name>-active` class, with matching
 `open*()` / `close*()` / `render*()` functions — copy the directory page when
-adding another. The sidebar highlight is derived from those body classes by
+adding another. A cold start at the bare `/` (the iOS app always launches there) goes back to
+where the user left: `saveLastRoute()` stores the path per account in
+`localStorage` (`lastRoute`) whenever the page is hidden or unloaded, and
+`restoreLastRoute()` puts it back once per load, from `routeAfterLogin()`, only
+when the address is `/` with no query and the saved unit still resolves.
+The sidebar highlight is derived from those body classes by
 `syncNavActive()`; each `open*()` calls it, and `render()` covers the rest. Every new section needs a branch in `routeAfterLogin()` and the
 `popstate` handler, plus a class-clearing line wherever the other pages clear
 theirs.
